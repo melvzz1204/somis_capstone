@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
+const organizationRoutes = require("./routes/organizationRoutes");
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use((req, res, next) => {
 
 // Mount Routes
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/organizations", organizationRoutes);
 
 // Base Health Check Route
 app.get("/", (req, res) => {

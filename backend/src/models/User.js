@@ -17,35 +17,38 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
-      minlength: 6,
-      select: false,
+      // 👈 Password is only required if user is NOT setting up via token
+      required: function () {
+        return !this.setupToken;
+      },
     },
     role: {
       type: String,
-      enum: ["admin", "adviser", "officer", "member"],
-      default: "member",
-      lowercase: true,
+      // 👈 Added 'org_admin' to allowed enum values
+      enum: ["admin", "org_admin", "student"],
+      default: "org_admin",
     },
-    isActive: {
-      type: Boolean,
-      default: true,
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+    },
+    setupToken: {
+      type: String,
+    },
+    setupTokenExpires: {
+      type: Date,
     },
   },
   { timestamps: true },
 );
 
-// Hash password before saving (Async hook without next())
 userSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+  if (!this.isModified("password") || !this.password) {
+    return;
+  }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
-
-// Compare password method
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
 
 module.exports = mongoose.model("User", userSchema);

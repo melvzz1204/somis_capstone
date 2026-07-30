@@ -31,7 +31,7 @@ export default function SetupAccount() {
       await API.post("/v1/auth/setup-account", { token, password });
       setSuccess(true);
       setTimeout(() => {
-        navigate("/login");
+        navigate("/");
       }, 2500);
     } catch (err) {
       console.error("Setup error:", err);

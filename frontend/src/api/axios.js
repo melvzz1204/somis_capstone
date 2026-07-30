@@ -35,8 +35,10 @@ API.interceptors.response.use(
     if (status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+
+      // 👈 Redirect to landing page only if the user isn't already there
+      if (window.location.pathname !== "/") {
+        window.location.href = "/";
       }
     }
 

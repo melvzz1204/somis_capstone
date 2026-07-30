@@ -22,7 +22,7 @@ export default function OrgDashboard() {
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    navigate("/login");
+    navigate("/");
   };
 
   // Safely extract organization data

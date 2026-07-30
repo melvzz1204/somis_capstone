@@ -64,6 +64,8 @@ export default function Login() {
       setError(
         err.response?.data?.message || err.message || "Invalid credentials.",
       );
+      console.error("Login Error details:", err.originalError || err);
+      setError(err.message || "Invalid credentials.");
     } finally {
       setIsLoading(false);
     }

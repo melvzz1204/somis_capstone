@@ -2,7 +2,9 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-// POST /v1/auth/login
+// ==========================================
+// 1. LOGIN FUNCTION
+// ==========================================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -13,7 +15,6 @@ exports.login = async (req, res) => {
         .json({ message: "Email and password are required." });
     }
 
-    // 👈 Added .select("+password") so bcrypt gets the hashed password string
     const user = await User.findOne({ email: email.toLowerCase() })
       .select("+password")
       .populate("organization");
@@ -22,7 +23,6 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    // 👈 Check if account lacks a password (setup not completed)
     if (!user.password) {
       return res.status(400).json({
         message:
@@ -54,5 +54,58 @@ exports.login = async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ==========================================
+// 2. SETUP ACCOUNT FUNCTION (Missing previously)
+// ==========================================
+exports.setupAccount = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res
+        .status(400)
+        .json({ message: "Setup token and password are required." });
+    }
+
+    const user = await User.findOne({
+      setupToken: token,
+      setupTokenExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: "Invalid or expired setup token. Please contact OVPSAS Admin.",
+      });
+    }
+
+    // Set plain text password here, the User model pre('save') hook will hash it
+    user.password = password;
+    user.setupToken = undefined;
+    user.setupTokenExpires = undefined;
+    await user.save();
+
+    return res.status(200).json({
+      message: "Password created successfully! You can now log in.",
+    });
+  } catch (error) {
+    console.error("Setup error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ==========================================
+// 3. GET ME FUNCTION (Missing previously)
+// ==========================================
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .select("-password")
+      .populate("organization");
+    return res.status(200).json(user);
+  } catch (error) {
+    return res.status(500).json({ message: "Server error." });
   }
 };

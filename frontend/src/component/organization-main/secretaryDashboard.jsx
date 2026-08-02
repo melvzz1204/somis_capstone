@@ -1,16 +1,36 @@
 import React, { useState, useEffect } from "react";
 import API from "../../api/axios"; // Adjust path to your axios instance
-import OrganizationMembers from "./OrganizationMembers"; // The roster component we built
+
+// 👇 Sub-components imported directly inside SecretaryDashboard
+import OrganizationMembers from "./organizationMembers";
+import FeeModal from "./feesModal";
 
 export default function SecretaryDashboard({ user, org }) {
-  const [activeTab, setActiveTab] = useState("overview"); // 'overview' | 'roster' | 'minutes' | 'attendance'
+  // Navigation Tabs: 'overview' | 'fees' | 'roster' | 'minutes'
+  const [activeTab, setActiveTab] = useState("overview");
 
-  // Summary Metrics State
+  // Fee Modal State
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+
+  // Fee Drives Collection State
+  const [feeDrives, setFeeDrives] = useState([
+    {
+      id: 1,
+      title: "Cisco PAF",
+      category: "cisco_paf",
+      amount: 150,
+      academicYear: "2025-2026",
+      semester: "1st Semester",
+      targetYearLevel: "All CICS Students",
+      dueDate: "2026-08-15",
+      description: "Program Alignment Fee for technical laboratory support.",
+    },
+  ]);
+
+  // Dashboard Stats
   const [stats, setStats] = useState({
     totalMembers: 0,
     totalMeetings: 0,
-    documentsCount: 0,
-    pendingNotices: 0,
   });
 
   // Meeting Minutes State
@@ -24,7 +44,6 @@ export default function SecretaryDashboard({ user, org }) {
     content: "",
   });
 
-  // Fetch Summary Data
   useEffect(() => {
     fetchDashboardStats();
     fetchMeetingMinutes();
@@ -32,7 +51,6 @@ export default function SecretaryDashboard({ user, org }) {
 
   const fetchDashboardStats = async () => {
     try {
-      // Replace with your real endpoints as you build them
       const membersRes = await API.get("/orgmembers");
       setStats((prev) => ({
         ...prev,
@@ -53,6 +71,14 @@ export default function SecretaryDashboard({ user, org }) {
     }
   };
 
+  // Callback when a fee drive is created via FeeModal
+  const handleFeeCreated = (newFeeData) => {
+    console.log("Fee Drive Created:", newFeeData);
+    setFeeDrives((prev) => [{ id: Date.now(), ...newFeeData }, ...prev]);
+    setIsFeeModalOpen(false);
+  };
+
+  // Submit Meeting Minutes Form
   const handleAddMinutesSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -68,7 +94,6 @@ export default function SecretaryDashboard({ user, org }) {
       });
     } catch (err) {
       console.error("Failed to save meeting minutes:", err);
-      // Local fallback for UI demo before backend endpoint is created
       setMinutesList((prev) => [{ ...minutesForm, _id: Date.now() }, ...prev]);
       setIsMinutesModalOpen(false);
     }
@@ -91,24 +116,30 @@ export default function SecretaryDashboard({ user, org }) {
             Welcome back, {user?.name || "Secretary"}! 👋
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manage organization records, document meeting minutes, and update
-            member rosters.
+            Manage organization records, document meeting minutes, fee drives,
+            and member rosters.
           </p>
         </div>
 
         {/* QUICK ACTION BUTTONS */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsFeeModalOpen(true)}
+            className="px-3.5 py-2 bg-indigo-600 text-white font-semibold text-xs rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm"
+          >
+            + Add Fee Drive
+          </button>
           <button
             onClick={() => setActiveTab("roster")}
-            className="px-3.5 py-2 bg-slate-900 text-white text-xs font-medium rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-slate-100 text-slate-700 text-xs font-medium rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
           >
             📋 Manage Roster
           </button>
           <button
             onClick={() => setIsMinutesModalOpen(true)}
-            className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-medium rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-slate-900 text-white text-xs font-medium rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            ✍️ Log Meeting Minutes
+            ✍️ Log Minutes
           </button>
         </div>
       </div>
@@ -128,6 +159,20 @@ export default function SecretaryDashboard({ user, org }) {
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-1">
+          <p className="text-xs font-medium text-slate-500">
+            Active Fee Drives
+          </p>
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-2xl font-bold text-slate-900">
+              {feeDrives.length}
+            </h2>
+            <span className="text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-medium">
+              Collections
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <p className="text-xs font-medium text-slate-500">Meetings Logged</p>
           <div className="flex items-baseline justify-between">
             <h2 className="text-2xl font-bold text-slate-900">
@@ -135,20 +180,6 @@ export default function SecretaryDashboard({ user, org }) {
             </h2>
             <span className="text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-medium">
               Minutes Saved
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-1">
-          <p className="text-xs font-medium text-slate-500">
-            Official Documents
-          </p>
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-2xl font-bold text-slate-900">
-              {stats.documentsCount || 12}
-            </h2>
-            <span className="text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-medium">
-              Archived
             </span>
           </div>
         </div>
@@ -165,10 +196,10 @@ export default function SecretaryDashboard({ user, org }) {
       </div>
 
       {/* NAVIGATION TABS */}
-      <div className="border-b border-slate-200 flex items-center gap-6 text-xs font-medium text-slate-500">
+      <div className="border-b border-slate-200 flex items-center gap-6 text-xs font-medium text-slate-500 overflow-x-auto">
         <button
           onClick={() => setActiveTab("overview")}
-          className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
             activeTab === "overview"
               ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent hover:text-slate-800"
@@ -177,8 +208,18 @@ export default function SecretaryDashboard({ user, org }) {
           Overview & Activity
         </button>
         <button
+          onClick={() => setActiveTab("fees")}
+          className={`pb-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === "fees"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
+              : "border-transparent hover:text-slate-800"
+          }`}
+        >
+          Fee Drives & Collections ({feeDrives.length})
+        </button>
+        <button
           onClick={() => setActiveTab("roster")}
-          className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
             activeTab === "roster"
               ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent hover:text-slate-800"
@@ -188,7 +229,7 @@ export default function SecretaryDashboard({ user, org }) {
         </button>
         <button
           onClick={() => setActiveTab("minutes")}
-          className={`pb-3 border-b-2 transition-colors cursor-pointer ${
+          className={`pb-3 border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
             activeTab === "minutes"
               ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent hover:text-slate-800"
@@ -201,7 +242,6 @@ export default function SecretaryDashboard({ user, org }) {
       {/* TAB CONTENT 1: OVERVIEW */}
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Activity Log */}
           <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 space-y-4">
             <h3 className="text-sm font-semibold text-slate-900">
               Secretary Activity Feed
@@ -209,6 +249,21 @@ export default function SecretaryDashboard({ user, org }) {
             <div className="space-y-3 text-xs">
               <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
                 <span className="p-1.5 bg-indigo-100 text-indigo-700 rounded-md text-xs">
+                  💳
+                </span>
+                <div className="space-y-0.5">
+                  <p className="font-medium text-slate-800">
+                    Configured Fee Collection Drives
+                  </p>
+                  <p className="text-slate-500">
+                    Currently tracking {feeDrives.length} active collection
+                    drive(s).
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                <span className="p-1.5 bg-emerald-100 text-emerald-700 rounded-md text-xs">
                   📝
                 </span>
                 <div className="space-y-0.5">
@@ -223,27 +278,9 @@ export default function SecretaryDashboard({ user, org }) {
                   </span>
                 </div>
               </div>
-
-              <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                <span className="p-1.5 bg-emerald-100 text-emerald-700 rounded-md text-xs">
-                  👤
-                </span>
-                <div className="space-y-0.5">
-                  <p className="font-medium text-slate-800">
-                    Updated Executive Roster Details
-                  </p>
-                  <p className="text-slate-500">
-                    Added ID numbers and year levels for new officers.
-                  </p>
-                  <span className="text-[10px] text-slate-400">
-                    Yesterday at 4:30 PM
-                  </span>
-                </div>
-              </div>
             </div>
           </div>
 
-          {/* Quick Notice Card */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
             <h3 className="text-sm font-semibold text-slate-900">
               Upcoming Duties
@@ -266,14 +303,94 @@ export default function SecretaryDashboard({ user, org }) {
         </div>
       )}
 
-      {/* TAB CONTENT 2: MEMBER ROSTER */}
+      {/* TAB CONTENT 2: FEE DRIVES & COLLECTIONS */}
+      {activeTab === "fees" && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                Organization Fee Drives
+              </h3>
+              <p className="text-xs text-slate-500">
+                Official fee requirements set for CICS members and students.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsFeeModalOpen(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              + Add Fee Drive
+            </button>
+          </div>
+
+          {feeDrives.length === 0 ? (
+            <div className="border border-dashed border-slate-300 rounded-2xl p-12 text-center space-y-2">
+              <p className="text-xs font-semibold text-slate-700">
+                No Fee Drives Created Yet
+              </p>
+              <p className="text-xs text-slate-400">
+                Click "+ Add Fee Drive" to create collections for Cisco Fee,
+                PAF, or CICS Week.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {feeDrives.map((fee) => (
+                <div
+                  key={fee.id}
+                  className="bg-slate-50/50 p-5 rounded-2xl border border-slate-200 hover:border-indigo-200 transition-colors space-y-3 flex flex-col justify-between"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm">
+                        {fee.title}
+                      </h4>
+                      <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg">
+                        ₱{Number(fee.amount).toFixed(2)}
+                      </span>
+                    </div>
+                    {fee.description && (
+                      <p className="text-xs text-slate-600 line-clamp-2">
+                        {fee.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-200/60 space-y-1 text-[11px] text-slate-500">
+                    <div className="flex items-center justify-between">
+                      <span>Applies To:</span>
+                      <span className="font-semibold text-slate-700">
+                        {fee.targetYearLevel || "All"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Academic Term:</span>
+                      <span className="font-semibold text-slate-700">
+                        {fee.academicYear} ({fee.semester})
+                      </span>
+                    </div>
+                    {fee.dueDate && (
+                      <div className="flex items-center justify-between text-amber-600 font-medium">
+                        <span>Due Date:</span>
+                        <span>{fee.dueDate}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB CONTENT 3: ORGANIZATION MEMBERS (ROSTER) */}
       {activeTab === "roster" && (
         <div className="bg-white p-6 rounded-xl border border-slate-200">
           <OrganizationMembers user={user} org={org} />
         </div>
       )}
 
-      {/* TAB CONTENT 3: MEETING MINUTES LIST */}
+      {/* TAB CONTENT 4: MEETING MINUTES */}
       {activeTab === "minutes" && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -322,6 +439,13 @@ export default function SecretaryDashboard({ user, org }) {
           )}
         </div>
       )}
+
+      {/* 👇 MOUNTED FEE MODAL SUB-COMPONENT */}
+      <FeeModal
+        isOpen={isFeeModalOpen}
+        onClose={() => setIsFeeModalOpen(false)}
+        onSubmitSuccess={handleFeeCreated}
+      />
 
       {/* MODAL: RECORD MEETING MINUTES */}
       {isMinutesModalOpen && (

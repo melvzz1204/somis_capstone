@@ -150,21 +150,15 @@ export default function LandingPage() {
 
       {/* HERO SECTION */}
       <section className="relative pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center space-y-6">
-        <span className="inline-block text-[11px] font-semibold text-[#FFD700] uppercase tracking-widest px-3 py-1 rounded-full bg-[#FFD700]/10 border border-[#FFD700]/20">
-          OVPSAS Digital Management System
-        </span>
-
         <h1 className="text-4xl sm:text-6xl font-light tracking-tight text-white leading-tight">
           Student Organization <br />
           <span className="font-bold text-[#FFD700]">Information System</span>
         </h1>
-
         <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto font-normal leading-relaxed">
           Digitize organization workflows, centralize official records, and
           streamline end-of-semester clearances under Marinduque State
           University OVPSAS.
         </p>
-
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
             onClick={() => setIsModalOpen(true)}

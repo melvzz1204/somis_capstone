@@ -84,7 +84,7 @@ export default function Login() {
           SOMIS Portal
         </h1>
         <p className="text-[10px] text-slate-500">
-          Marinduque State University — OVPSAS
+          Marinduque State University
         </p>
       </div>
 

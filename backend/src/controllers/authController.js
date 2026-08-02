@@ -2,7 +2,9 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-// POST /v1/auth/login
+// ==========================================
+// 1. LOGIN FUNCTION
+// ==========================================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -13,16 +15,15 @@ exports.login = async (req, res) => {
         .json({ message: "Email and password are required." });
     }
 
-    // Populate organization details so frontend knows who logged in
-    const user = await User.findOne({ email: email.toLowerCase() }).populate(
-      "organization",
-    );
+    const user = await User.findOne({ email: email.toLowerCase() })
+      .select("+password")
+      .populate("organization");
+
     if (!user) {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    // Check if user clicked email link yet
-    if (!user.password && user.setupToken) {
+    if (!user.password) {
       return res.status(400).json({
         message:
           "Account setup is incomplete. Please check your email for the setup link.",
@@ -56,7 +57,9 @@ exports.login = async (req, res) => {
   }
 };
 
-// POST /v1/auth/setup-account
+// ==========================================
+// 2. SETUP ACCOUNT FUNCTION (Missing previously)
+// ==========================================
 exports.setupAccount = async (req, res) => {
   try {
     const { token, password } = req.body;
@@ -67,7 +70,6 @@ exports.setupAccount = async (req, res) => {
         .json({ message: "Setup token and password are required." });
     }
 
-    // Find user with valid token that hasn't expired
     const user = await User.findOne({
       setupToken: token,
       setupTokenExpires: { $gt: Date.now() },
@@ -79,7 +81,7 @@ exports.setupAccount = async (req, res) => {
       });
     }
 
-    // Assign password (pre-save hook in User model automatically hashes this)
+    // Set plain text password here, the User model pre('save') hook will hash it
     user.password = password;
     user.setupToken = undefined;
     user.setupTokenExpires = undefined;
@@ -94,7 +96,9 @@ exports.setupAccount = async (req, res) => {
   }
 };
 
-// GET /v1/auth/me
+// ==========================================
+// 3. GET ME FUNCTION (Missing previously)
+// ==========================================
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)

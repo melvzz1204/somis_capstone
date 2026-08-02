@@ -25,7 +25,14 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       // 👈 Added 'org_admin' to allowed enum values
-      enum: ["admin", "org_admin", "student"],
+      enum: [
+        "admin",
+        "org_admin",
+        "student",
+        "secretary",
+        "treasurer",
+        "adviser",
+      ],
       default: "org_admin",
     },
     organization: {

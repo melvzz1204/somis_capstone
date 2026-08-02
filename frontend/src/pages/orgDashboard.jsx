@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import OrganizationMembers from "../component/organization-main/organizationMembers";
 
 export default function OrgDashboard() {
   const navigate = useNavigate();
@@ -12,17 +13,25 @@ export default function OrgDashboard() {
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsedUser = JSON.parse(storedUser);
+
+        // 👈 REDIRECT SECRETARY TO THEIR DASHBOARD
+        if (parsedUser?.role === "secretary") {
+          navigate("/secretary-dashboard", { replace: true });
+          return;
+        }
+
+        setUser(parsedUser);
       } catch (err) {
         console.error("Failed to parse user data", err);
       }
     }
-  }, []);
+  }, [navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    navigate("/login");
+    navigate("/");
   };
 
   // Safely extract organization data
@@ -35,6 +44,11 @@ export default function OrgDashboard() {
     email: user?.email || "org@marsu.edu.ph",
     status: "Active",
   };
+
+  // Prevent flash of Org Admin content while redirecting
+  if (user?.role === "secretary") {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-white text-slate-800 font-sans flex">
@@ -76,7 +90,7 @@ export default function OrgDashboard() {
                   : "text-slate-600 hover:bg-slate-200/50 hover:text-slate-900"
               }`}
             >
-              Officer Roster
+              Add Officer
             </button>
             <button
               onClick={() => setActiveTab("activities")}
@@ -162,7 +176,6 @@ export default function OrgDashboard() {
           {/* TAB CONTENT: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
-              {/* Stat Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-5 border border-slate-200 rounded-xl bg-slate-50/50 space-y-1">
                   <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
@@ -190,7 +203,6 @@ export default function OrgDashboard() {
                 </div>
               </div>
 
-              {/* Organization Profile Details */}
               <div className="border border-slate-200 rounded-xl p-6 space-y-4">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Organization Profile Summary
@@ -251,42 +263,7 @@ export default function OrgDashboard() {
 
           {/* TAB CONTENT: OFFICERS */}
           {activeTab === "officers" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Executive Officers
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Listed leaders for the current academic year.
-                  </p>
-                </div>
-                <button className="px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors cursor-pointer">
-                  + Add Officer
-                </button>
-              </div>
-
-              <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs">
-                <div className="p-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {org.president || "Student Leader"}
-                    </p>
-                    <p className="text-slate-500">President</p>
-                  </div>
-                  <span className="text-slate-400">{org.email}</span>
-                </div>
-                <div className="p-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {org.adviser || "Faculty Adviser"}
-                    </p>
-                    <p className="text-slate-500">Faculty Adviser</p>
-                  </div>
-                  <span className="text-slate-400">Official Adviser</span>
-                </div>
-              </div>
-            </div>
+            <OrganizationMembers user={user} org={org} />
           )}
 
           {/* TAB CONTENT: ACTIVITIES */}

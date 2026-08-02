@@ -1,13 +1,15 @@
+// routes/authRoutes.js
 const express = require("express");
 const router = express.Router();
-const { login, getMe, setupAccount } = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddileware");
+const authController = require("../controllers/authController");
 
-// Public routes
+// 👈 Debug log
+console.log("Loaded Controller Handlers:", authController);
+
+const { login, setupAccount, getMe } = authController;
+
 router.post("/login", login);
-
-// Protected routes (Requires valid JWT token)
-router.get("/me", protect, getMe);
-router.post("/setup-account", setupAccount); //
+router.post("/setup-account", setupAccount);
+router.get("/me", getMe);
 
 module.exports = router;

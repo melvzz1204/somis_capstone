@@ -6,9 +6,12 @@ export default function LandingPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#1A000D] text-slate-100 font-sans selection:bg-[#FFD700] selection:text-black flex flex-col justify-between">
+    <div className="min-h-screen bg-[#1A000D] text-slate-100 font-sans selection:bg-[#FFD700] selection:text-black flex flex-col justify-between relative overflow-x-hidden">
       {/* BACKGROUND DECORATIVE CANVAS */}
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#400020] via-[#1A000D] to-[#0A0A0A] -z-10 pointer-events-none" />
+      <div
+        className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#400020] via-[#1A000D] to-[#0A0A0A] -z-10 pointer-events-none"
+        aria-hidden="true"
+      />
 
       {/* HEADER / NAVIGATION */}
       <header className="sticky top-0 z-40 backdrop-blur-md bg-[#0A0A0A]/80 border-b border-[#33001A]">
@@ -82,7 +85,8 @@ export default function LandingPage() {
             <div className="md:hidden flex items-center">
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-md text-slate-300 hover:text-[#FFD700]"
+                className="p-2 rounded-md text-slate-300 hover:text-[#FFD700] focus:outline-none"
+                aria-label="Toggle Navigation Menu"
               >
                 <svg
                   className="h-6 w-6"
@@ -140,7 +144,7 @@ export default function LandingPage() {
                 setMobileMenuOpen(false);
                 setIsModalOpen(true);
               }}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-xs text-[#0A0A0A] bg-[#FFD700]"
+              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-xs text-[#0A0A0A] bg-[#FFD700] hover:bg-[#FFE033] transition-all cursor-pointer"
             >
               Sign In
             </button>
@@ -344,14 +348,17 @@ export default function LandingPage() {
           </p>
         </div>
       </footer>
+
+      {/* LOGIN MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
             {/* Close Button */}
             <button
               onClick={() => setIsModalOpen(false)}
               className="absolute top-4 right-4 z-10 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               title="Close modal"
+              aria-label="Close Modal"
             >
               <svg
                 className="w-5 h-5"

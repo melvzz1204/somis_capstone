@@ -1,11 +1,111 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import LogoutButton from "../component/logoutButton";
+import { useToast } from "../util/toastContext";
+
+// --- SVG ICON COMPONENTS ---
+const BuildingIcon = ({ className = "w-5 h-5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H7m4 0v10m4-10v10"
+    />
+  </svg>
+);
+
+const FileCheckIcon = ({ className = "w-5 h-5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+    />
+  </svg>
+);
+
+const PlusIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.5"
+      d="M12 4v16m8-8H4"
+    />
+  </svg>
+);
+
+const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+    />
+  </svg>
+);
+
+const UserGroupIcon = ({ className = "w-5 h-5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+    />
+  </svg>
+);
+
+const ExternalLinkIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+    />
+  </svg>
+);
 
 export default function AdminDashboard() {
-  const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("organizations");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [organizations, setOrganizations] = useState([]);
 
   // Form state for creating a new organization
@@ -22,12 +122,10 @@ export default function AdminDashboard() {
   const adminName = storedUser.name || "Administrator";
   const adminEmail = storedUser.email || "admin@marsu.edu.ph";
 
-  // Fetch registered organizations from backend
   useEffect(() => {
     const fetchOrganizations = async () => {
       try {
         const response = await API.get("/v1/organizations");
-        // Handle both unwrapped response or standard axios object
         const orgsList = Array.isArray(response) ? response : response.data;
         if (Array.isArray(orgsList)) {
           setOrganizations(orgsList);
@@ -40,12 +138,6 @@ export default function AdminDashboard() {
     fetchOrganizations();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/");
-  };
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setNewOrg((prev) => ({ ...prev, [name]: value }));
@@ -53,15 +145,14 @@ export default function AdminDashboard() {
 
   const handleCreateOrganization = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
+
     try {
       const response = await API.post("/v1/organizations", newOrg);
-      // Handle both unwrapped response or standard axios object
       const savedOrg = response.data || response;
 
-      // Update state with newly registered organization
       setOrganizations((prev) => [savedOrg, ...prev]);
 
-      // Reset form & close modal
       setNewOrg({
         name: "",
         acronym: "",
@@ -70,152 +161,232 @@ export default function AdminDashboard() {
         president: "",
         email: "",
       });
+
+      showToast("Organization saved successfully!", "success");
       setIsModalOpen(false);
     } catch (err) {
       console.error("Save error:", err);
-      alert(
+      showToast(
         err.response?.data?.message ||
           err.message ||
           "Error saving organization",
+        "error",
       );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-800 font-sans flex">
+    <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR */}
-      <aside className="w-64 bg-slate-50/70 border-r border-slate-200 flex flex-col justify-between hidden md:flex shrink-0 p-6">
+      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
         <div className="space-y-8">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="MarSU Logo"
-              className="h-7 w-auto object-contain"
-            />
+          <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
+            <div className="p-1.5 bg-[#D4AF37]/10 rounded-xl border border-[#D4AF37]/30 flex items-center justify-center">
+              <img
+                src="/logo.png"
+                alt="MarSU Logo"
+                className="h-8 w-8 object-contain"
+              />
+            </div>
             <div>
-              <span className="text-xs font-semibold tracking-widest text-slate-900 uppercase block">
+              <span className="text-xs font-black tracking-widest text-[#D4AF37] uppercase block">
                 SOMIS
               </span>
-              <span className="text-[10px] text-slate-500 tracking-wider block">
-                OVPSAS Admin
+              <span className="text-[10px] font-medium text-rose-200/70 tracking-wider block">
+                OVPSAS Portal
               </span>
             </div>
           </div>
 
-          <nav className="space-y-1 text-xs font-medium">
+          <nav className="space-y-1.5 text-xs font-medium">
             <button
               onClick={() => setActiveTab("organizations")}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "organizations"
-                  ? "bg-slate-900 text-white font-semibold"
-                  : "text-slate-600 hover:bg-slate-200/50 hover:text-slate-900"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
-              Organizations
+              <BuildingIcon
+                className={`w-4 h-4 ${activeTab === "organizations" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Recognized Organizations</span>
             </button>
             <button
               onClick={() => setActiveTab("clearance")}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "clearance"
-                  ? "bg-slate-900 text-white font-semibold"
-                  : "text-slate-600 hover:bg-slate-200/50 hover:text-slate-900"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
-              Clearance
+              <FileCheckIcon
+                className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Clearance Approvals</span>
             </button>
           </nav>
         </div>
 
-        <div className="pt-6 border-t border-slate-200 space-y-3">
-          <div>
-            <p className="text-xs font-semibold text-slate-900 truncate">
-              {adminName}
-            </p>
-            <p className="text-[10px] text-slate-500 truncate">{adminEmail}</p>
+        <div className="pt-6 border-t border-[#601520] space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/40 flex items-center justify-center text-[#D4AF37] font-bold text-xs">
+              {adminName.charAt(0)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-rose-100 truncate">
+                {adminName}
+              </p>
+              <p className="text-[10px] text-rose-300/70 truncate">
+                {adminEmail}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs font-medium text-slate-500 hover:text-red-600 transition-colors block cursor-pointer"
-          >
-            Sign out
-          </button>
+          <LogoutButton variant="sidebar" showConfirmModal={true} />
         </div>
       </aside>
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-slate-200 px-8 py-5 flex items-center justify-between">
-          <span className="text-xs text-slate-500 hidden md:block">
-            Marinduque State University — OVPSAS
-          </span>
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+          <div className="flex items-center gap-2">
+            <ShieldCheckIcon className="w-5 h-5 text-[#4A0E17]" />
+            <span className="text-xs font-bold text-[#4A0E17] uppercase tracking-wider hidden sm:inline-block">
+              Marinduque State University — OVPSAS Dashboard
+            </span>
+          </div>
+
           <div className="flex items-center gap-4 text-xs ml-auto">
-            <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-medium">
+            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
               AY 2025–2026
             </span>
-            <button
-              onClick={handleLogout}
-              className="md:hidden text-slate-500 hover:text-slate-900 transition-colors"
-            >
-              Sign out
-            </button>
           </div>
         </header>
 
-        <main className="p-8 max-w-5xl w-full mx-auto space-y-8">
-          {/* Header Action Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Total Recognized
+                </p>
+                <h3 className="text-2xl font-black text-[#4A0E17] mt-1">
+                  {organizations.length}
+                </h3>
+              </div>
+              <div className="p-3 bg-[#4A0E17]/5 rounded-xl text-[#4A0E17]">
+                <BuildingIcon className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Clearance Status
+                </p>
+                <h3 className="text-2xl font-black text-emerald-700 mt-1">
+                  Operational
+                </h3>
+              </div>
+              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-700">
+                <FileCheckIcon className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Advisers Assigned
+                </p>
+                <h3 className="text-2xl font-black text-[#8B6E10] mt-1">
+                  {organizations.filter((o) => o.adviser).length}
+                </h3>
+              </div>
+              <div className="p-3 bg-[#D4AF37]/15 rounded-xl text-[#8B6E10]">
+                <UserGroupIcon className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
             <div>
-              <h1 className="text-2xl font-light text-slate-900 tracking-tight">
-                Student Organizations
+              <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
+                Recognized Student Organizations
               </h1>
               <p className="text-xs text-slate-500 mt-1">
-                Register and manage recognized student entities under OVPSAS.
+                Official directory and accreditation management under OVPSAS
+                guidelines.
               </p>
             </div>
+
             <button
               onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors cursor-pointer self-start sm:self-auto"
+              className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto flex items-center gap-2 border border-[#B8860B]/30 active:scale-98"
             >
-              + Register Organization
+              <PlusIcon className="w-4 h-4 text-[#36080E]" />
+              <span>Register Organization</span>
             </button>
           </div>
 
-          <section className="space-y-4">
-            <div className="divide-y divide-slate-100 border-y border-slate-200">
+          <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
+              <span>Organization Directory</span>
+              <span className="text-slate-400 font-normal">
+                Showing {organizations.length} entry/entries
+              </span>
+            </div>
+
+            <div className="divide-y divide-slate-100">
               {Array.isArray(organizations) && organizations.length > 0 ? (
                 organizations.map((org) => (
                   <div
                     key={org._id || org.id}
-                    className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 px-2 rounded-lg transition-colors"
+                    className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-900">
+                    <div className="space-y-1.5 max-w-xl">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm font-bold text-[#4A0E17]">
                           {org.name}
                         </span>
-                        <span className="text-xs px-2 py-0.5 rounded bg-slate-100 font-semibold text-slate-600">
+                        <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
                           {org.acronym}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500">
-                        {org.college} • Adviser: {org.adviser || "N/A"} •
-                        Leader: {org.president || "N/A"}
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {org.college} <br className="sm:hidden" />
+                        <span className="hidden sm:inline"> • </span>
+                        Adviser:{" "}
+                        <span className="text-slate-700 font-medium">
+                          {org.adviser || "N/A"}
+                        </span>
+                        <span className="mx-1">•</span>
+                        President:{" "}
+                        <span className="text-slate-700 font-medium">
+                          {org.president || "N/A"}
+                        </span>
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-medium">
+                    <div className="flex items-center gap-3 text-xs self-end sm:self-center">
+                      <span className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-[11px] flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         {org.status || "Active"}
                       </span>
-                      <button className="px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer">
-                        View Details
+                      <button className="px-3.5 py-2 rounded-lg border border-[#4A0E17]/20 text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all cursor-pointer font-semibold flex items-center gap-1.5">
+                        <span>Details</span>
+                        <ExternalLinkIcon className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="py-8 text-center text-xs text-slate-400">
-                  No registered organizations found.
+                <div className="py-16 text-center text-xs text-slate-400 space-y-2">
+                  <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
+                  <p className="font-medium">
+                    No registered student organizations found.
+                  </p>
                 </div>
               )}
             </div>
@@ -223,17 +394,26 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      {/* REGISTER ORGANIZATION MODAL */}
+      {/* MODAL: REGISTER ORGANIZATION */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 shadow-xl space-y-5">
-            <div>
-              <h3 className="text-lg font-light text-slate-900">
-                Register Student Organization
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Enter details to add a new recognized student organization.
-              </p>
+        <div className="fixed inset-0 bg-[#36080E]/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-rose-900/20 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[#4A0E17]">
+                  Register Student Organization
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Accredit a new student entity under OVPSAS.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-[#4A0E17] text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
 
             <form
@@ -241,8 +421,8 @@ export default function AdminDashboard() {
               className="space-y-4 text-xs"
             >
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Organization Name
+                <label className="block text-[#4A0E17] font-bold mb-1">
+                  Organization Full Name
                 </label>
                 <input
                   type="text"
@@ -251,13 +431,13 @@ export default function AdminDashboard() {
                   placeholder="e.g. Society of Information Technology Enthusiasts"
                   value={newOrg.name}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">
+                  <label className="block text-[#4A0E17] font-bold mb-1">
                     Acronym / Code
                   </label>
                   <input
@@ -267,34 +447,34 @@ export default function AdminDashboard() {
                     placeholder="e.g. SITE"
                     value={newOrg.acronym}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">
-                    College
+                  <label className="block text-[#4A0E17] font-bold mb-1">
+                    College Unit
                   </label>
                   <select
                     name="college"
                     value={newOrg.college}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800 bg-white truncate"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] bg-white truncate"
                   >
                     <option value="College of Information and Computing Sciences">
-                      College of Information and Computing Sciences
+                      College of Info & Computing Sciences
                     </option>
                     <option value="College of Engineering">
                       College of Engineering
                     </option>
                     <option value="College of Business and Accountancy">
-                      College of Business and Accountancy
+                      College of Business & Accountancy
                     </option>
                     <option value="College of Education">
                       College of Education
                     </option>
                     <option value="College of Arts and Social Sciences">
-                      College of Arts and Social Sciences
+                      College of Arts & Social Sciences
                     </option>
                     <option value="College of Allied Health Sciences">
                       College of Allied Health Sciences
@@ -308,7 +488,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
+                <label className="block text-[#4A0E17] font-bold mb-1">
                   Faculty Adviser
                 </label>
                 <input
@@ -317,13 +497,13 @@ export default function AdminDashboard() {
                   placeholder="e.g. Dr. Jane Doe"
                   value={newOrg.adviser}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">
+                  <label className="block text-[#4A0E17] font-bold mb-1">
                     Student Leader / President
                   </label>
                   <input
@@ -332,11 +512,11 @@ export default function AdminDashboard() {
                     placeholder="e.g. Juan Cruz"
                     value={newOrg.president}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">
+                  <label className="block text-[#4A0E17] font-bold mb-1">
                     Official Email
                   </label>
                   <input
@@ -345,24 +525,25 @@ export default function AdminDashboard() {
                     placeholder="site@marsu.edu.ph"
                     value={newOrg.email}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-800"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                   />
                 </div>
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-3">
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="px-4 py-2.5 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
                 >
-                  Save Organization
+                  {isSubmitting ? "Saving..." : "Save Organization"}
                 </button>
               </div>
             </form>

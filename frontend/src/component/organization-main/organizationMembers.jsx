@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import API from "../../api/axios"; // Adjust path if needed
+import API from "../../api/axios";
+import { useToast } from "../../util/toastContext"; // 👈 1. IMPORT YOUR TOAST HOOK (adjust path if needed)
 
 const OFFICER_ROLES = [
   "Vice-President",
@@ -18,7 +19,107 @@ const BACKEND_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"
 ).replace("/api", "");
 
+// Inline SVG Icons
+const UserPlusIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+    />
+  </svg>
+);
+
+const KeyIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+    />
+  </svg>
+);
+
+const EditIcon = ({ className = "w-3.5 h-3.5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+    />
+  </svg>
+);
+
+const TrashIcon = ({ className = "w-3.5 h-3.5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
+  </svg>
+);
+
+const CloseIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M6 18L18 6M6 6l12 12"
+    />
+  </svg>
+);
+
+const ShieldCheckIcon = ({ className = "w-3 h-3" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+    />
+  </svg>
+);
+
 export default function OrganizationMembers({ user, org }) {
+  // 👈 2. DESTRUCTURE SHOWTOAST FROM YOUR CONTEXT HOOK
+  const { showToast } = useToast();
+
   const [officers, setOfficers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -168,21 +269,30 @@ export default function OrganizationMembers({ user, org }) {
         setOfficers((prev) =>
           prev.map((off) => (off._id === editingOfficer._id ? updated : off)),
         );
+
+        // 👈 3. TRIGGER TOAST FOR EDIT
+        showToast?.("Officer updated successfully!", "success");
       } else {
         const response = await API.post("/orgmembers", payload, config);
         const created = response.data?.member || response.member || response;
 
         setOfficers((prev) => [created, ...prev]);
+
+        // 👈 3. TRIGGER TOAST FOR NEW
+        showToast?.("New officer saved successfully!", "success");
       }
 
       setIsModalOpen(false);
     } catch (err) {
       console.error("Submit error:", err);
-      setErrorMessage(
+      const errMsg =
         err.response?.data?.message ||
-          err.message ||
-          "Failed to save officer details.",
-      );
+        err.message ||
+        "Failed to save officer details.";
+
+      setErrorMessage(errMsg);
+      // 👈 OPTIONAL: Trigger error toast as well
+      showToast?.(errMsg, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -211,6 +321,9 @@ export default function OrganizationMembers({ user, org }) {
       setAccountModalSuccess(successMsg);
       setAccountPassword("");
 
+      // Trigger Toast for Account Provisioning
+      showToast?.(successMsg, "success");
+
       // Update local roster list to reflect account creation
       setOfficers((prev) =>
         prev.map((off) =>
@@ -219,11 +332,12 @@ export default function OrganizationMembers({ user, org }) {
       );
     } catch (err) {
       console.error("Account creation error:", err);
-      setAccountModalError(
+      const errMsg =
         err.response?.data?.message ||
-          err.message ||
-          "Failed to create user account.",
-      );
+        err.message ||
+        "Failed to create user account.";
+      setAccountModalError(errMsg);
+      showToast?.(errMsg, "error");
     } finally {
       setIsCreatingAccount(false);
     }
@@ -237,6 +351,7 @@ export default function OrganizationMembers({ user, org }) {
     try {
       await API.delete(`/orgmembers/${id}`);
       setOfficers((prev) => prev.filter((officer) => officer._id !== id));
+      showToast?.("Officer removed successfully.", "info");
     } catch (err) {
       console.error("Failed to delete member:", err);
       alert(err.message || "Failed to remove member.");
@@ -254,49 +369,51 @@ export default function OrganizationMembers({ user, org }) {
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* HEADER WITH ACTION BUTTONS */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">
+          <h3 className="text-base font-extrabold text-[#4A0E17]">
             Executive Officers & Members
           </h3>
-          <p className="text-xs text-slate-500">
-            Listed leaders and members for the current academic year.
+          <p className="text-xs text-slate-500 mt-0.5">
+            Listed leaders and members registered for the current academic year.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleOpenAddModal}
-            className="px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
-            + Add Officer
+            <UserPlusIcon className="w-4 h-4" />
+            Add Officer
           </button>
           <button
             onClick={handleOpenCreateAccount}
-            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-sm border border-[#B8860B]/30 flex items-center gap-1.5 cursor-pointer"
           >
-            + Create Account
+            <KeyIcon className="w-4 h-4" />
+            Create Account
           </button>
         </div>
       </div>
 
       {/* ERROR MESSAGE */}
       {errorMessage && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
           {errorMessage}
         </div>
       )}
 
       {/* ROSTER TABLE / LIST */}
-      <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs bg-white">
+      <div className="border border-slate-200/80 rounded-2xl divide-y divide-slate-100 text-xs bg-white shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-slate-400">
+          <div className="p-8 text-center text-slate-400 font-medium">
             Loading roster...
           </div>
         ) : officers.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">
+          <div className="p-8 text-center text-slate-400 font-medium">
             No officers or members registered yet.
           </div>
         ) : (
@@ -306,54 +423,62 @@ export default function OrganizationMembers({ user, org }) {
             return (
               <div
                 key={officer._id || officer.id}
-                className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors"
+                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3.5">
+                  {/* 🖼️ LARGER RECTANGULAR AVATAR */}
                   {avatarUrl ? (
                     <img
                       src={avatarUrl}
                       alt={officer.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                      className="w-14 h-16 rounded-xl object-cover border border-slate-200/90 shadow-xs shrink-0"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 font-semibold flex items-center justify-center border border-slate-200 uppercase">
+                    <div className="w-14 h-16 rounded-xl bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border border-[#4A0E17]/20 uppercase shrink-0 shadow-xs">
                       {officer.name.charAt(0)}
                     </div>
                   )}
 
                   <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-slate-900">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-slate-900 text-sm">
                         {officer.name}
                       </p>
                       {officer.hasAccount && (
-                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-medium rounded-md">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
+                          <ShieldCheckIcon className="w-3 h-3" />
                           Account Active
                         </span>
                       )}
                     </div>
-                    <p className="text-slate-500">
-                      {officer.role}{" "}
-                      {officer.section ? `• ${officer.section}` : ""}
+                    <p className="text-slate-500 font-medium mt-0.5">
+                      <span className="text-[#4A0E17] font-semibold">
+                        {officer.role}
+                      </span>
+                      {officer.section ? ` • ${officer.section}` : ""}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <span className="text-slate-400">{officer.email}</span>
+                <div className="flex items-center justify-between sm:justify-end gap-4">
+                  <span className="text-slate-500 font-medium text-right">
+                    {officer.email}
+                  </span>
 
                   {/* ACTIONS: EDIT & DELETE */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => handleOpenEditModal(officer)}
-                      className="px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors cursor-pointer text-[11px]"
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
                     >
+                      <EditIcon />
                       Edit
                     </button>
                     <button
                       onClick={() => handleDeleteOfficer(officer._id)}
-                      className="px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors cursor-pointer text-[11px]"
+                      className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
                     >
+                      <TrashIcon />
                       Delete
                     </button>
                   </div>
@@ -366,26 +491,31 @@ export default function OrganizationMembers({ user, org }) {
 
       {/* MODAL 1: ADD / EDIT OFFICER */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-semibold text-slate-900">
-                {editingOfficer
-                  ? "Edit Officer Account"
-                  : "Add Officer / Member"}
-              </h3>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#4A0E17]/10 border border-[#4A0E17]/20 rounded-xl text-[#4A0E17]">
+                  <UserPlusIcon className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-extrabold text-[#4A0E17]">
+                  {editingOfficer
+                    ? "Edit Officer Details"
+                    : "Add Officer / Member"}
+                </h3>
+              </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               >
-                ✕
+                <CloseIcon />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-              {/* Avatar Upload Field */}
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+              {/* 🖼️ LARGER RECTANGULAR AVATAR PREVIEW IN MODAL */}
+              <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                <div className="w-16 h-20 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                   {avatarPreview ? (
                     <img
                       src={avatarPreview}
@@ -393,41 +523,43 @@ export default function OrganizationMembers({ user, org }) {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-slate-400 text-xs">Photo</span>
+                    <span className="text-slate-400 text-[10px] font-bold">
+                      PHOTO
+                    </span>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Profile Avatar
                   </label>
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleAvatarChange}
-                    className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
+                    className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#4A0E17]/10 file:text-[#4A0E17] hover:file:bg-[#4A0E17]/20 cursor-pointer"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Full Name
+                <label className="block font-bold text-slate-700 mb-1">
+                  Full Name <span className="text-rose-600">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Juan Cruz"
+                  placeholder="e.g. Surname, Firstname, M.I"
                   value={formData.name}
                   onChange={(e) =>
                     setFormData({ ...formData, name: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Email Address
+                <label className="block font-bold text-slate-700 mb-1">
+                  Email Address <span className="text-rose-600">*</span>
                 </label>
                 <input
                   type="email"
@@ -437,12 +569,12 @@ export default function OrganizationMembers({ user, org }) {
                   onChange={(e) =>
                     setFormData({ ...formData, email: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
+                <label className="block font-bold text-slate-700 mb-1">
                   Position / Role
                 </label>
                 <select
@@ -450,7 +582,7 @@ export default function OrganizationMembers({ user, org }) {
                   onChange={(e) =>
                     setFormData({ ...formData, role: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900 bg-white"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
                 >
                   {OFFICER_ROLES.map((role) => (
                     <option key={role} value={role}>
@@ -463,7 +595,7 @@ export default function OrganizationMembers({ user, org }) {
               {/* ID Number & Birthday Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">
+                  <label className="block font-bold text-slate-700 mb-1">
                     ID Number
                   </label>
                   <input
@@ -473,12 +605,12 @@ export default function OrganizationMembers({ user, org }) {
                     onChange={(e) =>
                       setFormData({ ...formData, idNumber: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">
+                  <label className="block font-bold text-slate-700 mb-1">
                     Birthday
                   </label>
                   <input
@@ -487,7 +619,7 @@ export default function OrganizationMembers({ user, org }) {
                     onChange={(e) =>
                       setFormData({ ...formData, birthday: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                   />
                 </div>
               </div>
@@ -495,7 +627,7 @@ export default function OrganizationMembers({ user, org }) {
               {/* Year Level & Section Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">
+                  <label className="block font-bold text-slate-700 mb-1">
                     Year Level
                   </label>
                   <select
@@ -503,7 +635,7 @@ export default function OrganizationMembers({ user, org }) {
                     onChange={(e) =>
                       setFormData({ ...formData, year: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900 bg-white"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
                   >
                     <option value="1st Year">1st Year</option>
                     <option value="2nd Year">2nd Year</option>
@@ -514,7 +646,7 @@ export default function OrganizationMembers({ user, org }) {
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">
+                  <label className="block font-bold text-slate-700 mb-1">
                     Section
                   </label>
                   <input
@@ -524,7 +656,7 @@ export default function OrganizationMembers({ user, org }) {
                     onChange={(e) =>
                       setFormData({ ...formData, section: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                   />
                 </div>
               </div>
@@ -533,14 +665,14 @@ export default function OrganizationMembers({ user, org }) {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold rounded-xl disabled:opacity-50 transition-all shadow-sm cursor-pointer"
                 >
                   {isSubmitting
                     ? "Saving..."
@@ -556,42 +688,50 @@ export default function OrganizationMembers({ user, org }) {
 
       {/* MODAL 2: CREATE LOGIN ACCOUNT FOR AN OFFICER */}
       {isAccountModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Provision Officer User Account
-              </h3>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#D4AF37]/20 border border-[#D4AF37]/30 rounded-xl text-[#7A610D]">
+                  <KeyIcon className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-extrabold text-[#4A0E17]">
+                  Provision Officer User Account
+                </h3>
+              </div>
               <button
                 onClick={() => setIsAccountModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               >
-                ✕
+                <CloseIcon />
               </button>
             </div>
 
             {accountModalError && (
-              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
                 {accountModalError}
               </div>
             )}
 
             {accountModalSuccess && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-medium">
                 {accountModalSuccess}
               </div>
             )}
 
-            <form onSubmit={handleAccountSubmit} className="space-y-4 text-xs">
+            <form
+              onSubmit={handleAccountSubmit}
+              className="space-y-3.5 text-xs"
+            >
               {/* Select Officer Dropdown */}
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
+                <label className="block font-bold text-slate-700 mb-1">
                   Select Officer / Member
                 </label>
                 <select
                   value={selectedMemberId}
                   onChange={(e) => setSelectedMemberId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900 bg-white"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
                 >
                   {officers.map((officer) => (
                     <option key={officer._id} value={officer._id}>
@@ -603,22 +743,25 @@ export default function OrganizationMembers({ user, org }) {
 
               {/* Selected Officer Summary */}
               {selectedOfficerObj && (
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
-                  <p className="text-slate-700 font-medium">
+                <div className="p-3 bg-[#4A0E17]/5 border border-[#4A0E17]/15 rounded-xl space-y-1">
+                  <p className="text-slate-800 font-bold">
                     Role Position:{" "}
-                    <span className="text-indigo-600">
+                    <span className="text-[#4A0E17] underline decoration-[#D4AF37]">
                       {selectedOfficerObj.role}
                     </span>
                   </p>
-                  <p className="text-slate-500">
-                    Login Email: {selectedOfficerObj.email}
+                  <p className="text-slate-600 font-medium">
+                    Login Email:{" "}
+                    <span className="font-semibold text-slate-800">
+                      {selectedOfficerObj.email}
+                    </span>
                   </p>
                 </div>
               )}
 
               {/* Password Input */}
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
+                <label className="block font-bold text-slate-700 mb-1">
                   Assign Initial Password
                 </label>
                 <input
@@ -628,7 +771,7 @@ export default function OrganizationMembers({ user, org }) {
                   placeholder="At least 6 characters"
                   value={accountPassword}
                   onChange={(e) => setAccountPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
                 />
               </div>
 
@@ -636,14 +779,14 @@ export default function OrganizationMembers({ user, org }) {
                 <button
                   type="button"
                   onClick={() => setIsAccountModalOpen(false)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors font-bold cursor-pointer"
                 >
                   Close
                 </button>
                 <button
                   type="submit"
                   disabled={isCreatingAccount || !selectedMemberId}
-                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl disabled:opacity-50 transition-all shadow-sm border border-[#B8860B]/30 cursor-pointer"
                 >
                   {isCreatingAccount ? "Creating..." : "Create Account"}
                 </button>

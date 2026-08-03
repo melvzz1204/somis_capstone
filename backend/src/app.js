@@ -6,6 +6,7 @@ const path = require("path");
 const authRoutes = require("./routes/authRoutes");
 const organizationRoutes = require("./routes/organizationRoutes");
 const memberRoutes = require("./routes/memberOrgRoutes");
+const feeRoutes = require("./routes/feeRoutes");
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/organizations", organizationRoutes);
 app.use("/api/orgmembers", memberRoutes);
+app.use("/api/fees", feeRoutes);
 
 // 5. Base Health Check Route
 app.get("/", (req, res) => {

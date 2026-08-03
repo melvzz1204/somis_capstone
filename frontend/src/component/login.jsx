@@ -2,6 +2,39 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 
+// Inline SVG Icons
+const UserShieldIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+    />
+  </svg>
+);
+
+const UserGroupIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+    />
+  </svg>
+);
+
 export default function Login() {
   const navigate = useNavigate();
   const [portalType, setPortalType] = useState("org"); // "org" or "admin"
@@ -72,59 +105,61 @@ export default function Login() {
   };
 
   return (
-    <div className="w-full bg-white p-5 rounded-2xl space-y-4 text-slate-900">
+    <div className="w-full bg-white p-6 rounded-2xl space-y-4 text-slate-900 border border-slate-100 shadow-xl">
       {/* BRAND HEADER */}
       <div className="text-center space-y-1">
         <img
           src="/logo.png"
           alt="MarSU Logo"
-          className="h-8 w-auto mx-auto object-contain"
+          className="h-10 w-auto mx-auto object-contain"
         />
-        <h1 className="text-base font-bold text-slate-900 tracking-tight">
+        <h1 className="text-lg font-extrabold text-[#4A0E17] tracking-tight">
           SOMIS Portal
         </h1>
-        <p className="text-[10px] text-slate-500">
+        <p className="text-[10px] font-semibold text-[#D4AF37] uppercase tracking-widest">
           Marinduque State University
         </p>
       </div>
 
       {/* PORTAL TOGGLE SWITCH */}
-      <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg text-xs font-medium">
+      <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100/80 rounded-xl text-xs font-semibold border border-slate-200/60">
         <button
           type="button"
           onClick={() => handlePortalSwitch("org")}
-          className={`py-1 rounded-md transition-all cursor-pointer ${
+          className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             portalType === "org"
-              ? "bg-white text-slate-900 shadow-sm font-semibold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "bg-[#4A0E17] text-white shadow-sm font-bold"
+              : "text-slate-600 hover:text-slate-900"
           }`}
         >
+          <UserGroupIcon className="w-3.5 h-3.5" />
           Student Officer
         </button>
         <button
           type="button"
           onClick={() => handlePortalSwitch("admin")}
-          className={`py-1 rounded-md transition-all cursor-pointer ${
+          className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             portalType === "admin"
-              ? "bg-white text-slate-900 shadow-sm font-semibold"
-              : "text-slate-500 hover:text-slate-800"
+              ? "bg-[#4A0E17] text-white shadow-sm font-bold"
+              : "text-slate-600 hover:text-slate-900"
           }`}
         >
+          <UserShieldIcon className="w-3.5 h-3.5" />
           OVPSAS Admin
         </button>
       </div>
 
       {/* ERROR ALERT */}
       {error && (
-        <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[11px] text-red-600">
+        <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-xl text-xs text-rose-700 font-medium animate-in fade-in duration-150">
           {error}
         </div>
       )}
 
       {/* FORM */}
-      <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+      <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
         <div>
-          <label className="block text-slate-700 font-medium mb-1">
+          <label className="block text-slate-700 font-bold mb-1">
             {portalType === "org" ? "Official Email" : "Admin Email"}
           </label>
           <input
@@ -138,12 +173,12 @@ export default function Login() {
             }
             value={formData.email}
             onChange={handleChange}
-            className="w-full px-3 py-2 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-300 rounded-lg focus:outline-none focus:border-slate-800 text-xs transition-colors"
+            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
           />
         </div>
 
         <div>
-          <label className="block text-slate-700 font-medium mb-1">
+          <label className="block text-slate-700 font-bold mb-1">
             Password
           </label>
           <input
@@ -153,14 +188,14 @@ export default function Login() {
             placeholder="••••••••"
             value={formData.password}
             onChange={handleChange}
-            className="w-full px-3 py-2 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-300 rounded-lg focus:outline-none focus:border-slate-800 text-xs transition-colors"
+            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
           />
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs rounded-lg transition-colors cursor-pointer disabled:opacity-50 mt-1"
+          className="w-full py-2.5 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 mt-1 active:scale-[0.99]"
         >
           {isLoading
             ? "Signing in..."
@@ -172,7 +207,7 @@ export default function Login() {
 
       {/* FOOTER NOTICE */}
       {portalType === "org" && (
-        <p className="text-center text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+        <p className="text-center text-[10px] text-slate-400 pt-2 border-t border-slate-100 font-medium">
           New organization? Check email for OVPSAS invite link.
         </p>
       )}

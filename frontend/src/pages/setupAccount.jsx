@@ -1,46 +1,59 @@
 import React, { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import { getRedirectPathByRole } from "../util/loginRedirectPage";
 
 export default function SetupAccount() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const token = searchParams.get("token");
+  const navigate = useNavigate();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long.");
-      return;
+      return setError("Passwords do not match.");
     }
 
     setIsLoading(true);
+    setIsSubmitting(true);
     setError("");
 
     try {
-      await API.post("/v1/auth/setup-account", { token, password });
-      setSuccess(true);
-      setTimeout(() => {
-        navigate("/");
-      }, 2500);
+      // 1. Post to endpoint (baseURL in axios.js already has /v1)[cite: 9, 11]
+      const response = await API.post("/auth/setup-account", {
+        token,
+        password,
+      });
+      setSuccess("Account set up successfully! Redirecting...");
+
+      // 2. Extract directly from response (unwrapped by axios interceptor)[cite: 8, 9, 11]
+      const user = response?.user || response?.data?.user;
+      const authToken = response?.token || response?.data?.token;
+
+      if (authToken) {
+        localStorage.setItem("token", authToken);
+        localStorage.setItem("user", JSON.stringify(user));
+      }
+
+      const redirectPath = getRedirectPathByRole(user?.role);
+      navigate(redirectPath, { replace: true });
     } catch (err) {
-      console.error("Setup error:", err);
+      console.error("Account setup error:", err);
+      // 3. Extract message from custom error object[cite: 8, 9, 11]
       setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Failed to set up account.",
+        err.message ||
+          err.response?.data?.message ||
+          "Failed to complete account setup.",
       );
     } finally {
+      setIsSubmitting(false);
       setIsLoading(false);
     }
   };
@@ -79,10 +92,10 @@ export default function SetupAccount() {
           {success ? (
             <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg text-center space-y-2">
               <p className="text-xs font-semibold text-emerald-800">
-                Password created successfully!
+                Account activated successfully!
               </p>
               <p className="text-[11px] text-emerald-600">
-                Redirecting to login page...
+                Logging you in and redirecting to your dashboard...
               </p>
             </div>
           ) : (
@@ -126,7 +139,7 @@ export default function SetupAccount() {
                 disabled={isLoading}
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
-                {isLoading ? "Saving..." : "Save Password & Activate"}
+                {isLoading ? "Activating..." : "Save Password & Activate"}
               </button>
             </form>
           )}

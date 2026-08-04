@@ -125,7 +125,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchOrganizations = async () => {
       try {
-        const response = await API.get("/v1/organizations");
+        const response = await API.get("/organizations");
         const orgsList = Array.isArray(response) ? response : response.data;
         if (Array.isArray(orgsList)) {
           setOrganizations(orgsList);

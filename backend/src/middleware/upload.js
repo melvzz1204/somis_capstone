@@ -2,7 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// 👈 Standardize upload directory relative to project root
+// Standardize upload directory relative to project root
 const uploadDir = path.join(process.cwd(), "uploads");
 
 // Ensure folder exists
@@ -31,7 +31,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 👈 Increased from 2MB to 5MB (or change to 10 * 1024 * 1024 for 10MB)
 });
 
 module.exports = upload;

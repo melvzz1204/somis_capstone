@@ -3,6 +3,7 @@ const router = express.Router();
 const memberController = require("../controllers/orgMemberController");
 const upload = require("../middleware/upload");
 const { protect } = require("../middleware/authMiddileware");
+const { sendMemberInvite } = require("../controllers/orgMemberController");
 
 // ==========================================
 // ROUTES
@@ -32,5 +33,6 @@ router.post(
   protect,
   memberController.createOfficerAccount,
 );
+router.post("/:id/send-invite", protect, sendMemberInvite);
 
 module.exports = router;

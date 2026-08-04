@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import API from "../../api/axios";
-import { useToast } from "../../util/toastContext"; // 👈 1. IMPORT YOUR TOAST HOOK (adjust path if needed)
+import { useToast } from "../../util/toastContext";
 
 const OFFICER_ROLES = [
   "Vice-President",
@@ -14,10 +14,15 @@ const OFFICER_ROLES = [
   "Escort",
   "Member",
 ];
-
-const BACKEND_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"
-).replace("/api", "");
+const getRootBackendUrl = () => {
+  try {
+    const rawUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+    return new URL(rawUrl).origin;
+  } catch {
+    return "http://localhost:5000";
+  }
+};
+const BACKEND_URL = getRootBackendUrl();
 
 // Inline SVG Icons
 const UserPlusIcon = ({ className = "w-4 h-4" }) => (
@@ -36,7 +41,7 @@ const UserPlusIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-const KeyIcon = ({ className = "w-4 h-4" }) => (
+const MailIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
     fill="none"
@@ -47,7 +52,7 @@ const KeyIcon = ({ className = "w-4 h-4" }) => (
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeWidth="2"
-      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
     />
   </svg>
 );
@@ -117,7 +122,6 @@ const ShieldCheckIcon = ({ className = "w-3 h-3" }) => (
 );
 
 export default function OrganizationMembers({ user, org }) {
-  // 👈 2. DESTRUCTURE SHOWTOAST FROM YOUR CONTEXT HOOK
   const { showToast } = useToast();
 
   const [officers, setOfficers] = useState([]);
@@ -141,11 +145,10 @@ export default function OrganizationMembers({ user, org }) {
     role: "Member",
   });
 
-  // --- CREATE ACCOUNT MODAL STATES ---
+  // --- SEND INVITATION EMAIL MODAL STATES ---
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState("");
-  const [accountPassword, setAccountPassword] = useState("");
-  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [accountModalError, setAccountModalError] = useState("");
   const [accountModalSuccess, setAccountModalSuccess] = useState("");
 
@@ -165,7 +168,7 @@ export default function OrganizationMembers({ user, org }) {
       }
     } catch (err) {
       console.error("Failed to fetch members:", err);
-      setErrorMessage("Failed to load officer roster.");
+      setErrorMessage(err.message || "Failed to load officer roster."); //[cite: 9, 10]
     } finally {
       setIsLoading(false);
     }
@@ -205,9 +208,8 @@ export default function OrganizationMembers({ user, org }) {
     setIsModalOpen(true);
   };
 
-  // --- OPEN CREATE ACCOUNT MODAL ---
+  // --- OPEN SEND INVITE MODAL ---
   const handleOpenCreateAccount = () => {
-    setAccountPassword("");
     setAccountModalError("");
     setAccountModalSuccess("");
     if (officers.length > 0 && !selectedMemberId) {
@@ -270,7 +272,6 @@ export default function OrganizationMembers({ user, org }) {
           prev.map((off) => (off._id === editingOfficer._id ? updated : off)),
         );
 
-        // 👈 3. TRIGGER TOAST FOR EDIT
         showToast?.("Officer updated successfully!", "success");
       } else {
         const response = await API.post("/orgmembers", payload, config);
@@ -278,7 +279,6 @@ export default function OrganizationMembers({ user, org }) {
 
         setOfficers((prev) => [created, ...prev]);
 
-        // 👈 3. TRIGGER TOAST FOR NEW
         showToast?.("New officer saved successfully!", "success");
       }
 
@@ -291,55 +291,44 @@ export default function OrganizationMembers({ user, org }) {
         "Failed to save officer details.";
 
       setErrorMessage(errMsg);
-      // 👈 OPTIONAL: Trigger error toast as well
       showToast?.(errMsg, "error");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- SUBMIT HANDLER FOR CREATING USER ACCOUNT ---
+  // --- SUBMIT HANDLER FOR SENDING ACCOUNT SETUP INVITATION EMAIL ---
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedMemberId || !accountPassword) return;
+    if (!selectedMemberId) return;
 
-    setIsCreatingAccount(true);
+    setIsSendingInvite(true);
     setAccountModalError("");
     setAccountModalSuccess("");
 
     try {
+      // Calls backend endpoint to generate setupToken & send invitation email
       const response = await API.post(
-        `/orgmembers/${selectedMemberId}/create-account`,
-        { password: accountPassword },
+        `/orgmembers/${selectedMemberId}/send-invite`,
       );
 
       const successMsg =
         response.data?.message ||
         response.message ||
-        "Login account created successfully!";
+        "Account activation link emailed successfully!";
 
       setAccountModalSuccess(successMsg);
-      setAccountPassword("");
-
-      // Trigger Toast for Account Provisioning
       showToast?.(successMsg, "success");
-
-      // Update local roster list to reflect account creation
-      setOfficers((prev) =>
-        prev.map((off) =>
-          off._id === selectedMemberId ? { ...off, hasAccount: true } : off,
-        ),
-      );
     } catch (err) {
-      console.error("Account creation error:", err);
+      console.error("Invite sending error:", err);
       const errMsg =
         err.response?.data?.message ||
         err.message ||
-        "Failed to create user account.";
+        "Failed to send invitation email.";
       setAccountModalError(errMsg);
       showToast?.(errMsg, "error");
     } finally {
-      setIsCreatingAccount(false);
+      setIsSendingInvite(false);
     }
   };
 
@@ -393,8 +382,8 @@ export default function OrganizationMembers({ user, org }) {
             onClick={handleOpenCreateAccount}
             className="px-3.5 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-sm border border-[#B8860B]/30 flex items-center gap-1.5 cursor-pointer"
           >
-            <KeyIcon className="w-4 h-4" />
-            Create Account
+            <MailIcon className="w-4 h-4" />
+            Send Invite Link
           </button>
         </div>
       </div>
@@ -426,7 +415,6 @@ export default function OrganizationMembers({ user, org }) {
                 className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
               >
                 <div className="flex items-center gap-3.5">
-                  {/* 🖼️ LARGER RECTANGULAR AVATAR */}
                   {avatarUrl ? (
                     <img
                       src={avatarUrl}
@@ -465,7 +453,6 @@ export default function OrganizationMembers({ user, org }) {
                     {officer.email}
                   </span>
 
-                  {/* ACTIONS: EDIT & DELETE */}
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => handleOpenEditModal(officer)}
@@ -513,7 +500,6 @@ export default function OrganizationMembers({ user, org }) {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-              {/* 🖼️ LARGER RECTANGULAR AVATAR PREVIEW IN MODAL */}
               <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
                 <div className="w-16 h-20 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                   {avatarPreview ? (
@@ -592,7 +578,6 @@ export default function OrganizationMembers({ user, org }) {
                 </select>
               </div>
 
-              {/* ID Number & Birthday Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
@@ -624,7 +609,6 @@ export default function OrganizationMembers({ user, org }) {
                 </div>
               </div>
 
-              {/* Year Level & Section Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
@@ -686,17 +670,17 @@ export default function OrganizationMembers({ user, org }) {
         </div>
       )}
 
-      {/* MODAL 2: CREATE LOGIN ACCOUNT FOR AN OFFICER */}
+      {/* MODAL 2: EMAIL INVITATION SETUP FOR AN OFFICER */}
       {isAccountModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-[#D4AF37]/20 border border-[#D4AF37]/30 rounded-xl text-[#7A610D]">
-                  <KeyIcon className="w-4 h-4" />
+                  <MailIcon className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-extrabold text-[#4A0E17]">
-                  Provision Officer User Account
+                  Send Account Setup Invitation
                 </h3>
               </div>
               <button
@@ -751,7 +735,7 @@ export default function OrganizationMembers({ user, org }) {
                     </span>
                   </p>
                   <p className="text-slate-600 font-medium">
-                    Login Email:{" "}
+                    Target Email:{" "}
                     <span className="font-semibold text-slate-800">
                       {selectedOfficerObj.email}
                     </span>
@@ -759,20 +743,16 @@ export default function OrganizationMembers({ user, org }) {
                 </div>
               )}
 
-              {/* Password Input */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Assign Initial Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  placeholder="At least 6 characters"
-                  value={accountPassword}
-                  onChange={(e) => setAccountPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
-                />
+              {/* Information Notice */}
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1 text-slate-600 text-[11px] leading-relaxed">
+                <p className="font-bold text-slate-800">
+                  📧 Invitation Setup Flow
+                </p>
+                <p>
+                  An email containing a secure setup link will be sent to the
+                  officer. They will use the link to set up their own password
+                  and activate their account[cite: 7].
+                </p>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
@@ -785,10 +765,11 @@ export default function OrganizationMembers({ user, org }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isCreatingAccount || !selectedMemberId}
-                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl disabled:opacity-50 transition-all shadow-sm border border-[#B8860B]/30 cursor-pointer"
+                  disabled={isSendingInvite || !selectedMemberId}
+                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl disabled:opacity-50 transition-all shadow-sm border border-[#B8860B]/30 cursor-pointer flex items-center gap-1.5"
                 >
-                  {isCreatingAccount ? "Creating..." : "Create Account"}
+                  <MailIcon className="w-3.5 h-3.5" />
+                  {isSendingInvite ? "Sending Email..." : "Send Setup Email"}
                 </button>
               </div>
             </form>

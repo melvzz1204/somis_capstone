@@ -1,3 +1,5 @@
+const { sendEmail } = require("../config/nodeMailer.js");
+const crypto = require("crypto");
 const Member = require("../models/MemberOrganization.js");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
@@ -180,8 +182,6 @@ exports.createOfficerAccount = async (req, res) => {
 
     const assignedUserRole = mapMemberRoleToUserRole(member.role);
 
-    // 👈 Fixed: Pass plain text 'password'.
-    // The User schema pre("save") hook will hash it automatically once!
     const newUser = await User.create({
       name: member.name,
       email: cleanEmail,
@@ -206,6 +206,131 @@ exports.createOfficerAccount = async (req, res) => {
     console.error("❌ Error creating officer account:", error);
     return res.status(500).json({
       message: error.message || "Failed to create user account.",
+    });
+  }
+};
+
+// ==========================================
+// 6. SEND ACCOUNT INVITATION EMAIL
+// ==========================================
+exports.sendMemberInvite = async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("📩 Processing sendMemberInvite for ID:", id);
+
+    const member = await Member.findById(id);
+    if (!member) {
+      console.warn(`⚠️ Member with ID ${id} was not found in the database.`);
+      return res
+        .status(404)
+        .json({ message: `Member with ID ${id} was not found.` });
+    }
+
+    // 1. Generate random setup token (24h expiry)
+    const setupToken = crypto.randomBytes(32).toString("hex");
+    const setupTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const cleanEmail = member.email.toLowerCase().trim();
+
+    // 2. Map role using helper function
+    const assignedRole = mapMemberRoleToUserRole(member.role); // 👈 FIX 2: Used role mapping helper
+
+    // 3. Create or find User record
+    let user = await User.findOne({ email: cleanEmail });
+
+    if (!user) {
+      user = new User({
+        name: member.name,
+        email: cleanEmail,
+        role: assignedRole,
+        organization: member.organization,
+        setupToken,
+        setupTokenExpires,
+      });
+    } else {
+      user.setupToken = setupToken;
+      user.setupTokenExpires = setupTokenExpires;
+    }
+
+    await user.save();
+
+    // 4. Construct activation link
+    const setupUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/setup-account?token=${setupToken}`;
+
+    await sendEmail({
+      to: member.email,
+      subject: "Action Required: Set Up Your Account Credentials",
+      html: `
+    <h2>Welcome to MarSU SOMIS</h2>
+    <p>Hello ${member.name},</p>
+    <p>An account setup request has been created for your role as <strong>${member.role}</strong>.</p>
+    <p>Please click the button below to set up your password and activate your account:</p>
+    <a href="${setupUrl}" style="display:inline-block; padding:10px 20px; background-color:#4A0E17; color:#fff; text-decoration:none; border-radius:8px;">Set Up Password</a>
+    <p>This link will expire in 24 hours.</p>
+  `,
+    });
+
+    return res.status(200).json({
+      message: `Setup invitation email sent to ${member.email}!`,
+    });
+  } catch (error) {
+    console.error("❌ Invite error:", error);
+    return res
+      .status(500)
+      .json({ message: error.message || "Failed to send invitation email." });
+  }
+};
+
+exports.setupAccount = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res
+        .status(400)
+        .json({ message: "Token and password are required." });
+    }
+
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters." });
+    }
+
+    // 1. Find user by valid, non-expired setup token
+    const user = await User.findOne({
+      setupToken: token,
+      setupTokenExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res
+        .status(400)
+        .json({ message: "Invalid or expired setup token." });
+    }
+
+    // 2. Set password (pre-save hook in User schema will hash it) and clear setup token
+    user.password = password;
+    user.setupToken = undefined;
+    user.setupTokenExpires = undefined;
+    user.status = "Active";
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Account activated successfully!",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        organization: user.organization,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Setup account error:", error);
+    return res.status(500).json({
+      message: error.message || "Failed to setup account.",
     });
   }
 };

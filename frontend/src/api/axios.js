@@ -2,13 +2,9 @@ import axios from "axios";
 
 // 1. Central Instance Configuration
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
-  timeout: 10000, // 10 second timeout to prevent hanging requests
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1",
+  withCredentials: true,
 });
-
 // 2. Request Interceptor: Attach Bearer Token Automatically
 API.interceptors.request.use(
   (config) => {

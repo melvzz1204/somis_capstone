@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import { getRedirectPathByRole } from "../util/loginRedirectPage";
 
 // Inline SVG Icons
 const UserShieldIcon = ({ className = "w-4 h-4" }) => (
@@ -50,7 +51,7 @@ export default function Login() {
   const handlePortalSwitch = (type) => {
     setPortalType(type);
     setError("");
-    setFormData({ email: "", password: "" }); // Reset inputs when switching tabs
+    setFormData({ email: "", password: "" });
   };
 
   const handleSubmit = async (e) => {
@@ -58,46 +59,32 @@ export default function Login() {
     setIsLoading(true);
     setError("");
 
-    // 1. Sanitize payload and attach active portalType/role
     const payload = {
       email: formData.email.trim().toLowerCase(),
       password: formData.password,
-      portalType: portalType, // e.g., "org" or "admin"
-      role: portalType === "admin" ? "admin" : "officer", // Included if backend checks 'role'
+      portalType: portalType,
+      role: portalType === "admin" ? "admin" : "officer",
     };
 
     try {
-      const response = await API.post("/v1/auth/login", payload);
+      const response = await API.post("/auth/login", payload);
 
-      // 2. Parse response payload
-      const resData = response.data || response;
-      const user = resData.user || resData.data?.user;
-      const token = resData.token || resData.data?.token;
+      // axios.js interceptor automatically returns response.data
+      const user = response.user || response.data?.user;
+      const token = response.token || response.data?.token;
 
       if (!user) {
-        throw new Error("User data missing from login response.");
+        throw new Error("User data missing from response.");
       }
 
-      // 3. Store credentials
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(user));
 
-      // 4. Navigate using exact route paths from App.jsx
-      if (user.role === "admin") {
-        navigate("/admin-dashboard");
-      } else {
-        navigate("/org-dashboard");
-      }
+      // Centralized Redirection
+      const redirectPath = getRedirectPathByRole(user.role);
+      navigate(redirectPath, { replace: true });
     } catch (err) {
-      console.error(
-        "Login Error details:",
-        err.response?.data || err.message || err,
-      );
-
-      setError(
-        err.response?.data?.message || err.message || "Invalid credentials.",
-      );
-      console.error("Login Error details:", err.originalError || err);
+      console.error("Login Error:", err);
       setError(err.message || "Invalid credentials.");
     } finally {
       setIsLoading(false);

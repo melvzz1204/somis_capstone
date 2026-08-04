@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import API from "../../api/axios";
-import { useToast } from "../../util/toastContext"; // 👈 1. IMPORT YOUR TOAST HOOK
+import { useToast } from "../../util/toastContext";
 
 // Inline Icon Components
 const CreditCardIcon = ({ className = "w-4 h-4" }) => (
@@ -35,23 +35,59 @@ const CloseIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+// Helper to ensure options work seamlessly whether passed as strings or { value, label } objects
+const normalizeOptions = (options = []) =>
+  options.map((opt) =>
+    typeof opt === "object" && opt !== null
+      ? opt
+      : { value: String(opt), label: String(opt) },
+  );
+
 export default function FeeModal({
   isOpen,
   onClose,
   onSubmitSuccess,
   org,
   user,
+  // DYNAMIC CONFIGURATION PROPS (Override via parent component or API)
+  categories: rawCategories = [
+    { value: "event_fee", label: "Event / Activity Fee" },
+    { value: "others", label: "Others (Custom Fee)" },
+  ],
+  semesters: rawSemesters = ["1st Semester", "2nd Semester", "Summer"],
+  targetLevels: rawTargetLevels = [
+    { value: "All", label: "All Students" },
+    { value: "1st Year", label: "1st Year Only" },
+    { value: "2nd Year", label: "2nd Year Only" },
+    { value: "3rd Year", label: "3rd Year Only" },
+    { value: "4th Year", label: "4th Year Only" },
+  ],
+  academicYears: rawAcademicYears,
 }) {
-  // 👈 2. DESTRUCTURE SHOWTOAST
   const { showToast } = useToast();
 
+  // Normalize options array
+  const categories = normalizeOptions(rawCategories);
+  const semesters = normalizeOptions(rawSemesters);
+  const targetLevels = normalizeOptions(rawTargetLevels);
+
+  // Calculate dynamic academic years if not explicitly provided
+  const currentYear = new Date().getFullYear();
+  const defaultAYs = [
+    `${currentYear - 1}-${currentYear}`,
+    `${currentYear}-${currentYear + 1}`,
+    `${currentYear + 1}-${currentYear + 2}`,
+  ];
+  const academicYears = normalizeOptions(rawAcademicYears || defaultAYs);
+
+  // Form State
   const [formData, setFormData] = useState({
-    feeCategory: "cisco_fee",
+    feeCategory: "",
     customFeeName: "",
     amount: "",
-    academicYear: "2025-2026",
-    semester: "1st Semester",
-    targetYearLevel: "All",
+    academicYear: "",
+    semester: "",
+    targetYearLevel: "",
     dueDate: "",
     description: "",
   });
@@ -59,9 +95,26 @@ export default function FeeModal({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Initialize or reset form defaults when modal opens or options change
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        feeCategory: categories[0]?.value || "others",
+        customFeeName: "",
+        amount: "",
+        academicYear: academicYears[1]?.value || academicYears[0]?.value || "",
+        semester: semesters[0]?.value || "",
+        targetYearLevel: targetLevels[0]?.value || "All",
+        dueDate: "",
+        description: "",
+      });
+      setErrorMsg("");
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  // 🔍 Helper to locate Org ID across all common object structures
+  // Helper to locate Org ID dynamically across all user/org payload variations
   const getOrgId = () => {
     if (org) {
       if (typeof org === "string") return org;
@@ -79,6 +132,8 @@ export default function FeeModal({
       if (currentUser.organizationId) return currentUser.organizationId;
       if (currentUser.organization?._id) return currentUser.organization._id;
       if (currentUser.organization?.id) return currentUser.organization.id;
+      if (currentUser._id && currentUser.role === "org_admin")
+        return currentUser._id;
     }
 
     return null;
@@ -98,17 +153,15 @@ export default function FeeModal({
     }));
   };
 
+  // Dynamically resolve title based on chosen category or custom input
   const resolveTitle = () => {
     if (formData.feeCategory === "others") {
       return formData.customFeeName.trim();
     }
-    const titles = {
-      cisco_fee: "Cisco Networking Fee",
-      paf: "Program Alignment Fee (PAF)",
-      membership: "Organization Membership Fee",
-      cics_week: "CICS Week Fee",
-    };
-    return titles[formData.feeCategory] || formData.feeCategory;
+    const matchedCategory = categories.find(
+      (cat) => cat.value === formData.feeCategory,
+    );
+    return matchedCategory ? matchedCategory.label : formData.feeCategory;
   };
 
   const handleSubmit = async (e) => {
@@ -118,35 +171,47 @@ export default function FeeModal({
 
     const targetOrgId = getOrgId();
 
+    if (!targetOrgId) {
+      const missingOrgErr =
+        "Organization ID missing. Please log in again or re-select organization.";
+      setErrorMsg(missingOrgErr);
+      showToast?.(missingOrgErr, "error");
+      setLoading(false);
+      return;
+    }
+
+    // Dynamic request payload
     const payload = {
       org: targetOrgId,
+      organization: targetOrgId,
       title: resolveTitle(),
       category: formData.feeCategory,
       amount: Number(formData.amount),
       academicYear: formData.academicYear,
       semester: formData.semester,
       targetYearLevel: formData.targetYearLevel,
-      dueDate: formData.dueDate,
+      dueDate: formData.dueDate, // Raw YYYY-MM-DD from input
       description: formData.description.trim(),
     };
 
     try {
       const response = await API.post("/fees", payload);
 
-      // 👈 3. TRIGGER SUCCESS TOAST
-      showToast?.("Fee drive created successfully!", "success");
+      showToast?.("Dues Collection created successfully!", "success");
 
-      if (onSubmitSuccess) onSubmitSuccess(response.data?.data || payload);
+      const createdFee =
+        response.data?.data || response.data?.fee || response.data || payload;
+      if (onSubmitSuccess) onSubmitSuccess(createdFee);
+
       onClose();
     } catch (error) {
-      console.error("Failed to create fee drive:", error);
+      console.error("Failed to create Dues Collection:", error);
       const errMsg =
         error.response?.data?.message ||
-        "Failed to create fee drive. Please check your network or inputs.";
+        error.response?.data?.error ||
+        "Failed to create Dues Collection. Please check network or inputs.";
 
       setErrorMsg(errMsg);
-
-      // 👈 3. TRIGGER ERROR TOAST
       showToast?.(errMsg, "error");
     } finally {
       setLoading(false);
@@ -154,10 +219,7 @@ export default function FeeModal({
   };
 
   const orgDisplayName =
-    org?.name ||
-    user?.organization?.name ||
-    user?.org?.name ||
-    "Active Organization";
+    org?.name || user?.organization?.name || user?.org?.name || "Organization";
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -170,7 +232,7 @@ export default function FeeModal({
             </div>
             <div>
               <h3 className="text-base font-extrabold text-[#4A0E17]">
-                Create New Fee Drive
+                Create Dues Collection
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Organization:{" "}
@@ -209,11 +271,11 @@ export default function FeeModal({
               onChange={handleCategoryChange}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
             >
-              <option value="cisco_fee">Cisco Networking Fee</option>
-              <option value="paf">Program Alignment Fee (PAF)</option>
-              <option value="membership">Organization Membership Fee</option>
-              <option value="cics_week">CICS Week Fee</option>
-              <option value="others">Others (Custom Fee)</option>
+              {categories.map((cat) => (
+                <option key={cat.value} value={cat.value}>
+                  {cat.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -227,7 +289,7 @@ export default function FeeModal({
                 type="text"
                 name="customFeeName"
                 required
-                placeholder="e.g. T-Shirt Collection Fee"
+                placeholder="Enter custom title..."
                 value={formData.customFeeName}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
@@ -251,7 +313,7 @@ export default function FeeModal({
                   min="0"
                   step="0.01"
                   required
-                  placeholder="150.00"
+                  placeholder="0.00"
                   value={formData.amount}
                   onChange={handleChange}
                   className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
@@ -286,8 +348,11 @@ export default function FeeModal({
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
               >
-                <option value="2025-2026">2025-2026</option>
-                <option value="2026-2027">2026-2027</option>
+                {academicYears.map((ay) => (
+                  <option key={ay.value} value={ay.value}>
+                    {ay.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -301,9 +366,11 @@ export default function FeeModal({
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
               >
-                <option value="1st Semester">1st Semester</option>
-                <option value="2nd Semester">2nd Semester</option>
-                <option value="Summer">Summer</option>
+                {semesters.map((sem) => (
+                  <option key={sem.value} value={sem.value}>
+                    {sem.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -319,11 +386,11 @@ export default function FeeModal({
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
             >
-              <option value="All">All CICS Students</option>
-              <option value="1st Year">1st Year Only</option>
-              <option value="2nd Year">2nd Year Only</option>
-              <option value="3rd Year">3rd Year Only</option>
-              <option value="4th Year">4th Year Only</option>
+              {targetLevels.map((lvl) => (
+                <option key={lvl.value} value={lvl.value}>
+                  {lvl.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -357,7 +424,7 @@ export default function FeeModal({
               disabled={loading}
               className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 border border-[#B8860B]/30 flex items-center gap-1.5"
             >
-              {loading ? "Creating Fee..." : "Create Fee Drive"}
+              {loading ? "Creating Fee..." : "Create Dues Collectione"}
             </button>
           </div>
         </form>

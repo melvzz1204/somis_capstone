@@ -322,7 +322,7 @@ export default function OrgDashboard() {
                 <span>{org.college}</span>
                 <span>•</span>
                 <span className="font-medium text-slate-600">
-                  Recognized Student Entity
+                  Recognized Student organization
                 </span>
               </p>
             </div>

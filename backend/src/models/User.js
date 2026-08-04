@@ -17,14 +17,13 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      // 👈 Password is only required if user is NOT setting up via token
+      select: false, // 👈 Prevents password hash leaks in API responses
       required: function () {
         return !this.setupToken;
       },
     },
     role: {
       type: String,
-      // 👈 Added 'org_admin' to allowed enum values
       enum: [
         "admin",
         "org_admin",
@@ -49,6 +48,7 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// Hash password automatically before saving
 userSchema.pre("save", async function () {
   if (!this.isModified("password") || !this.password) {
     return;

@@ -64,35 +64,45 @@ exports.setupAccount = async (req, res) => {
   try {
     const { token, password } = req.body;
 
-    if (!token || !password) {
-      return res
-        .status(400)
-        .json({ message: "Setup token and password are required." });
-    }
-
     const user = await User.findOne({
       setupToken: token,
       setupTokenExpires: { $gt: Date.now() },
     });
 
     if (!user) {
-      return res.status(400).json({
-        message: "Invalid or expired setup token. Please contact OVPSAS Admin.",
-      });
+      return res
+        .status(400)
+        .json({ message: "Invalid or expired setup token." });
     }
 
-    // Set plain text password here, the User model pre('save') hook will hash it
-    user.password = password;
+    // Hash password and clear tokens
+    user.password = password; // User model pre-save hook handles hashing
     user.setupToken = undefined;
     user.setupTokenExpires = undefined;
+    user.status = "Active";
+
     await user.save();
 
+    // Generate JWT token for auto-login
+    const authToken = jwt.sign(
+      { id: user._id, role: user.role, orgId: user.organization?._id },
+      process.env.JWT_SECRET || "capstone_secret_key_123",
+      { expiresIn: "1d" },
+    );
+
     return res.status(200).json({
-      message: "Password created successfully! You can now log in.",
+      message: "Account setup successful!",
+      token: authToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role, // e.g. "treasurer"
+        organization: user.organization,
+      },
     });
   } catch (error) {
-    console.error("Setup error:", error);
-    return res.status(500).json({ message: "Internal server error." });
+    return res.status(500).json({ message: "Failed to setup account." });
   }
 };
 

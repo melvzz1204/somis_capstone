@@ -1,6 +1,40 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import { getRedirectPathByRole } from "../util/loginRedirectPage";
+
+// Inline SVG Icons
+const UserShieldIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+    />
+  </svg>
+);
+
+const UserGroupIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+    />
+  </svg>
+);
 
 // Inline SVG Icons
 const UserShieldIcon = ({ className = "w-4 h-4" }) => (
@@ -50,7 +84,7 @@ export default function Login() {
   const handlePortalSwitch = (type) => {
     setPortalType(type);
     setError("");
-    setFormData({ email: "", password: "" }); // Reset inputs when switching tabs
+    setFormData({ email: "", password: "" });
   };
 
   const handleSubmit = async (e) => {
@@ -58,51 +92,45 @@ export default function Login() {
     setIsLoading(true);
     setError("");
 
-    // 1. Sanitize payload and attach active portalType/role
     const payload = {
       email: formData.email.trim().toLowerCase(),
       password: formData.password,
-      portalType: portalType, // e.g., "org" or "admin"
-      role: portalType === "admin" ? "admin" : "officer", // Included if backend checks 'role'
+      portalType: portalType,
+      role: portalType === "admin" ? "admin" : "officer",
     };
 
     try {
-      const response = await API.post("/v1/auth/login", payload);
+      const response = await API.post("/auth/login", payload);
 
-      // 2. Parse response payload
-      const resData = response.data || response;
-      const user = resData.user || resData.data?.user;
-      const token = resData.token || resData.data?.token;
+      const user = response.user || response.data?.user;
+      const token = response.token || response.data?.token;
 
       if (!user) {
-        throw new Error("User data missing from login response.");
+        throw new Error("User data missing from response.");
       }
 
-      // 3. Store credentials
+      const actualRole =
+        user.role || (portalType === "admin" ? "admin" : "officer");
+
       localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
-
-      // 4. Navigate using exact route paths from App.jsx
-      if (user.role === "admin") {
-        navigate("/admin-dashboard");
-      } else {
-        navigate("/org-dashboard");
-      }
-    } catch (err) {
-      console.error(
-        "Login Error details:",
-        err.response?.data || err.message || err,
+      localStorage.setItem(
+        "user",
+        JSON.stringify({ ...user, role: actualRole }),
       );
+      localStorage.setItem("somis_user_role", actualRole);
+      localStorage.setItem("somis_onboarding_completed", "true");
 
+      const redirectPath = getRedirectPathByRole(actualRole);
+      navigate(redirectPath, { replace: true });
+    } catch (err) {
+      console.error("Login Error:", err);
       setError(
         err.response?.data?.message || err.message || "Invalid credentials.",
       );
-      console.error("Login Error details:", err.originalError || err);
-      setError(err.message || "Invalid credentials.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }; // ✅ Correctly closed handleSubmit before returning JSX
 
   return (
     <div className="w-full bg-white p-6 rounded-2xl space-y-4 text-slate-900 border border-slate-100 shadow-xl">

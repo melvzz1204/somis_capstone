@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import API from "../api/axios";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
+<<<<<<< HEAD
+=======
+import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+>>>>>>> origin/module-1
 import LogoutButton from "../component/logoutButton";
 
 // --- SVG ICON COMPONENTS ---
@@ -36,6 +41,25 @@ const UserPlusIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+<<<<<<< HEAD
+=======
+const UserGroupIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a4 4 0 00-4-4h-1m-4 6H2v-2a4 4 0 014-4h3a4 4 0 014 4v2zm-3-9a4 4 0 100-8 4 4 0 000 8zm7 0a3 3 0 100-6"
+    />
+  </svg>
+);
+
+>>>>>>> origin/module-1
 const CalendarEventIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -68,6 +92,7 @@ const FileCheckIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+<<<<<<< HEAD
 const PlusIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -84,6 +109,8 @@ const PlusIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+=======
+>>>>>>> origin/module-1
 const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   <svg
     className={className}
@@ -141,16 +168,30 @@ const UploadCloudIcon = ({ className = "w-4 h-4" }) => (
 export default function OrgDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("overview");
+  const [user, setUser] = useState(() => {
+    try {
+      const storedUser = localStorage.getItem("user");
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (err) {
+      console.error("Failed to parse cached user data:", err);
+      return null;
+    }
+  });
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
+  const [proposals, setProposals] = useState([]);
+  const [isLoadingProposals, setIsLoadingProposals] = useState(true);
+  const [proposalActionId, setProposalActionId] = useState("");
+  const [proposalNotice, setProposalNotice] = useState("");
 
-  // Retrieve authenticated user & organization details from localStorage
-  const [user, setUser] = useState(null);
+  const loadOrganizationProfile = useCallback(async () => {
+    setIsProfileLoading(true);
+    setProfileError("");
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
+    try {
+      const authenticatedUser = await API.get("/auth/me");
 
+<<<<<<< HEAD
         // Redirect Secretary to their specialized dashboard
         if (parsedUser?.role === "secretary") {
           navigate("/secretary-dashboard", { replace: true });
@@ -160,10 +201,26 @@ export default function OrgDashboard() {
         setUser(parsedUser);
       } catch (err) {
         console.error("Failed to parse user data", err);
+=======
+      if (authenticatedUser?.role === "secretary") {
+        navigate("/secretary-dashboard", { replace: true });
+        return;
+>>>>>>> origin/module-1
       }
+
+      setUser(authenticatedUser);
+      localStorage.setItem("user", JSON.stringify(authenticatedUser));
+    } catch (err) {
+      console.error("Failed to fetch organization profile:", err);
+      setProfileError(
+        err.message || "Unable to load the latest organization profile.",
+      );
+    } finally {
+      setIsProfileLoading(false);
     }
   }, [navigate]);
 
+<<<<<<< HEAD
   // Safely extract organization data
   const org = user?.organization || {
     name: "Student Organization",
@@ -173,8 +230,83 @@ export default function OrgDashboard() {
     president: user?.name || "Student Leader",
     email: user?.email || "org@marsu.edu.ph",
     status: "Active",
+=======
+  const loadProposals = useCallback(async () => {
+    setIsLoadingProposals(true);
+    setProposalNotice("");
+    try {
+      const response = await API.get("/proposals");
+      setProposals(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setProposals([]);
+      setProposalNotice(err.message || "Unable to load activity proposals.");
+    } finally {
+      setIsLoadingProposals(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === "secretary") {
+      navigate("/secretary-dashboard", { replace: true });
+      return undefined;
+    }
+
+    const profileRequest = window.setTimeout(() => {
+      loadOrganizationProfile();
+      loadProposals();
+    }, 0);
+
+    return () => window.clearTimeout(profileRequest);
+  }, [loadOrganizationProfile, loadProposals, navigate, user?.role]);
+
+  const handleProposalReview = async (proposal, review) => {
+    setProposalActionId(proposal._id);
+    setProposalNotice("");
+    try {
+      const response = await API.patch(
+        `/proposals/${proposal._id}/review`,
+        review,
+      );
+      setProposals((current) =>
+        current.map((item) =>
+          item._id === proposal._id ? response.data : item,
+        ),
+      );
+      setProposalNotice(response.message || "Proposal decision saved.");
+      return true;
+    } catch (err) {
+      setProposalNotice(err.message || "Unable to save the proposal decision.");
+      return false;
+    } finally {
+      setProposalActionId("");
+    }
   };
 
+  const organization =
+    user?.organization && typeof user.organization === "object"
+      ? user.organization
+      : null;
+
+  // Keep the page usable from cached account data while the API request runs.
+  const org = {
+    _id: organization?._id || user?.organization || "",
+    name: organization?.name || "Student Organization",
+    acronym: organization?.acronym || "ORG",
+    college:
+      organization?.college || "College of Information and Computing Sciences",
+    adviser: organization?.adviser || "",
+    president: organization?.president || user?.name || "Student Leader",
+    email: organization?.email || user?.email || "org@marsu.edu.ph",
+    status: organization?.status || "Active",
+>>>>>>> origin/module-1
+  };
+
+  const organizationNeeds = [
+    !organization?.adviser && "Assign an official faculty adviser",
+    !organization?.president &&
+      "Confirm the current president or student leader",
+    !organization?.email && "Add an official organization contact email",
+  ].filter(Boolean);
   // Prevent flash of Org Admin content while redirecting
   if (user?.role === "secretary") {
     return null;
@@ -235,6 +367,23 @@ export default function OrgDashboard() {
               <span>Manage Officers</span>
             </button>
 
+<<<<<<< HEAD
+=======
+            <button
+              onClick={() => setActiveTab("members")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "members"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <UserGroupIcon
+                className={`w-4 h-4 ${activeTab === "members" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Organization Members</span>
+            </button>
+
+>>>>>>> origin/module-1
             <button
               onClick={() => setActiveTab("activities")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
@@ -322,7 +471,11 @@ export default function OrgDashboard() {
                 <span>{org.college}</span>
                 <span>•</span>
                 <span className="font-medium text-slate-600">
+<<<<<<< HEAD
                   Recognized Student Entity
+=======
+                  Recognized Student organization
+>>>>>>> origin/module-1
                 </span>
               </p>
             </div>
@@ -338,6 +491,30 @@ export default function OrgDashboard() {
           {/* TAB CONTENT: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
+<<<<<<< HEAD
+=======
+              {profileError && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-xs text-amber-900">
+                  <div>
+                    <p className="font-bold">
+                      Profile refresh was unsuccessful
+                    </p>
+                    <p className="mt-0.5 text-amber-700">
+                      {profileError} Cached organization details are shown
+                      below.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadOrganizationProfile}
+                    className="self-start sm:self-auto rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 transition-colors hover:bg-amber-100 cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+>>>>>>> origin/module-1
               {/* Stat Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-5 border border-slate-200/80 rounded-2xl bg-white shadow-xs space-y-1.5">
@@ -371,8 +548,31 @@ export default function OrgDashboard() {
 
               {/* Detail Profile Grid */}
               <div className="border border-slate-200/80 bg-white rounded-2xl shadow-xs overflow-hidden">
+<<<<<<< HEAD
                 <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 font-bold text-xs text-[#4A0E17]">
                   Organization Profile Summary
+=======
+                <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between gap-3 text-xs text-[#4A0E17]">
+                  <span className="font-bold">
+                    Organization Profile Summary
+                  </span>
+                  <span
+                    className={`flex items-center gap-1.5 font-semibold ${
+                      isProfileLoading ? "text-amber-700" : "text-emerald-700"
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        isProfileLoading
+                          ? "bg-amber-500 animate-pulse"
+                          : "bg-emerald-500"
+                      }`}
+                    ></span>
+                    {isProfileLoading
+                      ? "Refreshing profile"
+                      : "Profile updated"}
+                  </span>
+>>>>>>> origin/module-1
                 </div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                   <div>
@@ -423,6 +623,43 @@ export default function OrgDashboard() {
                       {org.adviser || "N/A"}
                     </span>
                   </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block mb-1">
+                      Recognition Status
+                    </span>
+                    <span className="font-bold text-slate-800">
+                      {org.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200/80 bg-white rounded-2xl shadow-xs overflow-hidden">
+                <div className="px-6 py-4 bg-[#D4AF37]/10 border-b border-slate-200/80 flex items-center justify-between gap-3">
+                  <span className="font-bold text-xs text-[#4A0E17]">
+                    Organization Needs
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {organizationNeeds.length === 0
+                      ? "Profile is complete"
+                      : `${organizationNeeds.length} item${organizationNeeds.length === 1 ? "" : "s"} to review`}
+                  </span>
+                </div>
+                <div className="p-6">
+                  {organizationNeeds.length === 0 ? (
+                    <p className="text-xs font-medium text-emerald-700">
+                      No missing profile details were found.
+                    </p>
+                  ) : (
+                    <ul className="space-y-3 text-xs text-slate-600">
+                      {organizationNeeds.map((need) => (
+                        <li key={need} className="flex items-start gap-2.5">
+                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                          <span>{need}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             </div>
@@ -433,11 +670,22 @@ export default function OrgDashboard() {
             <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
               <OrganizationMembers user={user} org={org} />
             </div>
+<<<<<<< HEAD
+=======
+          )}
+
+          {/* TAB CONTENT: ORGANIZATION MEMBERS */}
+          {activeTab === "members" && (
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
+              <OrganizationMembers user={user} org={org} view="members" />
+            </div>
+>>>>>>> origin/module-1
           )}
 
           {/* TAB CONTENT: ACTIVITIES */}
           {activeTab === "activities" && (
             <div className="space-y-4">
+<<<<<<< HEAD
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-base font-bold text-[#4A0E17]">
@@ -462,6 +710,19 @@ export default function OrgDashboard() {
                   No activity proposals submitted yet for AY 2025–2026.
                 </p>
               </div>
+=======
+              {proposalNotice && (
+                <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
+                  {proposalNotice}
+                </div>
+              )}
+              <LeaderProposalReview
+                proposals={proposals}
+                isLoading={isLoadingProposals}
+                actionId={proposalActionId}
+                onReview={handleProposalReview}
+              />
+>>>>>>> origin/module-1
             </div>
           )}
 

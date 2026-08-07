@@ -3,7 +3,11 @@ const Fee = require("../models/Fee");
 /**
  * @desc    Create a new Fee Drive
  * @route   POST /api/fees
+<<<<<<< HEAD
  * @access  Private (Secretary / Admin)
+=======
+ * @access  Private (Treasurer)
+>>>>>>> origin/module-1
  */
 const createFee = async (req, res) => {
   try {
@@ -16,11 +20,17 @@ const createFee = async (req, res) => {
       targetYearLevel,
       dueDate,
       description,
+<<<<<<< HEAD
       org, // Sent from frontend payload or extracted from auth token
     } = req.body;
 
     // Determine target Org ID (Auth middleware req.user preferred, fallback to req.body)
     const targetOrgId = req.user?.orgId || req.user?.org || org;
+=======
+    } = req.body;
+
+    const targetOrgId = req.user?.organization;
+>>>>>>> origin/module-1
 
     if (!targetOrgId) {
       return res.status(400).json({
@@ -30,6 +40,7 @@ const createFee = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     if (!title || !amount || !academicYear || !semester || !dueDate) {
       return res.status(400).json({
         success: false,
@@ -50,6 +61,40 @@ const createFee = async (req, res) => {
       dueDate,
       description,
       createdBy: req.user?._id,
+=======
+    const normalizedTitle = String(title || "").trim();
+    const numericAmount = Number(amount);
+    const parsedDueDate = dueDate ? new Date(dueDate) : null;
+
+    if (
+      !normalizedTitle ||
+      !Number.isFinite(numericAmount) ||
+      numericAmount <= 0 ||
+      !academicYear ||
+      !semester ||
+      !parsedDueDate ||
+      Number.isNaN(parsedDueDate.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Provide a fee title, a positive amount, academic year, semester, and valid due date.",
+      });
+    }
+
+    // Create an organization-scoped fee using the authenticated treasurer only.
+    const newFee = await Fee.create({
+      org: targetOrgId,
+      title: normalizedTitle,
+      category: String(category || "general").trim(),
+      amount: numericAmount,
+      academicYear,
+      semester,
+      targetYearLevel: targetYearLevel || "All",
+      dueDate: parsedDueDate,
+      description: String(description || "").trim(),
+      createdBy: req.user._id,
+>>>>>>> origin/module-1
     });
 
     res.status(201).json({
@@ -73,8 +118,12 @@ const createFee = async (req, res) => {
  */
 const getFees = async (req, res) => {
   try {
+<<<<<<< HEAD
     // Filter strictly by organization
     const orgId = req.user?.orgId || req.user?.org || req.query.org;
+=======
+    const orgId = req.user?.organization;
+>>>>>>> origin/module-1
 
     if (!orgId) {
       return res.status(400).json({
@@ -83,7 +132,27 @@ const getFees = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     const fees = await Fee.find({ org: orgId }).sort({ createdAt: -1 });
+=======
+    const query = { org: orgId };
+
+    if (req.user.role === "student") {
+      const StudentProfile = require("../models/studentProfile");
+      const studentProfile = await StudentProfile.findOne({
+        user: req.user._id,
+      }).select("yearLevel");
+
+      query.status = "active";
+      if (studentProfile?.yearLevel) {
+        query.targetYearLevel = {
+          $in: ["All", studentProfile.yearLevel],
+        };
+      }
+    }
+
+    const fees = await Fee.find(query).sort({ dueDate: 1, createdAt: -1 });
+>>>>>>> origin/module-1
 
     res.status(200).json({
       success: true,

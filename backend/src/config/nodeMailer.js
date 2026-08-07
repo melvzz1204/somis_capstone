@@ -8,7 +8,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Verify connection on startup (great for debugging)
+// Verify connection on startup
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ Email service error:", error.message);
@@ -17,4 +17,14 @@ transporter.verify((error, success) => {
   }
 });
 
-module.exports = transporter;
+// Wrapper function that handles sending mail via transporter
+const sendEmail = async ({ to, subject, html }) => {
+  return await transporter.sendMail({
+    from: `"MarSU SOMIS" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html,
+  });
+};
+
+module.exports = { sendEmail, transporter };

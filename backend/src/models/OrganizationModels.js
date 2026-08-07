@@ -16,15 +16,7 @@ const organizationSchema = new mongoose.Schema(
     college: {
       type: String,
       required: [true, "College assignment is required"],
-      enum: [
-        "College of Information and Computing Sciences",
-        "College of Engineering",
-        "College of Business and Accountancy",
-        "College of Education",
-        "College of Arts and Social Sciences",
-        "College of Allied Health Sciences",
-        "College of Industrial Technology",
-      ],
+      trim: true,
     },
     adviser: {
       type: String,

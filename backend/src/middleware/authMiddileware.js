@@ -27,8 +27,12 @@ exports.protect = async (req, res, next) => {
       return res.status(401).json({ message: "User no longer exists" });
     }
 
-    // 👈 FIX: Check `status !== "Active"` instead of `!isActive`
-    if (req.user.status && req.user.status !== "Active") {
+    // Administrators are provisioned by the system and do not require account activation.
+    if (
+      req.user.role !== "admin" &&
+      req.user.status &&
+      req.user.status !== "Active"
+    ) {
       return res.status(403).json({ message: "Account has been deactivated" });
     }
 

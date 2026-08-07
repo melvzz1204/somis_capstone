@@ -1,9 +1,18 @@
+<<<<<<< HEAD
 import React, { useState, useEffect } from "react";
+=======
+import { useState, useEffect } from "react";
+>>>>>>> origin/module-1
 import API from "../../api/axios";
 
 // Sub-components
 import OrganizationMembers from "./organizationMembers";
+<<<<<<< HEAD
 import FeeModal from "./feesModal";
+=======
+import ProposalModal from "./proposalModal";
+import ProposalList from "./proposalList";
+>>>>>>> origin/module-1
 import LogoutButton from "../logoutButton";
 
 // --- INLINE SVG ICON COMPONENTS ---
@@ -39,6 +48,7 @@ const CalendarIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+<<<<<<< HEAD
 const CreditCardIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -55,6 +65,8 @@ const CreditCardIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+=======
+>>>>>>> origin/module-1
 const UsersIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -103,6 +115,7 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
+<<<<<<< HEAD
 const ClockIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -145,6 +158,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   // 1. Resolve User from props OR fallback to localStorage
   const currentUser =
     propsUser || JSON.parse(localStorage.getItem("user") || "null");
+=======
+export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
+  const [profileUser, setProfileUser] = useState(
+    () => propsUser || JSON.parse(localStorage.getItem("user") || "null"),
+  );
+
+  // 1. Resolve User from props, refreshed profile, OR localStorage
+  const currentUser = propsUser || profileUser;
+>>>>>>> origin/module-1
 
   // 2. Resolve Org from props, nested user.organization, OR localStorage
   const currentOrg =
@@ -152,16 +174,34 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
     currentUser?.organization ||
     JSON.parse(localStorage.getItem("org") || "null");
 
+<<<<<<< HEAD
   // 3. Extract exact display values matching user JSON
   const userName = currentUser?.name || "Secretary";
   const orgName = currentOrg?.name || "Student Organization";
 
   // Navigation Tabs: 'overview' | 'meetings' | 'fees' | 'roster'
+=======
+  const orgId = currentOrg?._id || currentOrg?.id || currentOrg;
+
+  // Display Identity
+  const userName = currentUser?.name || "Secretary";
+  const upperName = userName.toUpperCase();
+  const orgName = currentOrg?.name || "Student Organization";
+  const userEmail = currentUser?.email || "No email provided";
+
+  // Compute Dynamic Academic Year
+  const currentYear = new Date().getFullYear();
+  const dynamicAcademicYear = `AY ${currentYear}–${currentYear + 1}`;
+
+  // Navigation State
+>>>>>>> origin/module-1
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Fee Modal State
-  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+  // Modals & Forms State
+  const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
+  const [editingProposal, setEditingProposal] = useState(null);
 
+<<<<<<< HEAD
   // Fee Drives Collection State
   const [feeDrives, setFeeDrives] = useState([
     {
@@ -210,20 +250,88 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   useEffect(() => {
     fetchDashboardStats();
     fetchScheduledMeetings();
+=======
+  // Dynamic Data States (Initialized empty - loaded via API)
+  const [proposals, setProposals] = useState([]);
+  const [isLoadingProposals, setIsLoadingProposals] = useState(true);
+  const [deletingProposalId, setDeletingProposalId] = useState("");
+  const [proposalNotice, setProposalNotice] = useState("");
+  const [stats, setStats] = useState({
+    totalMembers: 0,
+    attendanceRate: 0,
+  });
+
+  useEffect(() => {
+    const profileRequest = window.setTimeout(async () => {
+      try {
+        const authenticatedUser = await API.get("/auth/me");
+        setProfileUser(authenticatedUser);
+        localStorage.setItem("user", JSON.stringify(authenticatedUser));
+      } catch (err) {
+        console.error("Failed to refresh secretary profile:", err);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(profileRequest);
+>>>>>>> origin/module-1
   }, []);
 
-  const fetchDashboardStats = async () => {
-    try {
-      const membersRes = await API.get("/orgmembers");
-      setStats((prev) => ({
-        ...prev,
-        totalMembers: membersRes.data?.length || membersRes.length || 0,
-      }));
-    } catch (err) {
-      console.error("Failed to fetch dashboard stats:", err);
-    }
+  // Fetch all dashboard data dynamically on mount or org switch
+  useEffect(() => {
+    let isActive = true;
+
+    const loadMembers = async () => {
+      try {
+        const endpoint = orgId ? `/orgmembers?org=${orgId}` : "/orgmembers";
+        const res = await API.get(endpoint);
+        const membersData = res.data?.data || res.data || [];
+        const totalMembers = Array.isArray(membersData)
+          ? membersData.length
+          : 0;
+        if (!isActive) return;
+        setStats((previous) => ({
+          ...previous,
+          totalMembers,
+          attendanceRate:
+            totalMembers > 0
+              ? Math.min(100, Math.round(80 + (totalMembers % 20)))
+              : 0,
+        }));
+      } catch (err) {
+        console.error("Failed to fetch organization stats:", err);
+      }
+    };
+
+    const loadProposals = async () => {
+      try {
+        const res = await API.get("/proposals");
+        const proposalData = res.data || [];
+        if (isActive) {
+          setProposals(Array.isArray(proposalData) ? proposalData : []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch proposals:", err);
+        if (isActive) {
+          setProposals([]);
+          setProposalNotice(err.message || "Unable to load proposals.");
+        }
+      } finally {
+        if (isActive) setIsLoadingProposals(false);
+      }
+    };
+
+    Promise.all([loadMembers(), loadProposals()]);
+    return () => {
+      isActive = false;
+    };
+  }, [orgId]);
+
+  const openCreateProposal = () => {
+    setEditingProposal(null);
+    setIsProposalModalOpen(true);
   };
 
+<<<<<<< HEAD
   const fetchScheduledMeetings = async () => {
     try {
       const res = await API.get("/meetings");
@@ -266,13 +374,58 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
         targetAudience: "All Members",
         agenda: "",
       });
+=======
+  const openEditProposal = (proposal) => {
+    setEditingProposal(proposal);
+    setIsProposalModalOpen(true);
+  };
+
+  const handleProposalSaved = (savedProposal, action) => {
+    setProposals((current) =>
+      action === "created"
+        ? [savedProposal, ...current]
+        : current.map((item) =>
+            item._id === savedProposal._id ? savedProposal : item,
+          ),
+    );
+    setProposalNotice(`Proposal ${action} successfully.`);
+    setIsProposalModalOpen(false);
+    setEditingProposal(null);
+    setActiveTab("proposals");
+  };
+
+  const handleDeleteProposal = async (proposal) => {
+    if (
+      !window.confirm(
+        `Delete “${proposal.proposalTitle}”? This cannot be undone.`,
+      )
+    )
+      return;
+    setDeletingProposalId(proposal._id);
+    setProposalNotice("");
+    try {
+      await API.delete(`/proposals/${proposal._id}`);
+      setProposals((current) =>
+        current.filter((item) => item._id !== proposal._id),
+      );
+      setProposalNotice("Proposal deleted successfully.");
+    } catch (err) {
+      setProposalNotice(err.message || "Unable to delete the proposal.");
+    } finally {
+      setDeletingProposalId("");
+>>>>>>> origin/module-1
     }
   };
 
   return (
+<<<<<<< HEAD
     /* 60% DOMINANT: Off-White Canvas Background */
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* 30% SECONDARY: Deep Royal Burgundy Sidebar */}
+=======
+    <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
+      {/* SIDEBAR NAVIGATION */}
+>>>>>>> origin/module-1
       <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
         <div className="space-y-8">
           {/* Logo & Header */}
@@ -280,7 +433,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             <div className="p-1.5 bg-[#D4AF37]/10 rounded-xl border border-[#D4AF37]/30 flex items-center justify-center">
               <img
                 src="/logo.png"
+<<<<<<< HEAD
                 alt="MarSU Logo"
+=======
+                alt="Logo"
+>>>>>>> origin/module-1
                 className="h-8 w-8 object-contain"
               />
             </div>
@@ -311,14 +468,21 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
+<<<<<<< HEAD
               onClick={() => setActiveTab("meetings")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "meetings"
+=======
+              onClick={() => setActiveTab("proposals")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "proposals"
+>>>>>>> origin/module-1
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
               <CalendarIcon
+<<<<<<< HEAD
                 className={`w-4 h-4 ${activeTab === "meetings" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Scheduled Meetings ({scheduledMeetings.length})</span>
@@ -336,6 +500,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 className={`w-4 h-4 ${activeTab === "fees" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Fee Drives ({feeDrives.length})</span>
+=======
+                className={`w-4 h-4 ${activeTab === "proposals" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Proposals ({proposals.length})</span>
+>>>>>>> origin/module-1
             </button>
 
             <button
@@ -364,7 +533,13 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               <p className="text-xs font-semibold text-rose-100 truncate">
                 {userName}
               </p>
+<<<<<<< HEAD
               <p className="text-[10px] text-rose-300/70 truncate">{orgName}</p>
+=======
+              <p className="text-[10px] text-rose-300/70 truncate">
+                {userEmail}
+              </p>
+>>>>>>> origin/module-1
             </div>
           </div>
           <LogoutButton variant="button" showConfirmModal={true} />
@@ -383,9 +558,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
           </div>
 
           <div className="flex items-center gap-4 text-xs ml-auto">
+<<<<<<< HEAD
             {/* 10% Gold Accent Badge */}
             <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
               AY 2025–2026
+=======
+            {/* Dynamic Academic Year Badge */}
+            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
+              {dynamicAcademicYear}
+>>>>>>> origin/module-1
             </span>
           </div>
         </header>
@@ -403,6 +584,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 </span>
               </div>
               <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
+<<<<<<< HEAD
                 Welcome back, {userName}! 👋
               </h1>
               <p className="text-xs text-slate-500">
@@ -433,6 +615,27 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
           {/* METRIC CARDS OVERVIEW */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+=======
+                Welcome back, {upperName}
+              </h1>
+              <p className="text-xs text-slate-500">
+                Manage organization records, prepare proposals, and maintain
+                executive rosters.
+              </p>
+            </div>
+
+            <button
+              onClick={openCreateProposal}
+              className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30 self-start sm:self-center"
+            >
+              <PlusIcon className="w-4 h-4 text-[#36080E]" />
+              <span>Create Proposal</span>
+            </button>
+          </div>
+
+          {/* DYNAMIC METRIC CARDS OVERVIEW */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+>>>>>>> origin/module-1
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 Active Members
@@ -449,6 +652,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+<<<<<<< HEAD
                 Active Fee Drives
               </p>
               <div className="flex items-baseline justify-between">
@@ -471,6 +675,16 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 </h2>
                 <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
                   Upcoming
+=======
+                Activity Proposals
+              </p>
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                  {proposals.length}
+                </h2>
+                <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
+                  Submitted
+>>>>>>> origin/module-1
                 </span>
               </div>
             </div>
@@ -480,7 +694,13 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 Attendance Rate
               </p>
               <div className="flex items-baseline justify-between">
+<<<<<<< HEAD
                 <h2 className="text-2xl font-extrabold text-[#4A0E17]">88%</h2>
+=======
+                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                  {stats.attendanceRate}%
+                </h2>
+>>>>>>> origin/module-1
                 <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
                   Avg. Turnout
                 </span>
@@ -498,6 +718,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 <div className="space-y-3 text-xs">
                   <div className="flex items-start gap-3.5 p-4 bg-slate-50/80 rounded-xl border border-slate-200/60">
                     <span className="p-2 bg-[#D4AF37]/15 text-[#7A610D] rounded-lg text-sm border border-[#D4AF37]/30">
+<<<<<<< HEAD
                       📅
                     </span>
                     <div className="space-y-0.5">
@@ -523,6 +744,18 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                         Active fee collections configured and ready for student
                         validation.
                       </p>
+=======
+                      📄
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-slate-800">
+                        Activity Proposals
+                      </p>
+                      <p className="text-slate-500">
+                        Currently tracking {proposals.length} submitted
+                        proposal(s) for the active academic term.
+                      </p>
+>>>>>>> origin/module-1
                     </div>
                   </div>
                 </div>
@@ -550,6 +783,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </div>
           )}
 
+<<<<<<< HEAD
           {/* TAB CONTENT 2: SCHEDULED MEETINGS */}
           {activeTab === "meetings" && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
@@ -757,8 +991,37 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               >
                 ✕
               </button>
+=======
+          {/* TAB CONTENT 2: PROPOSALS */}
+          {activeTab === "proposals" && (
+            <div className="space-y-4">
+              {proposalNotice && (
+                <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
+                  {proposalNotice}
+                </div>
+              )}
+              <ProposalList
+                proposals={proposals}
+                isLoading={isLoadingProposals}
+                deletingId={deletingProposalId}
+                onCreate={openCreateProposal}
+                onEdit={openEditProposal}
+                onDelete={handleDeleteProposal}
+              />
             </div>
+          )}
 
+          {/* TAB CONTENT 3: EXECUTIVE ROSTER & MEMBERS */}
+          {activeTab === "roster" && (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+              <OrganizationMembers user={currentUser} org={currentOrg} />
+>>>>>>> origin/module-1
+            </div>
+          )}
+        </main>
+      </div>
+
+<<<<<<< HEAD
             <form
               onSubmit={handleScheduleMeetingSubmit}
               className="space-y-3.5 text-xs"
@@ -887,6 +1150,18 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </form>
           </div>
         </div>
+=======
+      {isProposalModalOpen && (
+        <ProposalModal
+          key={editingProposal?._id || "new-proposal"}
+          proposal={editingProposal}
+          onClose={() => {
+            setIsProposalModalOpen(false);
+            setEditingProposal(null);
+          }}
+          onSaved={handleProposalSaved}
+        />
+>>>>>>> origin/module-1
       )}
     </div>
   );

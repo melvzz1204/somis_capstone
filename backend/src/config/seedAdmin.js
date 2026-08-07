@@ -11,9 +11,15 @@ const seedAdmin = async () => {
         email: adminEmail,
         password: process.env.ADMIN_PASSWORD || "AdminPass2026!",
         role: "admin",
+        status: "Active",
       });
       console.log(`👑 Admin account created successfully: ${adminEmail}`);
     } else {
+      if (existingAdmin.role !== "admin" || existingAdmin.status !== "Active") {
+        existingAdmin.role = "admin";
+        existingAdmin.status = "Active";
+        await existingAdmin.save();
+      }
       console.log(`ℹ️  Admin account verified: ${adminEmail}`);
     }
   } catch (error) {

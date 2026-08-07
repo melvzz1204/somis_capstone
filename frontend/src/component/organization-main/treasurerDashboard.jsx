@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import API from "../../api/axios";
 import LogoutButton from "../logoutButton";
+import FeeModal from "./feesModal";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -75,22 +76,6 @@ const PieChartIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-const UsersIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-    />
-  </svg>
-);
-
 const PlusIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -119,38 +104,6 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
       strokeLinejoin="round"
       strokeWidth="2"
       d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-    />
-  </svg>
-);
-
-const TrendingUpIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-    />
-  </svg>
-);
-
-const TrendingDownIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"
     />
   </svg>
 );
@@ -220,11 +173,12 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
   // Modals & Form State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dynamic Data States
   const [transactions, setTransactions] = useState([]);
+  const [feeDrives, setFeeDrives] = useState([]);
   const [filterType, setFilterType] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -237,28 +191,51 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     reference: "",
   });
 
-  // Fetch all Treasury data on mount or org switch
+  // Fetch all treasury data on mount or organization switch.
   useEffect(() => {
+    let isActive = true;
+
     const fetchTreasuryData = async () => {
-      setIsLoading(true);
-      await fetchTransactions();
-      setIsLoading(false);
+      const [transactionsResult, feesResult] = await Promise.allSettled([
+        API.get(orgId ? `/transactions?org=${orgId}` : "/transactions"),
+        API.get("/fees"),
+      ]);
+
+      if (!isActive) return;
+
+      if (transactionsResult.status === "fulfilled") {
+        const data =
+          transactionsResult.value.data?.data ||
+          transactionsResult.value.data ||
+          [];
+        setTransactions(Array.isArray(data) ? data : []);
+      } else {
+        console.error(
+          "Failed to fetch treasury transactions:",
+          transactionsResult.reason,
+        );
+        setTransactions([]);
+      }
+
+      if (feesResult.status === "fulfilled") {
+        const data = feesResult.value.data?.data || feesResult.value.data || [];
+        setFeeDrives(Array.isArray(data) ? data : []);
+      } else {
+        console.error("Failed to fetch dues collections:", feesResult.reason);
+        setFeeDrives([]);
+      }
     };
 
     fetchTreasuryData();
+    return () => {
+      isActive = false;
+    };
   }, [orgId]);
 
-  // API Call: Ledger Transactions
-  const fetchTransactions = async () => {
-    try {
-      const endpoint = orgId ? `/transactions?org=${orgId}` : "/transactions";
-      const res = await API.get(endpoint);
-      const data = res.data?.data || res.data || [];
-      setTransactions(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Failed to fetch treasury transactions:", err);
-      setTransactions([]);
-    }
+  const handleFeeCreated = (newFeeData) => {
+    setFeeDrives((previous) => [newFeeData, ...previous]);
+    setIsFeeModalOpen(false);
+    setActiveTab("fees");
   };
 
   // Dynamic Calculations
@@ -409,6 +386,20 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
+              onClick={() => setActiveTab("fees")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "fees"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <WalletIcon
+                className={`w-4 h-4 ${activeTab === "fees" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Dues Collection ({feeDrives.length})</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("budgets")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "budgets"
@@ -487,6 +478,13 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2 self-start sm:self-center">
+              <button
+                onClick={() => setIsFeeModalOpen(true)}
+                className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
+              >
+                <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                <span>Create Dues Collection</span>
+              </button>
               <button
                 onClick={() => {
                   setTransactionForm((prev) => ({ ...prev, type: "expense" }));
@@ -773,7 +771,89 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
             </div>
           )}
 
-          {/* TAB CONTENT 3: BUDGET ALLOCATIONS */}
+          {/* TAB CONTENT 3: DUES COLLECTION */}
+          {activeTab === "fees" && (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-[#4A0E17]">
+                    Organization Dues Collection
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Create and manage official fee requirements for members and
+                    students.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsFeeModalOpen(true)}
+                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
+                >
+                  <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                  <span>Add Dues Collection</span>
+                </button>
+              </div>
+
+              {feeDrives.length === 0 ? (
+                <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
+                  <p className="text-xs font-bold text-slate-700">
+                    No Dues Collection Created Yet
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Click “Add Dues Collection” to create a collection for
+                    membership or activities.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {feeDrives.map((fee, idx) => (
+                    <div
+                      key={fee._id || fee.id || idx}
+                      className="bg-slate-50/60 p-5 rounded-2xl border border-slate-200/80 hover:border-[#D4AF37] transition-all space-y-3 flex flex-col justify-between"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-[#4A0E17] text-sm">
+                            {fee.title}
+                          </h4>
+                          <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg shrink-0">
+                            ₱{Number(fee.amount || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        {fee.description && (
+                          <p className="text-xs text-slate-600 line-clamp-2">
+                            {fee.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="pt-3 border-t border-slate-200/80 space-y-1.5 text-[11px] text-slate-500">
+                        <div className="flex items-center justify-between">
+                          <span>Applies To:</span>
+                          <span className="font-bold text-slate-700">
+                            {fee.targetYearLevel || "All"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Academic Term:</span>
+                          <span className="font-bold text-slate-700">
+                            {fee.academicYear}{" "}
+                            {fee.semester ? `(${fee.semester})` : ""}
+                          </span>
+                        </div>
+                        {fee.dueDate && (
+                          <div className="flex items-center justify-between text-amber-700 font-bold">
+                            <span>Due Date:</span>
+                            <span>{formatDate(fee.dueDate)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB CONTENT 4: BUDGET ALLOCATIONS */}
           {activeTab === "budgets" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
@@ -849,6 +929,15 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           )}
         </main>
       </div>
+
+      {/* DYNAMIC FEE MODAL */}
+      <FeeModal
+        isOpen={isFeeModalOpen}
+        onClose={() => setIsFeeModalOpen(false)}
+        onSubmitSuccess={handleFeeCreated}
+        org={currentOrg}
+        user={currentUser}
+      />
 
       {/* DYNAMIC RECORD TRANSACTION MODAL */}
       {isTransactionModalOpen && (

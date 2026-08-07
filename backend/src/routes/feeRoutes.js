@@ -1,14 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const { createFee, getFees } = require("../controllers/feeController");
+const { protect, authorize } = require("../middleware/authMiddileware");
 
-// Optional: Import your authentication/role middleware if applicable
-// const { protect, authorize } = require("../middleware/authMiddleware");
-
-// Route: /api/fees
+// Route: /api/v1/fees
 router
   .route("/")
-  .post(createFee) // Add fee to DB
-  .get(getFees); // Fetch list of fees
+  .post(protect, authorize("treasurer"), createFee)
+  .get(protect, getFees);
 
 module.exports = router;

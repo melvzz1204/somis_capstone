@@ -5,6 +5,7 @@ const crypto = require("crypto");
 // Models & Utilities
 const Organization = require("../models/OrganizationModels");
 const User = require("../models/User"); // 👈 Added User model to store setup token
+const Member = require("../models/MemberOrganization");
 const sendOrgInviteEmail = require("../util/sendEmail"); // Double-check folder is 'util' or 'utils'
 
 // =========================================================
@@ -12,7 +13,19 @@ const sendOrgInviteEmail = require("../util/sendEmail"); // Double-check folder 
 // =========================================================
 router.get("/", async (req, res) => {
   try {
-    const organizations = await Organization.find().sort({ createdAt: -1 });
+    const filter = {};
+
+    if (req.query.college) {
+      filter.college = req.query.college;
+    }
+
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const organizations = await Organization.find(filter)
+      .select("name acronym college adviser president email status")
+      .sort({ name: 1 });
     return res.status(200).json(organizations);
   } catch (error) {
     console.error("Error fetching organizations:", error);
@@ -26,11 +39,15 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, acronym, college, adviser, president, email } = req.body;
+    const presidentSurname = String(president || "")
+      .trim()
+      .replace(/\s+/g, " ");
 
     // 1. Basic validation
-    if (!name || !acronym || !college || !email) {
+    if (!name || !acronym || !college || !presidentSurname || !email) {
       return res.status(400).json({
-        message: "Organization name, acronym, college, and email are required.",
+        message:
+          "Organization name, acronym, college, student leader/president surname, and email are required.",
       });
     }
 
@@ -44,13 +61,14 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // 3. Save Organization record
+    // 3. Save Organization record. OVPSAS supplies only the protected surname;
+    // the president completes the rest of the name from their dashboard.
     const organization = new Organization({
       name,
       acronym,
       college,
       adviser,
-      president,
+      president: presidentSurname,
       email,
     });
     const savedOrg = await organization.save();
@@ -61,7 +79,7 @@ router.post("/", async (req, res) => {
 
     // 5. Save pending User account with setupToken
     const newUser = new User({
-      name: president || name, // 👈 Fixes "name: Name is required"
+      name: presidentSurname,
       email: email.toLowerCase(),
       role: "org_admin", // 👈 Works now that 'org_admin' is in the enum
       organization: savedOrg._id,
@@ -69,6 +87,18 @@ router.post("/", async (req, res) => {
       setupTokenExpires: tokenExpires,
     });
     await newUser.save(); // 👈 Password is no longer required when setupToken is present
+
+    // The president is also part of the official roster. Their surname and
+    // email come from OVPSAS, while they complete the other name fields after
+    // signing in to the organization dashboard.
+    await Member.create({
+      name: presidentSurname,
+      surname: presidentSurname,
+      email: email.toLowerCase().trim(),
+      role: "President",
+      organization: savedOrg._id,
+      hasAccount: true,
+    });
 
     // 6. Send the email via Gmail SMTP
     let setupUrl = "";

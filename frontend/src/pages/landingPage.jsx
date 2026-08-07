@@ -1,9 +1,62 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import Login from "../component/login";
+import RoleSelectionModal from "../component/roleSelectionModal";
+import StudentOnboardingModal from "../component/studentOnboardingModal";
+import StudentLogin from "../component/studentLogin";
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeModal, setActiveModal] = useState(() => {
+    const token = localStorage.getItem("token");
+    const hasCompletedOnboarding = localStorage.getItem(
+      "somis_onboarding_completed",
+    );
+
+    return !token && !hasCompletedOnboarding ? "role" : null;
+  });
+
+  const handleSelectOfficer = () => {
+    localStorage.setItem("somis_user_role", "officer");
+    setActiveModal("login");
+  };
+
+  const handleSelectStudent = () => {
+    localStorage.setItem("somis_user_role", "student");
+    setActiveModal("student");
+  };
+
+  const handleCloseModals = () => {
+    localStorage.setItem("somis_onboarding_completed", "true");
+    setActiveModal(null);
+  };
+
+  const handleStudentOnboardingFinish = () => {
+    localStorage.setItem("somis_user_role", "student");
+    localStorage.setItem("somis_onboarding_completed", "true");
+    setActiveModal("student_login");
+  };
+
+  const handleSignInClick = () => {
+    localStorage.setItem("somis_onboarding_completed", "true");
+
+    const storedUser = localStorage.getItem("user");
+    const savedRole = localStorage.getItem("somis_user_role");
+    let userRole = null;
+
+    if (storedUser) {
+      try {
+        userRole = JSON.parse(storedUser)?.role;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (userRole === "student" || savedRole === "student") {
+      setActiveModal("student_login");
+    } else {
+      setActiveModal("login");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#1A000D] text-slate-100 font-sans selection:bg-[#FFD700] selection:text-black flex flex-col justify-between relative overflow-x-hidden">
@@ -58,10 +111,10 @@ export default function LandingPage() {
               </a>
             </nav>
 
-            {/* Login CTA Header Button */}
+            {/* Login CTA Header Button (Desktop) */}
             <div className="hidden md:flex items-center gap-4">
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={handleSignInClick}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-xs text-[#0A0A0A] bg-[#FFD700] hover:bg-[#FFE033] transition-all shadow-md shadow-[#FFD700]/10 hover:shadow-[#FFD700]/30 active:scale-95 cursor-pointer"
               >
                 <svg
@@ -142,7 +195,7 @@ export default function LandingPage() {
             <button
               onClick={() => {
                 setMobileMenuOpen(false);
-                setIsModalOpen(true);
+                handleSignInClick(); // ✅ Fixed: Now uses handleSignInClick instead of setActiveModal("role")
               }}
               className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-xs text-[#0A0A0A] bg-[#FFD700] hover:bg-[#FFE033] transition-all cursor-pointer"
             >
@@ -165,7 +218,7 @@ export default function LandingPage() {
         </p>
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => setActiveModal("role")}
             className="w-full sm:w-auto px-7 py-3 rounded-lg font-semibold text-xs text-[#0A0A0A] bg-[#FFD700] hover:bg-[#FFE033] transition-all shadow-lg shadow-[#FFD700]/20 hover:scale-[1.02] cursor-pointer"
           >
             Access SOMIS Portal &rarr;
@@ -331,31 +384,33 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="border-t border-[#33001A] bg-[#0A0A0A] py-6 text-slate-500 text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img
-              src="/logo.png"
-              alt="MarSU Logo"
-              className="h-5 w-auto object-contain"
-            />
-            <span className="font-semibold text-white">SOMIS</span>
-          </div>
-          <p>
-            © {new Date().getFullYear()} Office of the Vice President for
-            Student Affairs (OVPSAS).
-          </p>
-        </div>
-      </footer>
+      {/* 1. ROLE SELECTION MODAL */}
+      {activeModal === "role" && (
+        <RoleSelectionModal
+          isOpen={true}
+          onClose={handleCloseModals}
+          onOfficerSelect={handleSelectOfficer}
+          onStudentSelect={handleSelectStudent}
+        />
+      )}
 
-      {/* LOGIN MODAL */}
-      {isModalOpen && (
+      {/* 2. DEDICATED REGULAR STUDENT ONBOARDING MODAL */}
+      {activeModal === "student" && (
+        <StudentOnboardingModal
+          isOpen={true}
+          initialStep={2}
+          onClose={handleCloseModals}
+          onFinish={handleStudentOnboardingFinish}
+          onOfficerSelect={handleSelectOfficer}
+        />
+      )}
+
+      {/* 3. OFFICER / GENERAL LOGIN MODAL */}
+      {activeModal === "login" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-            {/* Close Button */}
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 min-h-[300px]">
             <button
-              onClick={() => setIsModalOpen(false)}
+              onClick={handleCloseModals}
               className="absolute top-4 right-4 z-10 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               title="Close modal"
               aria-label="Close Modal"
@@ -375,13 +430,65 @@ export default function LandingPage() {
               </svg>
             </button>
 
-            {/* Embedded Login Component */}
             <div className="p-2">
               <Login />
             </div>
           </div>
         </div>
       )}
+
+      {/* 4. DEDICATED STUDENT MEMBER LOGIN MODAL */}
+      {activeModal === "student_login" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 min-h-[300px]">
+            <button
+              onClick={handleCloseModals}
+              className="absolute top-4 right-4 z-10 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Close modal"
+              aria-label="Close Modal"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+
+            <div className="p-2">
+              <StudentLogin
+                onClose={handleCloseModals}
+                onSwitchToOnboarding={() => setActiveModal("student")}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER */}
+      <footer className="border-t border-[#33001A] bg-[#0A0A0A] py-6 text-slate-500 text-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <img
+              src="/logo.png"
+              alt="MarSU Logo"
+              className="h-5 w-auto object-contain"
+            />
+            <span className="font-semibold text-white">SOMIS</span>
+          </div>
+          <p>
+            © {new Date().getFullYear()} Office of the Vice President for
+            Student Affairs (OVPSAS).
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

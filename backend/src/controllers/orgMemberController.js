@@ -2,7 +2,34 @@ const { sendEmail } = require("../config/nodeMailer.js");
 const crypto = require("crypto");
 const Member = require("../models/MemberOrganization.js");
 const User = require("../models/User");
+const StudentProfile = require("../models/studentProfile");
+const Organization = require("../models/OrganizationModels");
 const bcrypt = require("bcryptjs");
+
+const cleanNamePart = (value = "") => String(value).trim().replace(/\s+/g, " ");
+
+const normalizeMiddleInitial = (value = "") => {
+  const initial = cleanNamePart(value)
+    .replace(/\./g, "")
+    .charAt(0)
+    .toUpperCase();
+  return initial ? `${initial}.` : "";
+};
+
+const formatMemberName = ({ surname, firstName, middleInitial, suffix }) => {
+  const cleanSurname = cleanNamePart(surname);
+  const cleanFirstName = cleanNamePart(firstName);
+  const cleanMiddleInitial = normalizeMiddleInitial(middleInitial);
+  const cleanSuffix = cleanNamePart(suffix);
+
+  const givenName = [cleanFirstName, cleanMiddleInitial]
+    .filter(Boolean)
+    .join(" ");
+  const baseName =
+    cleanSurname && givenName ? `${cleanSurname}, ${givenName}` : "";
+
+  return [baseName, cleanSuffix].filter(Boolean).join(", ");
+};
 
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
@@ -12,14 +39,63 @@ exports.getMembersByOrg = async (req, res) => {
     const orgId =
       req.user?.orgId ||
       req.user?.organization ||
-      req.user?._id ||
-      req.params.orgId;
+      req.params.orgId ||
+      req.user?._id;
 
     if (!orgId) {
       return res.status(400).json({ message: "Organization ID is required." });
     }
 
+    // Older organizations may have been created before presidents were also
+    // stored in the official roster. Backfill the record from the OVPSAS-entered
+    // organization details without overwriting a profile already completed by
+    // the president.
+    const organization =
+      await Organization.findById(orgId).select("president email");
+    if (organization?.president && organization?.email) {
+      const normalizedPresidentEmail = organization.email.toLowerCase().trim();
+      const existingPresident = await Member.findOne({
+        organization: organization._id,
+        email: normalizedPresidentEmail,
+      });
+
+      if (!existingPresident) {
+        const presidentSurname = cleanNamePart(organization.president);
+        await Member.create({
+          name: presidentSurname,
+          surname: presidentSurname,
+          email: normalizedPresidentEmail,
+          role: "President",
+          organization: organization._id,
+          hasAccount: true,
+        });
+      } else {
+        existingPresident.role = "President";
+        existingPresident.hasAccount = true;
+        await existingPresident.save();
+      }
+    }
+
+    // Reconcile legacy officer records with active login accounts so the
+    // dashboard can reliably display their account status.
+    const activeAccountEmails = await User.find({
+      organization: orgId,
+      status: "Active",
+    }).distinct("email");
+
+    if (activeAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: activeAccountEmails },
+          hasAccount: { $ne: true },
+        },
+        { $set: { hasAccount: true } },
+      );
+    }
+
     const members = await Member.find({ organization: orgId }).sort({
+      role: 1,
       createdAt: -1,
     });
 
@@ -31,13 +107,92 @@ exports.getMembersByOrg = async (req, res) => {
 };
 
 // ==========================================
-// 2. ADD NEW MEMBER / OFFICER WITH AVATAR
+// 2. GET THE LOGGED-IN STUDENT'S ORGANIZATION AND ROSTER
+// ==========================================
+exports.getMyOrganization = async (req, res) => {
+  try {
+    const normalizedEmail = req.user.email.toLowerCase().trim();
+    let organization = req.user.organization
+      ? await Organization.findById(req.user.organization)
+      : null;
+    let membership = null;
+
+    if (organization) {
+      membership = await Member.findOne({
+        organization: organization._id,
+        email: normalizedEmail,
+      });
+    } else {
+      // Preserve access for legacy accounts created before organization
+      // selection became part of student registration.
+      membership = await Member.findOne({ email: normalizedEmail }).populate(
+        "organization",
+      );
+
+      if (membership?.organization) {
+        organization = membership.organization;
+        await Promise.all([
+          User.findByIdAndUpdate(req.user._id, {
+            organization: organization._id,
+          }),
+          StudentProfile.findOneAndUpdate(
+            { user: req.user._id },
+            { organization: organization._id },
+          ),
+        ]);
+      }
+    }
+
+    const studentProfile = await StudentProfile.findOne({ user: req.user._id });
+
+    if (!organization) {
+      return res.status(200).json({
+        organization: null,
+        membership: null,
+        roster: [],
+        studentProfile,
+      });
+    }
+
+    const roster = await Member.find({
+      organization: organization._id,
+    }).sort({ role: 1, name: 1 });
+
+    return res.status(200).json({
+      organization,
+      membership,
+      roster,
+      studentProfile,
+    });
+  } catch (error) {
+    console.error("Error fetching student organization:", error);
+    return res.status(500).json({
+      message: "Failed to retrieve your organization details.",
+    });
+  }
+};
+
+// ==========================================
+// 3. ADD NEW MEMBER / OFFICER WITH AVATAR
 // ==========================================
 exports.addMember = async (req, res) => {
   try {
     console.log("ADD MEMBER REQ.BODY:", req.body);
     console.log("ADD MEMBER REQ.FILE:", req.file);
-    const { idNumber, name, email, birthday, year, section, role } = req.body;
+    const {
+      idNumber,
+      name,
+      surname,
+      firstName,
+      middleInitial,
+      suffix,
+      email,
+      birthday,
+      year,
+      program,
+      section,
+      role,
+    } = req.body;
 
     const orgId =
       req.user?.orgId ||
@@ -45,10 +200,17 @@ exports.addMember = async (req, res) => {
       req.body.organization ||
       req.user?._id;
 
-    if (!name || !email || !role) {
-      return res
-        .status(400)
-        .json({ message: "Name, email, and position are required." });
+    const hasStructuredName = Boolean(
+      cleanNamePart(surname) && cleanNamePart(firstName),
+    );
+    const displayName = hasStructuredName
+      ? formatMemberName({ surname, firstName, middleInitial, suffix })
+      : cleanNamePart(name);
+
+    if (!displayName || !email || !role) {
+      return res.status(400).json({
+        message: "Surname, first name, email, and position are required.",
+      });
     }
 
     let avatarPath = null;
@@ -58,10 +220,17 @@ exports.addMember = async (req, res) => {
 
     const newMember = await Member.create({
       idNumber,
-      name,
+      name: displayName,
+      surname: hasStructuredName ? cleanNamePart(surname) : "",
+      firstName: hasStructuredName ? cleanNamePart(firstName) : "",
+      middleInitial: hasStructuredName
+        ? normalizeMiddleInitial(middleInitial)
+        : "",
+      suffix: hasStructuredName ? cleanNamePart(suffix) : "",
       email,
       birthday: birthday ? new Date(birthday) : null,
       year,
+      program,
       section,
       role,
       avatar: avatarPath,
@@ -103,7 +272,20 @@ exports.deleteMember = async (req, res) => {
 exports.updateMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const { idNumber, name, email, birthday, year, section, role } = req.body;
+    const {
+      idNumber,
+      name,
+      surname,
+      firstName,
+      middleInitial,
+      suffix,
+      email,
+      birthday,
+      year,
+      program,
+      section,
+      role,
+    } = req.body;
 
     const member = await Member.findById(id);
     if (!member) {
@@ -111,19 +293,76 @@ exports.updateMember = async (req, res) => {
     }
 
     if (idNumber !== undefined) member.idNumber = idNumber;
-    if (name) member.name = name;
-    if (email) member.email = email;
+
+    const isPresident = member.role === "President";
+    const preservedPresidentSurname = isPresident
+      ? member.surname || cleanNamePart(String(member.name || "").split(",")[0])
+      : "";
+    const structuredNameWasSubmitted =
+      surname !== undefined ||
+      firstName !== undefined ||
+      middleInitial !== undefined ||
+      suffix !== undefined;
+
+    if (structuredNameWasSubmitted) {
+      const nextName = {
+        surname: isPresident
+          ? preservedPresidentSurname
+          : surname !== undefined
+            ? cleanNamePart(surname)
+            : member.surname,
+        firstName:
+          firstName !== undefined ? cleanNamePart(firstName) : member.firstName,
+        middleInitial:
+          middleInitial !== undefined
+            ? normalizeMiddleInitial(middleInitial)
+            : member.middleInitial,
+        suffix: suffix !== undefined ? cleanNamePart(suffix) : member.suffix,
+      };
+
+      if (!nextName.surname || !nextName.firstName) {
+        return res
+          .status(400)
+          .json({ message: "Surname and first name are required." });
+      }
+
+      member.surname = nextName.surname;
+      member.firstName = nextName.firstName;
+      member.middleInitial = nextName.middleInitial;
+      member.suffix = nextName.suffix;
+      member.name = formatMemberName(nextName);
+    } else if (name && !isPresident) {
+      member.name = cleanNamePart(name);
+    }
+
+    if (email && !isPresident) member.email = email;
     if (birthday !== undefined)
       member.birthday = birthday ? new Date(birthday) : null;
     if (year !== undefined) member.year = year;
+    if (program !== undefined) member.program = program;
     if (section !== undefined) member.section = section;
-    if (role) member.role = role;
+    if (role && !isPresident) member.role = role;
 
     if (req.file) {
       member.avatar = `/uploads/${req.file.filename}`;
     }
 
     await member.save();
+
+    if (isPresident) {
+      await Promise.all([
+        Organization.findByIdAndUpdate(member.organization, {
+          president: member.name,
+        }),
+        User.findOneAndUpdate(
+          {
+            organization: member.organization,
+            email: member.email.toLowerCase().trim(),
+          },
+          { name: member.name },
+        ),
+      ]);
+    }
 
     return res.status(200).json({
       message: "Member updated successfully!",
@@ -224,6 +463,13 @@ exports.sendMemberInvite = async (req, res) => {
       return res
         .status(404)
         .json({ message: `Member with ID ${id} was not found.` });
+    }
+
+    if (member.role === "Member") {
+      return res.status(400).json({
+        message:
+          "Regular members already create their own student accounts and do not need an officer invitation.",
+      });
     }
 
     // 1. Generate random setup token (24h expiry)

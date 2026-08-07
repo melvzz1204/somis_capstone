@@ -12,6 +12,30 @@ const memberSchema = new mongoose.Schema(
       required: [true, "Member name is required"],
       trim: true,
     },
+    surname: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+    firstName: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
+    middleInitial: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 2,
+      default: "",
+    },
+    suffix: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     email: {
       type: String,
       required: [true, "Email address is required"],
@@ -24,6 +48,11 @@ const memberSchema = new mongoose.Schema(
     },
     year: {
       type: String, // e.g., "1st Year", "2nd Year", "3rd Year", "4th Year"
+      trim: true,
+      default: "",
+    },
+    program: {
+      type: String,
       trim: true,
       default: "",
     },

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
+import CollegeCatalog from "../component/collegeCatalog";
 import { useToast } from "../util/toastContext";
 
 // --- SVG ICON COMPONENTS ---
@@ -107,12 +107,13 @@ export default function AdminDashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [organizations, setOrganizations] = useState([]);
+  const [colleges, setColleges] = useState([]);
 
   // Form state for creating a new organization
   const [newOrg, setNewOrg] = useState({
     name: "",
     acronym: "",
-    college: "College of Information and Computing Sciences",
+    college: "",
     adviser: "",
     president: "",
     email: "",
@@ -123,20 +124,23 @@ export default function AdminDashboard() {
   const adminEmail = storedUser.email || "admin@marsu.edu.ph";
 
   useEffect(() => {
-    const fetchOrganizations = async () => {
+    const fetchDashboardData = async () => {
       try {
-        const response = await API.get("/organizations");
-        const orgsList = Array.isArray(response) ? response : response.data;
-        if (Array.isArray(orgsList)) {
-          setOrganizations(orgsList);
-        }
+        const [organizationsData, collegesData] = await Promise.all([
+          API.get("/organizations"),
+          API.get("/colleges"),
+        ]);
+        setOrganizations(
+          Array.isArray(organizationsData) ? organizationsData : [],
+        );
+        setColleges(Array.isArray(collegesData) ? collegesData : []);
       } catch (err) {
-        console.error("Failed to fetch organizations:", err);
+        console.error("Failed to fetch admin dashboard data:", err);
       }
     };
 
-    fetchOrganizations();
-  }, []);
+    fetchDashboardData();
+  }, [activeTab]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -148,7 +152,10 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
 
     try {
-      const response = await API.post("/v1/organizations", newOrg);
+      const response = await API.post("/organizations", {
+        ...newOrg,
+        president: newOrg.president.trim().replace(/\s+/g, " "),
+      });
       const savedOrg = response.data || response;
 
       setOrganizations((prev) => [savedOrg, ...prev]);
@@ -156,7 +163,7 @@ export default function AdminDashboard() {
       setNewOrg({
         name: "",
         acronym: "",
-        college: "College of Information and Computing Sciences",
+        college: "",
         adviser: "",
         president: "",
         email: "",
@@ -215,6 +222,19 @@ export default function AdminDashboard() {
               <span>Recognized Organizations</span>
             </button>
             <button
+              onClick={() => setActiveTab("colleges")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "colleges"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <BuildingIcon
+                className={`w-4 h-4 ${activeTab === "colleges" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Colleges & Programs</span>
+            </button>
+            <button
               onClick={() => setActiveTab("clearance")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "clearance"
@@ -266,131 +286,137 @@ export default function AdminDashboard() {
         </header>
 
         <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Total Recognized
-                </p>
-                <h3 className="text-2xl font-black text-[#4A0E17] mt-1">
-                  {organizations.length}
-                </h3>
-              </div>
-              <div className="p-3 bg-[#4A0E17]/5 rounded-xl text-[#4A0E17]">
-                <BuildingIcon className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Clearance Status
-                </p>
-                <h3 className="text-2xl font-black text-emerald-700 mt-1">
-                  Operational
-                </h3>
-              </div>
-              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-700">
-                <FileCheckIcon className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Advisers Assigned
-                </p>
-                <h3 className="text-2xl font-black text-[#8B6E10] mt-1">
-                  {organizations.filter((o) => o.adviser).length}
-                </h3>
-              </div>
-              <div className="p-3 bg-[#D4AF37]/15 rounded-xl text-[#8B6E10]">
-                <UserGroupIcon className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-            <div>
-              <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
-                Recognized Student Organizations
-              </h1>
-              <p className="text-xs text-slate-500 mt-1">
-                Official directory and accreditation management under OVPSAS
-                guidelines.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto flex items-center gap-2 border border-[#B8860B]/30 active:scale-98"
-            >
-              <PlusIcon className="w-4 h-4 text-[#36080E]" />
-              <span>Register Organization</span>
-            </button>
-          </div>
-
-          <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-            <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
-              <span>Organization Directory</span>
-              <span className="text-slate-400 font-normal">
-                Showing {organizations.length} entry/entries
-              </span>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              {Array.isArray(organizations) && organizations.length > 0 ? (
-                organizations.map((org) => (
-                  <div
-                    key={org._id || org.id}
-                    className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors"
-                  >
-                    <div className="space-y-1.5 max-w-xl">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-sm font-bold text-[#4A0E17]">
-                          {org.name}
-                        </span>
-                        <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
-                          {org.acronym}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        {org.college} <br className="sm:hidden" />
-                        <span className="hidden sm:inline"> • </span>
-                        Adviser:{" "}
-                        <span className="text-slate-700 font-medium">
-                          {org.adviser || "N/A"}
-                        </span>
-                        <span className="mx-1">•</span>
-                        President:{" "}
-                        <span className="text-slate-700 font-medium">
-                          {org.president || "N/A"}
-                        </span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-xs self-end sm:self-center">
-                      <span className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-[11px] flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        {org.status || "Active"}
-                      </span>
-                      <button className="px-3.5 py-2 rounded-lg border border-[#4A0E17]/20 text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all cursor-pointer font-semibold flex items-center gap-1.5">
-                        <span>Details</span>
-                        <ExternalLinkIcon className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+          {activeTab === "colleges" ? (
+            <CollegeCatalog />
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Total Recognized
+                    </p>
+                    <h3 className="text-2xl font-black text-[#4A0E17] mt-1">
+                      {organizations.length}
+                    </h3>
                   </div>
-                ))
-              ) : (
-                <div className="py-16 text-center text-xs text-slate-400 space-y-2">
-                  <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
-                  <p className="font-medium">
-                    No registered student organizations found.
+                  <div className="p-3 bg-[#4A0E17]/5 rounded-xl text-[#4A0E17]">
+                    <BuildingIcon className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Clearance Status
+                    </p>
+                    <h3 className="text-2xl font-black text-emerald-700 mt-1">
+                      Operational
+                    </h3>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-xl text-emerald-700">
+                    <FileCheckIcon className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Advisers Assigned
+                    </p>
+                    <h3 className="text-2xl font-black text-[#8B6E10] mt-1">
+                      {organizations.filter((o) => o.adviser).length}
+                    </h3>
+                  </div>
+                  <div className="p-3 bg-[#D4AF37]/15 rounded-xl text-[#8B6E10]">
+                    <UserGroupIcon className="w-6 h-6" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
+                    Recognized Student Organizations
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Official directory and accreditation management under OVPSAS
+                    guidelines.
                   </p>
                 </div>
-              )}
-            </div>
-          </section>
+
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto flex items-center gap-2 border border-[#B8860B]/30 active:scale-98"
+                >
+                  <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                  <span>Register Organization</span>
+                </button>
+              </div>
+
+              <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
+                  <span>Organization Directory</span>
+                  <span className="text-slate-400 font-normal">
+                    Showing {organizations.length} entry/entries
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {Array.isArray(organizations) && organizations.length > 0 ? (
+                    organizations.map((org) => (
+                      <div
+                        key={org._id || org.id}
+                        className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors"
+                      >
+                        <div className="space-y-1.5 max-w-xl">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-sm font-bold text-[#4A0E17]">
+                              {org.name}
+                            </span>
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
+                              {org.acronym}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            {org.college} <br className="sm:hidden" />
+                            <span className="hidden sm:inline"> • </span>
+                            Adviser:{" "}
+                            <span className="text-slate-700 font-medium">
+                              {org.adviser || "N/A"}
+                            </span>
+                            <span className="mx-1">•</span>
+                            President:{" "}
+                            <span className="text-slate-700 font-medium">
+                              {org.president || "N/A"}
+                            </span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs self-end sm:self-center">
+                          <span className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-[11px] flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            {org.status || "Active"}
+                          </span>
+                          <button className="px-3.5 py-2 rounded-lg border border-[#4A0E17]/20 text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all cursor-pointer font-semibold flex items-center gap-1.5">
+                            <span>Details</span>
+                            <ExternalLinkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="py-16 text-center text-xs text-slate-400 space-y-2">
+                      <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
+                      <p className="font-medium">
+                        No registered student organizations found.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </>
+          )}
         </main>
       </div>
 
@@ -457,32 +483,19 @@ export default function AdminDashboard() {
                   </label>
                   <select
                     name="college"
+                    required
                     value={newOrg.college}
                     onChange={handleInputChange}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] bg-white truncate"
                   >
-                    <option value="College of Information and Computing Sciences">
-                      College of Info & Computing Sciences
+                    <option value="" disabled>
+                      Select college
                     </option>
-                    <option value="College of Engineering">
-                      College of Engineering
-                    </option>
-                    <option value="College of Business and Accountancy">
-                      College of Business & Accountancy
-                    </option>
-                    <option value="College of Education">
-                      College of Education
-                    </option>
-                    <option value="College of Arts and Social Sciences">
-                      College of Arts & Social Sciences
-                    </option>
-                    <option value="College of Allied Health Sciences">
-                      College of Allied Health Sciences
-                    </option>
-                    <option value="College of Industrial Technology">
-                      College of Industrial Technology
-                    </option>
-                    <option value="University-Wide">University-Wide</option>
+                    {colleges.map((college) => (
+                      <option key={college._id} value={college.name}>
+                        {college.name} ({college.code})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -501,33 +514,38 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[#4A0E17] font-bold mb-1">
-                    Student Leader / President
-                  </label>
-                  <input
-                    type="text"
-                    name="president"
-                    placeholder="e.g. Juan Cruz"
-                    value={newOrg.president}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[#4A0E17] font-bold mb-1">
-                    Official Email
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    placeholder="site@marsu.edu.ph"
-                    value={newOrg.email}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
-                  />
-                </div>
+              <div>
+                <label className="block text-[#4A0E17] font-bold mb-1">
+                  Surname of Student Leader / President
+                </label>
+                <input
+                  type="text"
+                  name="president"
+                  required
+                  placeholder="e.g. Dela Cruz"
+                  value={newOrg.president}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                />
+                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                  Enter the surname only. The leader will complete their first
+                  name, M.I., and suffix in the organization dashboard.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[#4A0E17] font-bold mb-1">
+                  Official Organization Email
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  placeholder="site@marsu.edu.ph"
+                  value={newOrg.email}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                />
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">

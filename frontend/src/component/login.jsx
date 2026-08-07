@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
@@ -69,7 +69,6 @@ export default function Login() {
     try {
       const response = await API.post("/auth/login", payload);
 
-      // axios.js interceptor automatically returns response.data
       const user = response.user || response.data?.user;
       const token = response.token || response.data?.token;
 
@@ -77,19 +76,28 @@ export default function Login() {
         throw new Error("User data missing from response.");
       }
 
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
+      const actualRole =
+        user.role || (portalType === "admin" ? "admin" : "officer");
 
-      // Centralized Redirection
-      const redirectPath = getRedirectPathByRole(user.role);
+      localStorage.setItem("token", token);
+      localStorage.setItem(
+        "user",
+        JSON.stringify({ ...user, role: actualRole }),
+      );
+      localStorage.setItem("somis_user_role", actualRole);
+      localStorage.setItem("somis_onboarding_completed", "true");
+
+      const redirectPath = getRedirectPathByRole(actualRole);
       navigate(redirectPath, { replace: true });
     } catch (err) {
       console.error("Login Error:", err);
-      setError(err.message || "Invalid credentials.");
+      setError(
+        err.response?.data?.message || err.message || "Invalid credentials.",
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }; // ✅ Correctly closed handleSubmit before returning JSX
 
   return (
     <div className="w-full bg-white p-6 rounded-2xl space-y-4 text-slate-900 border border-slate-100 shadow-xl">

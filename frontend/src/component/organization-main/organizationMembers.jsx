@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 
@@ -12,7 +12,6 @@ const OFFICER_ROLES = [
   "Sgt. & Arms",
   "Muse",
   "Escort",
-  "Member",
 ];
 const getRootBackendUrl = () => {
   try {
@@ -121,13 +120,17 @@ const ShieldCheckIcon = ({ className = "w-3 h-3" }) => (
   </svg>
 );
 
-export default function OrganizationMembers({ user, org }) {
+export default function OrganizationMembers({ user, org, view = "officers" }) {
   const { showToast } = useToast();
+  const isMemberDirectory = view === "members";
 
   const [officers, setOfficers] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPrograms, setIsLoadingPrograms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [programError, setProgramError] = useState("");
 
   // Add/Edit Member Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -138,11 +141,16 @@ export default function OrganizationMembers({ user, org }) {
   const [formData, setFormData] = useState({
     idNumber: "",
     name: "",
+    surname: "",
+    firstName: "",
+    middleInitial: "",
+    suffix: "",
     email: "",
     birthday: "",
     year: "1st Year",
+    program: "",
     section: "",
-    role: "Member",
+    role: OFFICER_ROLES[0],
   });
 
   // --- SEND INVITATION EMAIL MODAL STATES ---
@@ -152,39 +160,90 @@ export default function OrganizationMembers({ user, org }) {
   const [accountModalError, setAccountModalError] = useState("");
   const [accountModalSuccess, setAccountModalSuccess] = useState("");
 
-  // Fetch Roster
-  useEffect(() => {
-    fetchMembers();
-  }, []);
-
-  const fetchMembers = async () => {
+  async function fetchMembers() {
     setIsLoading(true);
     setErrorMessage("");
     try {
       const data = await API.get("/orgmembers");
-      setOfficers(data);
-      if (data && data.length > 0) {
-        setSelectedMemberId(data[0]._id);
-      }
+      const roster = Array.isArray(data) ? data : [];
+      const filteredRoster = roster.filter((member) =>
+        isMemberDirectory ? member.role === "Member" : member.role !== "Member",
+      );
+
+      setOfficers(filteredRoster);
+      setSelectedMemberId(filteredRoster[0]?._id || "");
     } catch (err) {
       console.error("Failed to fetch members:", err);
-      setErrorMessage(err.message || "Failed to load officer roster."); //[cite: 9, 10]
+      setErrorMessage(
+        err.message ||
+          (isMemberDirectory
+            ? "Failed to load organization members."
+            : "Failed to load officer roster."),
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  // Open Modal for Creating Member
+  async function fetchPrograms(collegeName) {
+    setIsLoadingPrograms(true);
+    setProgramError("");
+
+    try {
+      const colleges = await API.get("/colleges");
+      const organizationCollege = String(collegeName || "")
+        .trim()
+        .toLowerCase();
+      const matchedCollege = Array.isArray(colleges)
+        ? colleges.find(
+            (college) =>
+              String(college.name || "")
+                .trim()
+                .toLowerCase() === organizationCollege,
+          )
+        : null;
+
+      setPrograms(matchedCollege?.programs || []);
+      if (!matchedCollege) {
+        setProgramError(
+          "No OVPSAS program catalog was found for this organization's college.",
+        );
+      }
+    } catch (err) {
+      console.error("Failed to fetch college programs:", err);
+      setPrograms([]);
+      setProgramError(err.message || "Failed to load OVPSAS programs.");
+    } finally {
+      setIsLoadingPrograms(false);
+    }
+  }
+
+  // Fetch roster and the OVPSAS-maintained academic catalog.
+  useEffect(() => {
+    const dataRequest = window.setTimeout(() => {
+      fetchMembers();
+      if (!isMemberDirectory) fetchPrograms(org?.college);
+    }, 0);
+
+    return () => window.clearTimeout(dataRequest);
+  }, [isMemberDirectory, org?.college]);
+
+  // Open Modal for Creating Officer
   const handleOpenAddModal = () => {
     setEditingOfficer(null);
     setFormData({
       idNumber: "",
       name: "",
+      surname: "",
+      firstName: "",
+      middleInitial: "",
+      suffix: "",
       email: "",
       birthday: "",
       year: "1st Year",
+      program: "",
       section: "",
-      role: "Member",
+      role: OFFICER_ROLES[0],
     });
     setAvatarFile(null);
     setAvatarPreview(null);
@@ -194,14 +253,38 @@ export default function OrganizationMembers({ user, org }) {
   // Open Modal for Editing Member
   const handleOpenEditModal = (officer) => {
     setEditingOfficer(officer);
+    const rawLegacyName = String(officer.name || "").trim();
+    const legacyNameParts = rawLegacyName.split(",").map((part) => part.trim());
+    const spaceSeparatedName = rawLegacyName.split(/\s+/).filter(Boolean);
+    const legacySurname = rawLegacyName.includes(",")
+      ? legacyNameParts[0] || ""
+      : spaceSeparatedName.at(-1) || "";
+    const legacyGivenParts = (
+      rawLegacyName.includes(",")
+        ? legacyNameParts[1] || ""
+        : spaceSeparatedName.slice(0, -1).join(" ")
+    )
+      .split(" ")
+      .filter(Boolean);
+    const legacyMiddleInitial =
+      legacyGivenParts.find((part) => /^\w\.$/.test(part)) || "";
+    const legacyFirstName = legacyGivenParts
+      .filter((part) => part !== legacyMiddleInitial)
+      .join(" ");
+
     setFormData({
       idNumber: officer.idNumber || "",
       name: officer.name || "",
+      surname: officer.surname || legacySurname,
+      firstName: officer.firstName || legacyFirstName,
+      middleInitial: officer.middleInitial || legacyMiddleInitial,
+      suffix: officer.suffix || "",
       email: officer.email || "",
       birthday: officer.birthday ? officer.birthday.split("T")[0] : "",
       year: officer.year || "1st Year",
+      program: officer.program || "",
       section: officer.section || "",
-      role: officer.role || "Member",
+      role: officer.role || OFFICER_ROLES[0],
     });
     setAvatarFile(null);
     setAvatarPreview(officer.avatar ? getAvatarSrc(officer.avatar) : null);
@@ -230,19 +313,28 @@ export default function OrganizationMembers({ user, org }) {
   // Submit Handler for Member Add/Edit
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.email.trim()) return;
+    if (
+      !formData.surname.trim() ||
+      !formData.firstName.trim() ||
+      !formData.email.trim()
+    )
+      return;
 
     setIsSubmitting(true);
     setErrorMessage("");
 
     try {
       const payload = new FormData();
-      payload.append("name", formData.name.trim());
+      payload.append("surname", formData.surname.trim());
+      payload.append("firstName", formData.firstName.trim());
+      payload.append("middleInitial", formData.middleInitial.trim());
+      payload.append("suffix", formData.suffix.trim());
       payload.append("email", formData.email.trim());
-      payload.append("role", formData.role || "Member");
+      payload.append("role", formData.role || OFFICER_ROLES[0]);
       payload.append("idNumber", formData.idNumber || "");
       payload.append("birthday", formData.birthday || "");
       payload.append("year", formData.year || "1st Year");
+      payload.append("program", formData.program || "");
       payload.append("section", formData.section || "");
 
       const orgId = org?._id || user?.organization?._id || user?._id;
@@ -356,6 +448,7 @@ export default function OrganizationMembers({ user, org }) {
   };
 
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
+  const isEditingPresident = editingOfficer?.role === "President";
 
   return (
     <div className="space-y-5">
@@ -363,29 +456,33 @@ export default function OrganizationMembers({ user, org }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
         <div>
           <h3 className="text-base font-extrabold text-[#4A0E17]">
-            Executive Officers & Members
+            {isMemberDirectory ? "Organization Members" : "Executive Officers"}
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Listed leaders and members registered for the current academic year.
+            {isMemberDirectory
+              ? "Regular student members registered under this organization."
+              : "Organization officers registered for the current academic year."}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleOpenAddModal}
-            className="px-3.5 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-          >
-            <UserPlusIcon className="w-4 h-4" />
-            Add Officer
-          </button>
-          <button
-            onClick={handleOpenCreateAccount}
-            className="px-3.5 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-sm border border-[#B8860B]/30 flex items-center gap-1.5 cursor-pointer"
-          >
-            <MailIcon className="w-4 h-4" />
-            Send Invite Link
-          </button>
-        </div>
+        {!isMemberDirectory && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleOpenAddModal}
+              className="px-3.5 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+            >
+              <UserPlusIcon className="w-4 h-4" />
+              Add Officer
+            </button>
+            <button
+              onClick={handleOpenCreateAccount}
+              className="px-3.5 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-sm border border-[#B8860B]/30 flex items-center gap-1.5 cursor-pointer"
+            >
+              <MailIcon className="w-4 h-4" />
+              Send Officer Invite
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ERROR MESSAGE */}
@@ -403,7 +500,9 @@ export default function OrganizationMembers({ user, org }) {
           </div>
         ) : officers.length === 0 ? (
           <div className="p-8 text-center text-slate-400 font-medium">
-            No officers or members registered yet.
+            {isMemberDirectory
+              ? "No regular organization members registered yet."
+              : "No organization officers registered yet."}
           </div>
         ) : (
           officers.map((officer) => {
@@ -432,7 +531,7 @@ export default function OrganizationMembers({ user, org }) {
                       <p className="font-bold text-slate-900 text-sm">
                         {officer.name}
                       </p>
-                      {officer.hasAccount && (
+                      {!isMemberDirectory && officer.hasAccount && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
                           <ShieldCheckIcon className="w-3 h-3" />
                           Account Active
@@ -453,22 +552,26 @@ export default function OrganizationMembers({ user, org }) {
                     {officer.email}
                   </span>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={() => handleOpenEditModal(officer)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <EditIcon />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDeleteOfficer(officer._id)}
-                      className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                    >
-                      <TrashIcon />
-                      Delete
-                    </button>
-                  </div>
+                  {!isMemberDirectory && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => handleOpenEditModal(officer)}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                      >
+                        <EditIcon />
+                        Edit
+                      </button>
+                      {officer.role !== "President" && (
+                        <button
+                          onClick={() => handleDeleteOfficer(officer._id)}
+                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                        >
+                          <TrashIcon />
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -477,7 +580,7 @@ export default function OrganizationMembers({ user, org }) {
       </div>
 
       {/* MODAL 1: ADD / EDIT OFFICER */}
-      {isModalOpen && (
+      {!isMemberDirectory && isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -486,9 +589,7 @@ export default function OrganizationMembers({ user, org }) {
                   <UserPlusIcon className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-extrabold text-[#4A0E17]">
-                  {editingOfficer
-                    ? "Edit Officer Details"
-                    : "Add Officer / Member"}
+                  {editingOfficer ? "Edit Officer Details" : "Add Officer"}
                 </h3>
               </div>
               <button
@@ -528,19 +629,45 @@ export default function OrganizationMembers({ user, org }) {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Full Name <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Surname, Firstname, M.I"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
-                />
+                {isEditingPresident && (
+                  <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+                    Complete the president's name. This full name will be used
+                    as the digital signature on proposal decisions.
+                  </p>
+                )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[
+                    ["surname", "Surname", "e.g. Dela Cruz", true],
+                    ["firstName", "First Name", "e.g. Juan", true],
+                    ["middleInitial", "M.I.", "e.g. P.", false],
+                    ["suffix", "Suffix", "e.g. Jr.", false],
+                  ].map(([field, label, placeholder, required]) => (
+                    <label key={field} className="block">
+                      <span className="block mb-1 font-bold text-slate-700">
+                        {label}{" "}
+                        {required && <span className="text-rose-600">*</span>}
+                      </span>
+                      <input
+                        type="text"
+                        required={required}
+                        readOnly={isEditingPresident && field === "surname"}
+                        placeholder={placeholder}
+                        value={formData[field]}
+                        onChange={(e) =>
+                          setFormData({ ...formData, [field]: e.target.value })
+                        }
+                        className={`w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800 ${
+                          isEditingPresident && field === "surname"
+                            ? "bg-slate-100 cursor-not-allowed"
+                            : ""
+                        }`}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                  Saved and signed as Surname, First Name, M.I., Suffix.
+                </p>
               </div>
 
               <div>
@@ -550,13 +677,22 @@ export default function OrganizationMembers({ user, org }) {
                 <input
                   type="email"
                   required
+                  readOnly={isEditingPresident}
                   placeholder="e.g. juan@marsu.edu.ph"
                   value={formData.email}
                   onChange={(e) =>
                     setFormData({ ...formData, email: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+                  className={`w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800 ${
+                    isEditingPresident ? "bg-slate-100 cursor-not-allowed" : ""
+                  }`}
                 />
+                {isEditingPresident && (
+                  <p className="mt-1 text-[10px] font-medium text-slate-500">
+                    Surname, email, and position are maintained by OVPSAS and
+                    cannot be changed here.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -565,11 +701,15 @@ export default function OrganizationMembers({ user, org }) {
                 </label>
                 <select
                   value={formData.role}
+                  disabled={isEditingPresident}
                   onChange={(e) =>
                     setFormData({ ...formData, role: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100 disabled:cursor-not-allowed"
                 >
+                  {isEditingPresident && (
+                    <option value="President">President</option>
+                  )}
                   {OFFICER_ROLES.map((role) => (
                     <option key={role} value={role}>
                       {role}
@@ -631,18 +771,58 @@ export default function OrganizationMembers({ user, org }) {
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Section
+                    Program
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. BSIT 3-A"
-                    value={formData.section}
+                  <select
+                    value={formData.program}
+                    disabled={isLoadingPrograms || programs.length === 0}
                     onChange={(e) =>
-                      setFormData({ ...formData, section: e.target.value })
+                      setFormData({ ...formData, program: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
-                  />
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {isLoadingPrograms
+                        ? "Loading programs..."
+                        : programs.length === 0
+                          ? "No programs registered"
+                          : "Select program"}
+                    </option>
+                    {formData.program &&
+                      !programs.some(
+                        (program) => program.name === formData.program,
+                      ) && (
+                        <option value={formData.program}>
+                          {formData.program} (previously saved)
+                        </option>
+                      )}
+                    {programs.map((program) => (
+                      <option key={program._id} value={program.name}>
+                        {program.name}
+                      </option>
+                    ))}
+                  </select>
+                  {programError && (
+                    <p className="mt-1 text-[10px] font-medium text-rose-600">
+                      {programError}
+                    </p>
+                  )}
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Section
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. BSIT 3-A"
+                  value={formData.section}
+                  onChange={(e) =>
+                    setFormData({ ...formData, section: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+                />
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
@@ -671,7 +851,7 @@ export default function OrganizationMembers({ user, org }) {
       )}
 
       {/* MODAL 2: EMAIL INVITATION SETUP FOR AN OFFICER */}
-      {isAccountModalOpen && (
+      {!isMemberDirectory && isAccountModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -710,7 +890,7 @@ export default function OrganizationMembers({ user, org }) {
               {/* Select Officer Dropdown */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Select Officer / Member
+                  Select Officer
                 </label>
                 <select
                   value={selectedMemberId}
@@ -751,7 +931,7 @@ export default function OrganizationMembers({ user, org }) {
                 <p>
                   An email containing a secure setup link will be sent to the
                   officer. They will use the link to set up their own password
-                  and activate their account[cite: 7].
+                  and activate their account.
                 </p>
               </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 
@@ -50,10 +50,7 @@ export default function FeeModal({
   org,
   user,
   // DYNAMIC CONFIGURATION PROPS (Override via parent component or API)
-  categories: rawCategories = [
-    { value: "event_fee", label: "Event / Activity Fee" },
-    { value: "others", label: "Others (Custom Fee)" },
-  ],
+  categories: rawCategories,
   semesters: rawSemesters = ["1st Semester", "2nd Semester", "Summer"],
   targetLevels: rawTargetLevels = [
     { value: "All", label: "All Students" },
@@ -65,9 +62,26 @@ export default function FeeModal({
   academicYears: rawAcademicYears,
 }) {
   const { showToast } = useToast();
+  const orgDisplayName =
+    org?.name || user?.organization?.name || user?.org?.name || "Organization";
+  const orgFeePrefix = String(
+    org?.acronym ||
+      user?.organization?.acronym ||
+      user?.org?.acronym ||
+      orgDisplayName,
+  )
+    .trim()
+    .toUpperCase();
+  const defaultCategories = [
+    { value: "organization_fee", label: `${orgFeePrefix} Fee` },
+    { value: "paf", label: `${orgFeePrefix} PAF` },
+    { value: "intrams_fee", label: `${orgFeePrefix} Intrams Fee` },
+    { value: "organization_week_fee", label: `${orgFeePrefix} Week Fee` },
+    { value: "others", label: "Others Fee" },
+  ];
 
   // Normalize options array
-  const categories = normalizeOptions(rawCategories);
+  const categories = normalizeOptions(rawCategories || defaultCategories);
   const semesters = normalizeOptions(rawSemesters);
   const targetLevels = normalizeOptions(rawTargetLevels);
 
@@ -97,7 +111,9 @@ export default function FeeModal({
 
   // Initialize or reset form defaults when modal opens or options change
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return undefined;
+
+    const resetRequest = window.setTimeout(() => {
       setFormData({
         feeCategory: categories[0]?.value || "others",
         customFeeName: "",
@@ -109,7 +125,9 @@ export default function FeeModal({
         description: "",
       });
       setErrorMsg("");
-    }
+    }, 0);
+
+    return () => window.clearTimeout(resetRequest);
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -180,10 +198,8 @@ export default function FeeModal({
       return;
     }
 
-    // Dynamic request payload
+    // The backend derives organization scope from the authenticated treasurer.
     const payload = {
-      org: targetOrgId,
-      organization: targetOrgId,
       title: resolveTitle(),
       category: formData.feeCategory,
       amount: Number(formData.amount),
@@ -207,6 +223,7 @@ export default function FeeModal({
     } catch (error) {
       console.error("Failed to create Dues Collection:", error);
       const errMsg =
+        error.message ||
         error.response?.data?.message ||
         error.response?.data?.error ||
         "Failed to create Dues Collection. Please check network or inputs.";
@@ -217,9 +234,6 @@ export default function FeeModal({
       setLoading(false);
     }
   };
-
-  const orgDisplayName =
-    org?.name || user?.organization?.name || user?.org?.name || "Organization";
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -424,7 +438,7 @@ export default function FeeModal({
               disabled={loading}
               className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 border border-[#B8860B]/30 flex items-center gap-1.5"
             >
-              {loading ? "Creating Fee..." : "Create Dues Collectione"}
+              {loading ? "Creating Fee..." : "Create Fee"}
             </button>
           </div>
         </form>

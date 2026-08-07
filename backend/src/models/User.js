@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      select: false, // 👈 Prevents password hash leaks in API responses
+      select: false, // Prevents password hash leaks in API responses
       required: function () {
         return !this.setupToken;
       },
@@ -32,7 +32,12 @@ const userSchema = new mongoose.Schema(
         "treasurer",
         "adviser",
       ],
-      default: "org_admin",
+      default: "student",
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "Active", "Inactive"],
+      default: "Pending",
     },
     organization: {
       type: mongoose.Schema.Types.ObjectId,

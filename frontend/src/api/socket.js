@@ -1,4 +1,4 @@
-import { io } from "socket.io-client";
+/* import { io } from "socket.io-client";
 
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
@@ -13,24 +13,25 @@ export const realtimeSocket = io(socketUrl, {
   transports: ["websocket", "polling"],
 });
 
-/*
+
+ */
 import { io } from "socket.io-client";
 
-// 1. Get the base API URL or fallback to localhost
+// 1. Fetch your API Base URL from environment variables
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
 
-// 2. Parse the target socket URL correctly
+// 2. Parse the target socket URL correctly without mixing in window origins
 let socketUrl;
 
 if (import.meta.env.VITE_SOCKET_URL) {
   socketUrl = import.meta.env.VITE_SOCKET_URL;
 } else {
   try {
-    // This safely extracts exactly "https://devtunnels.ms" from your env
+    // This safely extracts exactly "https://onrender.com" from your env string
     socketUrl = new URL(apiBaseUrl).origin;
   } catch (error) {
-    // Safe fallback if the env variable isn't a valid absolute URL format
+    // Local development fallback
     socketUrl = "http://localhost:5000";
   }
 }
@@ -39,8 +40,7 @@ if (import.meta.env.VITE_SOCKET_URL) {
 export const realtimeSocket = io(socketUrl, {
   autoConnect: true,
   withCredentials: true,
-  // CRITICAL: Put "websocket" first and REMOVE "polling".
-  // VS Code Dev Tunnels frequently fail and reject HTTP long-polling handshake upgrades.
+  // CRITICAL FOR RENDER: Put "websocket" first and REMOVE "polling".
+  // Render's load balancers will drop or fail HTTP polling upgrades.
   transports: ["websocket"],
 });
- */

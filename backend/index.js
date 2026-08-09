@@ -30,14 +30,24 @@ mongoose
 
     // Start HTTP server and attach Socket.IO to the same port as the API.
     const httpServer = http.createServer(app);
+    const configuredFrontendOrigins = [
+      process.env.FRONTEND_URL,
+      process.env.CLIENT_URL,
+      ...(process.env.CORS_ORIGINS || "").split(","),
+    ]
+      .map((origin) => origin?.trim().replace(/\/$/, ""))
+      .filter(Boolean);
+    const socketAllowedOrigins = [
+      ...configuredFrontendOrigins,
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:5173",
+      "https://somis-capstone.vercel.app",
+    ];
+
     const io = new Server(httpServer, {
       cors: {
-        origin: [
-          "http://localhost:5173",
-          "http://localhost:3000",
-          "http://127.0.0.1:5173",
-          "https://somis-capstone.vercel.app",
-        ],
+        origin: socketAllowedOrigins,
         credentials: true,
       },
     });

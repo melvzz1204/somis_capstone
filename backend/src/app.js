@@ -45,23 +45,43 @@ const eventRoutes = require("./routes/eventRoutes");
 
 const app = express();
 
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:3000",
-      "http://127.0.0.1:5173",
-      "https://somis-capstone.vercel.app",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    optionsSuccessStatus: 200,
-  }),
-);
+const configuredFrontendOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  ...(process.env.CORS_ORIGINS || "").split(","),
+]
+  .map((origin) => origin?.trim().replace(/\/$/, ""))
+  .filter(Boolean);
 
-// Intercept and approve all preflight OPTIONS queries safely
-app.options(/(.*)/, cors());
+const corsOptions = {
+  origin(origin, callback) {
+    // Requests without an Origin header include health checks and server-to-server calls.
+    if (!origin) return callback(null, true);
+
+    const normalizedOrigin = origin.replace(/\/$/, "");
+    const isAllowed =
+      configuredFrontendOrigins.includes(normalizedOrigin) ||
+      normalizedOrigin === "http://localhost:5173" ||
+      normalizedOrigin === "http://localhost:3000" ||
+      normalizedOrigin === "http://127.0.0.1:5173" ||
+      normalizedOrigin === "https://somis-capstone.vercel.app" ||
+      /^https:\/\/[a-z0-9-]+(?:-[a-z0-9-]+)*\.vercel\.app$/i.test(
+        normalizedOrigin,
+      );
+
+    if (isAllowed) return callback(null, true);
+    return callback(new Error(`CORS origin is not allowed: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
+// Use the same CORS policy for browser preflight requests.
+app.options(/(.*)/, cors(corsOptions));
 // 2. Body Parsing Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

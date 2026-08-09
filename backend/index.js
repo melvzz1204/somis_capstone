@@ -48,10 +48,17 @@ mongoose
       });
     });
 
-    app.locals.io = io;
+    /*     app.locals.io = io;
     httpServer.listen(PORT, () => {
       console.log(
         `✅ Server running in ${NODE_ENV} mode on http://localhost:${PORT}`,
+      );
+    });
+  }) */
+    app.locals.io = io;
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      console.log(
+        `✅ Server running safely on port ${PORT} in ${process.env.NODE_ENV || "production"} mode`,
       );
     });
   })

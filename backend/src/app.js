@@ -61,8 +61,7 @@ app.use(
 );
 
 // Intercept and approve all preflight OPTIONS queries safely
-app.options("*", cors());
-
+app.options(/(.*)/, cors());
 // 2. Body Parsing Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

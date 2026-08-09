@@ -217,9 +217,9 @@ export default function LandingPage() {
           streamline end-of-semester clearances under Marinduque State
           University OVPSAS.
         </p>
-        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
           <button
-            onClick={() => setActiveModal("role")}
+            onClick={handleSignInClick}
             className="btn-primary w-full sm:w-auto px-7"
           >
             Access SOMIS Portal

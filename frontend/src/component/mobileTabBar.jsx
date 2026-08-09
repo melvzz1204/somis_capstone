@@ -1,3 +1,5 @@
+import LogoutButton from "./logoutButton";
+
 export default function MobileTabBar({
   items,
   activeItem,
@@ -19,6 +21,7 @@ export default function MobileTabBar({
           <span>{item.shortLabel || item.label}</span>
         </button>
       ))}
+      <LogoutButton variant="mobile" showConfirmModal={true} />
     </nav>
   );
 }

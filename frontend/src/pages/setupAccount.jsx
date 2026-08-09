@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import PasswordInput from "../component/passwordInput";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
 import { useToast } from "../util/toastContext";
 
@@ -15,6 +16,8 @@ export default function SetupAccount() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -138,15 +141,18 @@ export default function SetupAccount() {
                 <label htmlFor="new-password" className="field-label">
                   New Password <span className="text-rose-600">*</span>
                 </label>
-                <input
+                <PasswordInput
                   id="new-password"
-                  type="password"
                   required
                   placeholder="At least 6 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="field-control text-xs"
+                  className="text-xs"
+                  showPassword={showPassword}
+                  onToggleVisibility={() =>
+                    setShowPassword((visible) => !visible)
+                  }
                 />
               </div>
 
@@ -154,15 +160,18 @@ export default function SetupAccount() {
                 <label htmlFor="confirm-password" className="field-label">
                   Confirm New Password <span className="text-rose-600">*</span>
                 </label>
-                <input
+                <PasswordInput
                   id="confirm-password"
-                  type="password"
                   required
                   placeholder="Re-enter new password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="field-control text-xs"
+                  className="text-xs"
+                  showPassword={showConfirmPassword}
+                  onToggleVisibility={() =>
+                    setShowConfirmPassword((visible) => !visible)
+                  }
                 />
               </div>
 

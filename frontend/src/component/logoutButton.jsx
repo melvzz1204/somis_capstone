@@ -79,6 +79,19 @@ export default function LogoutButton({
           </button>
         );
 
+      case "mobile":
+        return (
+          <button
+            type="button"
+            onClick={handleLogoutClick}
+            className={`mobile-tabbar-item mobile-tabbar-logout ${className}`}
+            aria-label="Sign out of SOMIS"
+          >
+            <LogoutIcon className="w-5 h-5" />
+            <span>Sign Out</span>
+          </button>
+        );
+
       case "button":
       default:
         return (
@@ -100,14 +113,22 @@ export default function LogoutButton({
 
       {/* CONFIRMATION MODAL */}
       {isOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-panel max-w-sm p-6 space-y-4 text-center">
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="logout-dialog-title"
+        >
+          <div className="modal-panel max-w-sm p-5 sm:p-6 space-y-4 text-center">
             <div className="w-12 h-12 bg-rose-100 border border-rose-200 text-rose-700 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
               <LogoutIcon className="w-6 h-6" />
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-base font-extrabold text-[#4A0E17]">
+              <h3
+                id="logout-dialog-title"
+                className="text-base font-extrabold text-[#4A0E17]"
+              >
                 Confirm Sign Out
               </h3>
               <p className="text-xs text-slate-500 font-medium leading-relaxed">
@@ -116,18 +137,18 @@ export default function LogoutButton({
               </p>
             </div>
 
-            <div className="pt-2 flex items-center justify-center gap-2">
+            <div className="pt-2 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="w-1/2 px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                className="w-full sm:w-1/2 px-4 py-2.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={logout}
-                className="w-1/2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+                className="w-full sm:w-1/2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
               >
                 Sign Out
               </button>

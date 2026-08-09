@@ -170,11 +170,11 @@
     bottom: 0;
     left: 0;
     z-index: 50;
-    display: grid;
+    display: flex;
     min-height: 4.25rem;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(4.25rem, 1fr);
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
     padding: 0.35rem max(0.5rem, env(safe-area-inset-right))
       max(0.35rem, env(safe-area-inset-bottom))
       max(0.5rem, env(safe-area-inset-left));
@@ -184,10 +184,15 @@
     box-shadow: 0 -8px 24px rgb(16 24 40 / 8%);
   }
 
+  .mobile-tabbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .mobile-tabbar-item {
     display: flex;
     min-width: 4.25rem;
     min-height: 3.4rem;
+    flex: 1 0 4.25rem;
     align-items: center;
     justify-content: center;
     flex-direction: column;
@@ -201,6 +206,13 @@
 
   .mobile-tabbar-item[data-active="true"] {
     color: var(--somis-brand);
+    background: #faf5f6;
+    border-radius: 0.5rem;
+  }
+
+  .mobile-tabbar-logout {
+    color: var(--somis-danger);
+    border-left: 1px solid var(--somis-border);
   }
 
   .page-heading {
@@ -352,6 +364,38 @@
     box-shadow: 0 0 0 3px rgb(96 21 32 / 12%);
   }
 
+  .password-field {
+    position: relative;
+  }
+
+  .password-field-control {
+    padding-right: 3rem;
+  }
+
+  .password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.35rem;
+    display: inline-flex;
+    width: 2.25rem;
+    height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    color: #667085;
+    background: transparent;
+    border: 0;
+    border-radius: 0.4rem;
+    transform: translateY(-50%);
+    transition:
+      color 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .password-toggle:hover {
+    color: var(--somis-brand);
+    background: #faf5f6;
+  }
+
   .status-pill {
     display: inline-flex;
     min-height: 1.75rem;
@@ -396,6 +440,36 @@
     border: 1px dashed #cfd5dd;
     border-radius: 0.5rem;
     background: #fafbfc;
+  }
+}
+
+@media (max-width: 639px) {
+  .app-topbar {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .app-content {
+    padding: 1rem 0.75rem calc(6rem + env(safe-area-inset-bottom));
+  }
+
+  .page-heading {
+    margin-bottom: 1rem;
+  }
+
+  .panel-header,
+  .panel-body {
+    padding: 0.9rem;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    padding: 0.5rem;
+  }
+
+  .modal-panel {
+    width: 100%;
+    max-height: calc(100dvh - 1rem);
+    border-radius: 0.75rem;
   }
 }
 

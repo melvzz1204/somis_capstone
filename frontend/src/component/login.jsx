@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import PasswordInput from "./passwordInput";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
 import { useToast } from "../util/toastContext";
 
@@ -44,6 +45,7 @@ export default function Login() {
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -190,16 +192,17 @@ export default function Login() {
           <label htmlFor="portal-password" className="field-label">
             Password
           </label>
-          <input
+          <PasswordInput
             id="portal-password"
-            type="password"
             name="password"
             required
             placeholder="Enter your lastname and last 4 GCash account digits"
             value={formData.password}
             onChange={handleChange}
             autoComplete="current-password"
-            className="field-control text-xs"
+            className="text-xs"
+            showPassword={showPassword}
+            onToggleVisibility={() => setShowPassword((visible) => !visible)}
           />
         </div>
 

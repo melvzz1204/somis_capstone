@@ -133,7 +133,7 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
             id="student-password"
             name="password"
             required
-            placeholder="Enter your lastname and last 4 GCash account digits"
+            placeholder="Enter your password"
             value={formData.password}
             onChange={handleChange}
             autoComplete="current-password"

@@ -59,7 +59,7 @@ mongoose
       });
     });
 
-    /*     app.locals.io = io;
+    /*     app.local.io = io; = okay
     httpServer.listen(PORT, () => {
       console.log(
         `✅ Server running in ${NODE_ENV} mode on http://localhost:${PORT}`,

@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import API from "../../api/axios";
+import { useToast } from "../../util/toastContext";
 import LogoutButton from "../logoutButton";
+import MobileTabBar from "../mobileTabBar";
 import FeeModal from "./feesModal";
+import StatementUploadModal from "./StatementUploadModal";
+import TreasurerPaymentAudit from "./TreasurerPaymentAudit";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -146,6 +150,8 @@ const BUDGET_LIMITS = {
 };
 
 export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
+  const { showToast } = useToast();
+
   // 1. Resolve User from props OR fallback to localStorage
   const currentUser =
     propsUser || JSON.parse(localStorage.getItem("user") || "null");
@@ -174,6 +180,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Modals & Form State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+  const [editingFee, setEditingFee] = useState(null);
+  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [statementModalKey, setStatementModalKey] = useState(0);
+  const [paymentAuditKey, setPaymentAuditKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dynamic Data States
@@ -235,7 +245,37 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const handleFeeCreated = (newFeeData) => {
     setFeeDrives((previous) => [newFeeData, ...previous]);
     setIsFeeModalOpen(false);
+    setEditingFee(null);
     setActiveTab("fees");
+  };
+
+  const openCreateFeeModal = () => {
+    setEditingFee(null);
+    setIsFeeModalOpen(true);
+  };
+
+  const openEditFeeModal = (fee) => {
+    if (fee.status !== "active") return;
+    setEditingFee(fee);
+    setIsFeeModalOpen(true);
+  };
+
+  const handleArchiveFee = async (fee) => {
+    if (fee.status !== "active") return;
+    try {
+      const response = await API.patch(`/fees/${fee._id}/archive`);
+      const archivedFee = response.data?.data || response.data;
+      setFeeDrives((previous) =>
+        previous.map((current) =>
+          current._id === fee._id ? archivedFee : current,
+        ),
+      );
+      showToast("Dues Collection archived successfully.", "success");
+    } catch (error) {
+      const message =
+        error.response?.data?.message || "Failed to archive Dues Collection.";
+      showToast(message, "error");
+    }
   };
 
   // Dynamic Calculations
@@ -310,15 +350,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       const newEntry = res.data?.data ||
         res.data || { ...payload, _id: Date.now().toString() };
       setTransactions((prev) => [newEntry, ...prev]);
-    } catch (err) {
-      console.error("Failed to create transaction entry:", err);
-      // Fallback for instant UI response
-      setTransactions((prev) => [
-        { ...payload, _id: Date.now().toString() },
-        ...prev,
-      ]);
-    } finally {
-      setIsSubmitting(false);
+      showToast("Transaction recorded successfully.", "success");
       setIsTransactionModalOpen(false);
       setTransactionForm({
         title: "",
@@ -328,13 +360,18 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         date: new Date().toISOString().split("T")[0],
         reference: "",
       });
+    } catch (err) {
+      console.error("Failed to create transaction entry:", err);
+      showToast(err.message || "Unable to record the transaction.", "error");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
+      <aside className="w-64 h-screen sticky top-0 self-start bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl overflow-y-auto">
         <div className="space-y-8">
           {/* Logo & Header */}
           <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
@@ -400,6 +437,20 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
+              onClick={() => setActiveTab("payments")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "payments"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <ShieldCheckIcon
+                className={`w-4 h-4 ${activeTab === "payments" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Payment Verification</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("budgets")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "budgets"
@@ -439,143 +490,127 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <ShieldCheckIcon className="w-5 h-5 text-[#4A0E17]" />
-            <span className="text-xs font-bold text-[#4A0E17] uppercase tracking-wider hidden sm:inline-block">
-              Marinduque State University — OVPSAS Treasurer Workspace
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs ml-auto">
-            {/* Dynamic Academic Year Badge */}
-            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4A0E17] text-[#D4AF37] shadow-sm">
+                <ShieldCheckIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7A610D]">
+                  Treasurer Workspace
+                </p>
+                <h1 className="truncate text-base sm:text-lg font-extrabold text-[#4A0E17]">
+                  Welcome back, {upperName}
+                </h1>
+                <p className="hidden sm:block truncate text-[11px] text-slate-500">
+                  {orgName} <span className="mx-1 text-slate-300">•</span>{" "}
+                  Manage your organization finances
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               {dynamicAcademicYear}
             </span>
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
-          {/* PAGE BANNER */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="px-2.5 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] border border-[#4A0E17]/20 text-xs font-extrabold rounded-full uppercase tracking-wider">
-                  Treasurer Workspace
-                </span>
-                <span className="text-xs font-semibold text-slate-400">
-                  {orgName}
-                </span>
-              </div>
-              <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
-                Welcome back, {upperName}
-              </h1>
-              <p className="text-xs text-slate-500">
-                Monitor treasury cash balances, track budget utilization, log
-                disbursements, and manage receipts.
-              </p>
-            </div>
+        <MobileTabBar
+          activeItem={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: "overview",
+              label: "Overview",
+              icon: <LayoutDashboardIcon />,
+            },
+            {
+              id: "treasury",
+              label: "Ledger",
+              shortLabel: "Ledger",
+              icon: <WalletIcon />,
+            },
+            { id: "fees", label: "Dues", icon: <WalletIcon /> },
+            {
+              id: "payments",
+              label: "Payments",
+              shortLabel: "Verify",
+              icon: <ShieldCheckIcon className="w-4 h-4" />,
+            },
+            { id: "budgets", label: "Budgets", icon: <PieChartIcon /> },
+          ]}
+        />
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 self-start sm:self-center">
-              <button
-                onClick={() => setIsFeeModalOpen(true)}
-                className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
-              >
-                <PlusIcon className="w-4 h-4 text-[#36080E]" />
-                <span>Create Dues Collection</span>
-              </button>
-              <button
-                onClick={() => {
-                  setTransactionForm((prev) => ({ ...prev, type: "expense" }));
-                  setIsTransactionModalOpen(true);
-                }}
-                className="px-3.5 py-2.5 bg-white border border-[#4A0E17]/20 text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all text-xs font-bold rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <PlusIcon className="w-4 h-4" />
-                <span>Record Expense</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setTransactionForm((prev) => ({ ...prev, type: "income" }));
-                  setIsTransactionModalOpen(true);
-                }}
-                className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
-              >
-                <PlusIcon className="w-4 h-4 text-[#36080E]" />
-                <span>Record Entry</span>
-              </button>
-            </div>
-          </div>
-
+        <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {/* DYNAMIC METRIC CARDS OVERVIEW */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Current Cash Balance
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  ₱
-                  {currentBalance.toLocaleString("en-PH", {
-                    minimumFractionDigits: 2,
-                  })}
-                </h2>
-                <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                  Treasury
-                </span>
+          {activeTab === "overview" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Current Cash Balance
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    ₱
+                    {currentBalance.toLocaleString("en-PH", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </h2>
+                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                    Treasury
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Total Revenues
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  ₱
-                  {totalIncome.toLocaleString("en-PH", {
-                    minimumFractionDigits: 2,
-                  })}
-                </h2>
-                <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
-                  Approved
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Total Revenues
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    ₱
+                    {totalIncome.toLocaleString("en-PH", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </h2>
+                  <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
+                    Approved
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Disbursements
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  ₱
-                  {totalExpense.toLocaleString("en-PH", {
-                    minimumFractionDigits: 2,
-                  })}
-                </h2>
-                <span className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md font-bold">
-                  Expenses
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Disbursements
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    ₱
+                    {totalExpense.toLocaleString("en-PH", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </h2>
+                  <span className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md font-bold">
+                    Expenses
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Pending Approvals
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {pendingCount}
-                </h2>
-                <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
-                  Pending
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Pending Approvals
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {pendingCount}
+                  </h2>
+                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
+                    Pending
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* TAB CONTENT 1: OVERVIEW */}
           {activeTab === "overview" && (
@@ -656,9 +691,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsTransactionModalOpen(true)}
-                    className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
+                    className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5"
                   >
-                    <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                    <PlusIcon className="w-4 h-4 text-white" />
                     <span>Record Financial Entry</span>
                   </button>
                 </div>
@@ -785,10 +820,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   </p>
                 </div>
                 <button
-                  onClick={() => setIsFeeModalOpen(true)}
-                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30"
+                  onClick={openCreateFeeModal}
+                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5"
                 >
-                  <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                  <PlusIcon className="w-4 h-4 text-white" />
                   <span>Add Dues Collection</span>
                 </button>
               </div>
@@ -808,16 +843,33 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   {feeDrives.map((fee, idx) => (
                     <div
                       key={fee._id || fee.id || idx}
-                      className="bg-slate-50/60 p-5 rounded-2xl border border-slate-200/80 hover:border-[#D4AF37] transition-all space-y-3 flex flex-col justify-between"
+                      className={`bg-slate-50/60 p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
+                        fee.status === "archived"
+                          ? "border-slate-200 bg-slate-100/70"
+                          : "border-slate-200/80 hover:border-[#D4AF37]"
+                      }`}
                     >
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="font-bold text-[#4A0E17] text-sm">
                             {fee.title}
                           </h4>
-                          <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg shrink-0">
-                            ₱{Number(fee.amount || 0).toFixed(2)}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg shrink-0">
+                              ₱{Number(fee.amount || 0).toFixed(2)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                                fee.status === "archived"
+                                  ? "bg-slate-200 text-slate-600 border-slate-300"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              }`}
+                            >
+                              {fee.status === "archived"
+                                ? "Archived"
+                                : "Active"}
+                            </span>
+                          </div>
                         </div>
                         {fee.description && (
                           <p className="text-xs text-slate-600 line-clamp-2">
@@ -845,6 +897,26 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             <span>{formatDate(fee.dueDate)}</span>
                           </div>
                         )}
+                        <div className="pt-2 flex items-center justify-end gap-2">
+                          {fee.status === "active" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEditFeeModal(fee)}
+                                className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleArchiveFee(fee)}
+                                className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold"
+                              >
+                                Archive
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -853,7 +925,36 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
             </div>
           )}
 
-          {/* TAB CONTENT 4: BUDGET ALLOCATIONS */}
+          {/* TAB CONTENT 4: PAYMENT VERIFICATION */}
+          {activeTab === "payments" && (
+            <div className="space-y-4 bg-white p-6 border border-slate-200/80 shadow-xs">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-base font-extrabold text-[#4A0E17]">
+                    Batch payment verification
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Verify student references against a downloaded GCash
+                    Transaction History PDF.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatementModalKey((current) => current + 1);
+                    setIsStatementModalOpen(true);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#601520]"
+                >
+                  <FileTextIcon className="h-4 w-4" />
+                  Verify statement
+                </button>
+              </div>
+              <TreasurerPaymentAudit key={paymentAuditKey} />
+            </div>
+          )}
+
+          {/* TAB CONTENT 5: BUDGET ALLOCATIONS */}
           {activeTab === "budgets" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
@@ -931,18 +1032,44 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       </div>
 
       {/* DYNAMIC FEE MODAL */}
+      <StatementUploadModal
+        key={statementModalKey}
+        isOpen={isStatementModalOpen}
+        onClose={() => setIsStatementModalOpen(false)}
+        onComplete={() => {
+          setPaymentAuditKey((current) => current + 1);
+        }}
+      />
+
       <FeeModal
         isOpen={isFeeModalOpen}
-        onClose={() => setIsFeeModalOpen(false)}
-        onSubmitSuccess={handleFeeCreated}
+        onClose={() => {
+          setIsFeeModalOpen(false);
+          setEditingFee(null);
+        }}
+        onSubmitSuccess={(savedFee) => {
+          if (editingFee) {
+            setFeeDrives((previous) =>
+              previous.map((fee) =>
+                fee._id === savedFee._id ? savedFee : fee,
+              ),
+            );
+            setIsFeeModalOpen(false);
+            setEditingFee(null);
+            setActiveTab("fees");
+          } else {
+            handleFeeCreated(savedFee);
+          }
+        }}
+        fee={editingFee}
         org={currentOrg}
         user={currentUser}
       />
 
       {/* DYNAMIC RECORD TRANSACTION MODAL */}
       {isTransactionModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 shadow-2xl">
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm font-extrabold text-[#4A0E17]">
@@ -1110,14 +1237,14 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 <button
                   type="button"
                   onClick={() => setIsTransactionModalOpen(false)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer font-medium"
+                  className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-lg transition-all cursor-pointer border border-[#B8860B]/30 disabled:opacity-50"
+                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? "Saving..." : "Save Transaction"}
                 </button>

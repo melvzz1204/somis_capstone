@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import { useToast } from "../util/toastContext";
 
 export default function SetupAccount() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -37,6 +39,7 @@ export default function SetupAccount() {
       });
 
       setSuccess("Account activated successfully! Redirecting...");
+      showToast("Account activated successfully.", "success");
 
       // 3. Extract token and user payload (safely handling unwrapped or standard Axios responses)
       const resData = response?.data || response;
@@ -67,6 +70,7 @@ export default function SetupAccount() {
         "Failed to complete account setup.";
 
       setError(backendMsg);
+      showToast(backendMsg, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -75,8 +79,8 @@ export default function SetupAccount() {
   // Render error card if token is missing from the email URL
   if (!token) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-sm w-full text-center space-y-3 shadow-lg">
+      <div className="min-h-screen bg-[#f6f7f9] flex items-center justify-center p-4">
+        <div className="panel p-8 max-w-sm w-full text-center space-y-3">
           <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center mx-auto text-lg font-bold">
             !
           </div>
@@ -93,7 +97,7 @@ export default function SetupAccount() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans flex flex-col justify-center items-center p-4">
+    <div className="min-h-screen bg-[#f6f7f9] font-sans flex flex-col justify-center items-center p-4">
       <div className="max-w-md w-full space-y-6">
         {/* Header Branding */}
         <div className="text-center space-y-2">
@@ -111,7 +115,7 @@ export default function SetupAccount() {
         </div>
 
         {/* Account Setup Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-7 shadow-xl space-y-5">
+        <div className="panel p-7 space-y-5">
           {success ? (
             <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-2 animate-in fade-in duration-300">
               <div className="w-10 h-10 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto text-base font-bold">
@@ -131,37 +135,41 @@ export default function SetupAccount() {
               )}
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1.5">
+                <label htmlFor="new-password" className="field-label">
                   New Password <span className="text-rose-600">*</span>
                 </label>
                 <input
+                  id="new-password"
                   type="password"
                   required
                   placeholder="At least 6 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:border-[#4A0E17] font-medium placeholder:text-slate-400 text-slate-800"
+                  autoComplete="new-password"
+                  className="field-control text-xs"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1.5">
+                <label htmlFor="confirm-password" className="field-label">
                   Confirm New Password <span className="text-rose-600">*</span>
                 </label>
                 <input
+                  id="confirm-password"
                   type="password"
                   required
                   placeholder="Re-enter new password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:border-[#4A0E17] font-medium placeholder:text-slate-400 text-slate-800"
+                  autoComplete="new-password"
+                  className="field-control text-xs"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50 mt-2"
+                className="btn-primary w-full mt-2"
               >
                 {isSubmitting
                   ? "Activating Account..."

@@ -4,9 +4,14 @@ const crypto = require("crypto");
 
 // Models & Utilities
 const Organization = require("../models/OrganizationModels");
-const User = require("../models/User"); // 👈 Added User model to store setup token
+const User = require("../models/User");
 const Member = require("../models/MemberOrganization");
-const sendOrgInviteEmail = require("../util/sendEmail"); // Double-check folder is 'util' or 'utils'
+const StudentProfile = require("../models/studentProfile");
+const Fee = require("../models/Fee");
+const Payment = require("../models/Payment");
+const Proposal = require("../models/Proposal");
+const { protect, authorize } = require("../middleware/authMiddileware");
+const sendOrgInviteEmail = require("../util/sendEmail");
 
 // =========================================================
 // GET /v1/organizations - Fetch all registered organizations
@@ -36,9 +41,9 @@ router.get("/", async (req, res) => {
 // =========================================================
 // POST /v1/organizations - Register organization & send invite
 // =========================================================
-router.post("/", async (req, res) => {
+router.post("/", protect, authorize("admin"), async (req, res) => {
   try {
-    const { name, acronym, college, adviser, president, email } = req.body;
+    const { name, acronym, college, president, email } = req.body;
     const presidentSurname = String(president || "")
       .trim()
       .replace(/\s+/g, " ");
@@ -61,13 +66,12 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // 3. Save Organization record. OVPSAS supplies only the protected surname;
-    // the president completes the rest of the name from their dashboard.
+    // 3. Save Organization record. The organization leader adds the adviser
+    // from the organization dashboard after registration.
     const organization = new Organization({
       name,
       acronym,
       college,
-      adviser,
       president: presidentSurname,
       email,
     });
@@ -120,5 +124,184 @@ router.post("/", async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 });
+
+// =========================================================
+// PUT /v1/organizations/:organizationId - Edit organization
+// =========================================================
+router.put(
+  "/:organizationId",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const organization = await Organization.findById(
+        req.params.organizationId,
+      );
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found." });
+      }
+
+      const name = String(req.body.name || "").trim();
+      const acronym = String(req.body.acronym || "")
+        .trim()
+        .toUpperCase();
+      const college = String(req.body.college || "").trim();
+      const president = String(req.body.president || "")
+        .trim()
+        .replace(/\s+/g, " ");
+      const email = String(req.body.email || "")
+        .trim()
+        .toLowerCase();
+
+      if (!name || !acronym || !college || !president || !email) {
+        return res.status(400).json({
+          message:
+            "Organization name, acronym, college, student leader/president surname, and email are required.",
+        });
+      }
+
+      const duplicate = await Organization.findOne({
+        _id: { $ne: organization._id },
+        $or: [{ name }, { acronym }],
+      }).collation({ locale: "en", strength: 2 });
+      if (duplicate) {
+        return res.status(409).json({
+          message: "An organization with this name or acronym already exists.",
+        });
+      }
+
+      const emailOwner = await User.findOne({
+        _id: {
+          $nin: await User.find({ organization: organization._id }).distinct(
+            "_id",
+          ),
+        },
+        email,
+      });
+      if (emailOwner) {
+        return res.status(409).json({
+          message: "That email address is already assigned to another account.",
+        });
+      }
+
+      const previousEmail = organization.email;
+      Object.assign(organization, {
+        name,
+        acronym,
+        college,
+        president,
+        email,
+      });
+      await organization.save();
+
+      // Keep the leader account and official president roster entry synchronized.
+      const leaderUser = await User.findOne({
+        organization: organization._id,
+        role: "org_admin",
+      });
+      if (leaderUser) {
+        leaderUser.name = president;
+        leaderUser.email = email;
+        await leaderUser.save();
+      }
+      await Member.findOneAndUpdate(
+        {
+          organization: organization._id,
+          $or: [{ role: "President" }, { email: previousEmail }],
+        },
+        { name: president, surname: president, email },
+      );
+
+      return res.status(200).json(organization);
+    } catch (error) {
+      console.error("Error updating organization:", error);
+      if (error.code === 11000) {
+        return res.status(409).json({
+          message: "That email address is already assigned to another account.",
+        });
+      }
+      return res
+        .status(500)
+        .json({ message: "Failed to update organization." });
+    }
+  },
+);
+
+// =========================================================
+// PATCH /v1/organizations/:organizationId/status - Activate/deactivate
+// =========================================================
+router.patch(
+  "/:organizationId/status",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const status = req.body.status;
+      if (!["Active", "Inactive"].includes(status)) {
+        return res.status(400).json({
+          message: "Organization status must be Active or Inactive.",
+        });
+      }
+
+      const organization = await Organization.findByIdAndUpdate(
+        req.params.organizationId,
+        { status },
+        { new: true, runValidators: true },
+      );
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found." });
+      }
+
+      // Deactivation immediately blocks every non-admin account under the org.
+      await User.updateMany({ organization: organization._id }, { status });
+
+      return res.status(200).json(organization);
+    } catch (error) {
+      console.error("Error changing organization status:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to change organization status." });
+    }
+  },
+);
+
+// =========================================================
+// DELETE /v1/organizations/:organizationId - Delete org and related records
+// =========================================================
+router.delete(
+  "/:organizationId",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const organization = await Organization.findById(
+        req.params.organizationId,
+      );
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found." });
+      }
+
+      await Promise.all([
+        User.deleteMany({ organization: organization._id }),
+        Member.deleteMany({ organization: organization._id }),
+        StudentProfile.deleteMany({ organization: organization._id }),
+        Fee.deleteMany({ org: organization._id }),
+        Payment.deleteMany({ organization: organization._id }),
+        Proposal.deleteMany({ org: organization._id }),
+      ]);
+      await organization.deleteOne();
+
+      return res.status(200).json({
+        message:
+          "Organization and its related records were deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Error deleting organization:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to delete organization." });
+    }
+  },
+);
 
 module.exports = router;

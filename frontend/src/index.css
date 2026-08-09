@@ -1,1 +1,429 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", Arial, sans-serif;
+  --color-brand-950: #28070c;
+  --color-brand-900: #3b0a12;
+  --color-brand-800: #4a0e17;
+  --color-brand-700: #601520;
+  --color-brand-600: #7a1f2d;
+  --color-gold-500: #c59b27;
+  --color-gold-400: #d4af37;
+  --color-canvas: #f6f7f9;
+}
+
+@layer base {
+  :root {
+    font-family: var(--font-sans);
+    color: #172033;
+    background: #f6f7f9;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    --somis-brand: #4a0e17;
+    --somis-brand-dark: #36080e;
+    --somis-brand-light: #721c2a;
+    --somis-gold: #c59b27;
+    --somis-gold-light: #e4c65d;
+    --somis-canvas: #f6f7f9;
+    --somis-surface: #ffffff;
+    --somis-border: #dfe3e8;
+    --somis-text: #172033;
+    --somis-muted: #687386;
+    --somis-success: #147d55;
+    --somis-danger: #b42318;
+    --somis-warning: #b46708;
+    color-scheme: light;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 320px;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background: var(--somis-canvas);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button,
+  [role="button"],
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+
+  :focus-visible {
+    outline: 3px solid rgb(197 155 39 / 45%);
+    outline-offset: 2px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 42px;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  ::selection {
+    color: #ffffff;
+    background: var(--somis-brand-light);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #eef0f3;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #bdc3cc;
+    border: 3px solid #eef0f3;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #929cab;
+  }
+}
+
+@layer components {
+  .app-shell {
+    min-height: 100dvh;
+    background: var(--somis-canvas);
+  }
+
+  .app-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    display: none;
+    width: 16.5rem;
+    flex-direction: column;
+    overflow-y: auto;
+    color: #ffffff;
+    background: var(--somis-brand);
+    border-right: 1px solid rgb(255 255 255 / 10%);
+  }
+
+  .app-main {
+    min-width: 0;
+    min-height: 100dvh;
+  }
+
+  .app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    min-height: 4rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgb(255 255 255 / 94%);
+    border-bottom: 1px solid var(--somis-border);
+    backdrop-filter: blur(12px);
+  }
+
+  .app-content {
+    width: 100%;
+    max-width: 96rem;
+    margin-inline: auto;
+    padding: 1.25rem 1rem 6rem;
+  }
+
+  .mobile-tabbar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    display: grid;
+    min-height: 4.25rem;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(4.25rem, 1fr);
+    overflow-x: auto;
+    padding: 0.35rem max(0.5rem, env(safe-area-inset-right))
+      max(0.35rem, env(safe-area-inset-bottom))
+      max(0.5rem, env(safe-area-inset-left));
+    color: #667085;
+    background: rgb(255 255 255 / 97%);
+    border-top: 1px solid var(--somis-border);
+    box-shadow: 0 -8px 24px rgb(16 24 40 / 8%);
+  }
+
+  .mobile-tabbar-item {
+    display: flex;
+    min-width: 4.25rem;
+    min-height: 3.4rem;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.35rem;
+    color: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .mobile-tabbar-item[data-active="true"] {
+    color: var(--somis-brand);
+  }
+
+  .page-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .page-title {
+    color: var(--somis-text);
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .page-subtitle {
+    max-width: 48rem;
+    margin-top: 0.35rem;
+    color: var(--somis-muted);
+    font-size: 0.925rem;
+    line-height: 1.55;
+  }
+
+  .panel {
+    background: var(--somis-surface);
+    border: 1px solid var(--somis-border);
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 1rem 1.125rem;
+    border-bottom: 1px solid var(--somis-border);
+  }
+
+  .panel-body {
+    padding: 1.125rem;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-ghost,
+  .icon-button {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.4rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    line-height: 1;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      box-shadow 150ms ease,
+      transform 150ms ease;
+  }
+
+  .btn-primary {
+    padding: 0.75rem 1rem;
+    color: #ffffff;
+    background: var(--somis-brand);
+    border: 1px solid var(--somis-brand);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 8%);
+  }
+
+  .btn-primary:hover {
+    background: var(--somis-brand-dark);
+    border-color: var(--somis-brand-dark);
+  }
+
+  .btn-secondary {
+    padding: 0.75rem 1rem;
+    color: #344054;
+    background: #ffffff;
+    border: 1px solid #cfd5dd;
+  }
+
+  .btn-secondary:hover,
+  .btn-ghost:hover {
+    color: var(--somis-brand);
+    background: #faf5f6;
+    border-color: #d9b9be;
+  }
+
+  .btn-danger {
+    padding: 0.75rem 1rem;
+    color: #ffffff;
+    background: var(--somis-danger);
+    border: 1px solid var(--somis-danger);
+  }
+
+  .btn-ghost {
+    padding: 0.75rem;
+    color: #475467;
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .icon-button {
+    width: 42px;
+    padding: 0;
+    color: #475467;
+    background: #ffffff;
+    border: 1px solid #d7dce2;
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.4rem;
+    color: #344054;
+    font-size: 0.825rem;
+    font-weight: 700;
+  }
+
+  .field-control {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.65rem 0.75rem;
+    color: var(--somis-text);
+    background: #ffffff;
+    border: 1px solid #cfd5dd;
+    border-radius: 0.4rem;
+    box-shadow: 0 1px 2px rgb(16 24 40 / 3%);
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .field-control:hover {
+    border-color: #aab2bd;
+  }
+
+  .field-control:focus {
+    border-color: var(--somis-brand-light);
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(96 21 32 / 12%);
+  }
+
+  .status-pill {
+    display: inline-flex;
+    min-height: 1.75rem;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    overflow-y: auto;
+    padding: 1rem;
+    background: rgb(15 18 24 / 72%);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-panel {
+    width: min(100%, 42rem);
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    background: #ffffff;
+    border: 1px solid rgb(255 255 255 / 15%);
+    border-radius: 0.625rem;
+    box-shadow: 0 24px 64px rgb(0 0 0 / 28%);
+  }
+
+  .empty-state {
+    display: grid;
+    min-height: 12rem;
+    place-items: center;
+    padding: 2rem;
+    color: var(--somis-muted);
+    text-align: center;
+    border: 1px dashed #cfd5dd;
+    border-radius: 0.5rem;
+    background: #fafbfc;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-sidebar {
+    display: flex;
+  }
+
+  .app-main {
+    padding-left: 16.5rem;
+  }
+
+  .app-content {
+    padding: 2rem;
+  }
+
+  .mobile-tabbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback } from "react";
 
 const ToastContext = createContext();
 
@@ -130,6 +130,8 @@ export function ToastProvider({ children }) {
   );
 }
 
+// The provider and its companion hook intentionally share this module.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import API from "../api/axios";
+import { useToast } from "../util/toastContext";
+import { applySectionPrefix, getSectionPrefix } from "../util/academicSection";
 
 // Inline Icons
 const UserIcon = ({ className = "w-5 h-5" }) => (
@@ -111,6 +113,7 @@ export default function StudentOnboardingModal({
   onOfficerSelect,
   initialStep = 2,
 }) {
+  const { showToast } = useToast();
   const [step, setStep] = useState(initialStep);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailError, setEmailError] = useState("");
@@ -233,9 +236,10 @@ export default function StudentOnboardingModal({
     ].some((domain) => normalizedEmail.endsWith(domain));
 
     if (!isApprovedEmail) {
-      setEmailError(
-        "Use your MarSU email (@marsu.edu.ph or @marstateu.edu.ph), or an approved Gmail address.",
-      );
+      const errorMessage =
+        "Use your MarSU email (@marsu.edu.ph or @marstateu.edu.ph), or an approved Gmail address.";
+      setEmailError(errorMessage);
+      showToast(errorMessage, "error");
       return;
     }
 
@@ -260,6 +264,7 @@ export default function StudentOnboardingModal({
 
     try {
       await API.post("/auth/register-student", payload);
+      showToast("Registration submitted successfully.", "success");
       setStep(4);
     } catch (err) {
       // Log the exact response payload from the backend for debugging
@@ -274,11 +279,12 @@ export default function StudentOnboardingModal({
           : null) ||
         "Registration failed due to invalid form input or email already exist.";
 
-      setEmailError(
+      const errorMessage =
         typeof backendMessage === "string"
           ? backendMessage
-          : JSON.stringify(backendMessage),
-      );
+          : JSON.stringify(backendMessage);
+      setEmailError(errorMessage);
+      showToast(errorMessage, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -292,8 +298,8 @@ export default function StudentOnboardingModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-8 shadow-2xl space-y-6 transition-all">
+    <div className="modal-backdrop">
+      <div className="modal-panel max-w-lg p-5 sm:p-8 space-y-6 transition-all">
         {step < 4 && (
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div className="flex items-center gap-2">
@@ -486,7 +492,17 @@ export default function StudentOnboardingModal({
                   required
                   disabled={!selectedCollege}
                   value={formData.program}
-                  onChange={(e) => updateForm("program", e.target.value)}
+                  onChange={(e) => {
+                    const program = e.target.value;
+                    setFormData((prev) => ({
+                      ...prev,
+                      program,
+                      section: applySectionPrefix(
+                        prev.section,
+                        getSectionPrefix(program, prev.yearLevel),
+                      ),
+                    }));
+                  }}
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-400"
                 >
                   <option value="" disabled>
@@ -515,7 +531,10 @@ export default function StudentOnboardingModal({
                   type="text"
                   required
                   maxLength={50}
-                  placeholder="e.g. BSIT 3B"
+                  placeholder={
+                    getSectionPrefix(formData.program, formData.yearLevel) ||
+                    "e.g. BSIS - 2 A"
+                  }
                   value={formData.section}
                   onChange={(e) => updateForm("section", e.target.value)}
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] bg-white font-medium text-slate-800 placeholder:text-slate-400"
@@ -531,7 +550,17 @@ export default function StudentOnboardingModal({
                 </label>
                 <select
                   value={formData.yearLevel}
-                  onChange={(e) => updateForm("yearLevel", e.target.value)}
+                  onChange={(e) => {
+                    const yearLevel = e.target.value;
+                    setFormData((prev) => ({
+                      ...prev,
+                      yearLevel,
+                      section: applySectionPrefix(
+                        prev.section,
+                        getSectionPrefix(prev.program, yearLevel),
+                      ),
+                    }));
+                  }}
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] bg-white font-medium text-slate-800"
                 >
                   <option value="1st Year">1st Year</option>
@@ -554,7 +583,7 @@ export default function StudentOnboardingModal({
                 isLoadingColleges
               }
               onClick={() => setStep(3)}
-              className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer border border-[#B8860B]/30 disabled:opacity-50"
+              className="w-full py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50"
             >
               Continue to Account Details →
             </button>
@@ -761,7 +790,7 @@ export default function StudentOnboardingModal({
                   onClose();
                 }
               }}
-              className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer border border-[#B8860B]/30"
+              className="w-full py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer"
             >
               Back to Login Screen
             </button>

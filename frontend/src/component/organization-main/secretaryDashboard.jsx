@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import API from "../../api/axios";
+import { useToast } from "../../util/toastContext";
+import MobileTabBar from "../mobileTabBar";
 
 // Sub-components
 import OrganizationMembers from "./organizationMembers";
 import ProposalModal from "./proposalModal";
 import ProposalList from "./proposalList";
+import SecretaryEvents from "./secretaryEvents";
 import LogoutButton from "../logoutButton";
 
 // --- INLINE SVG ICON COMPONENTS ---
@@ -56,22 +59,6 @@ const UsersIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-const PlusIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2.5"
-      d="M12 4v16m8-8H4"
-    />
-  </svg>
-);
-
 const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   <svg
     className={className}
@@ -89,6 +76,7 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
 );
 
 export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
+  const { showToast } = useToast();
   const [profileUser, setProfileUser] = useState(
     () => propsUser || JSON.parse(localStorage.getItem("user") || "null"),
   );
@@ -234,8 +222,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
         current.filter((item) => item._id !== proposal._id),
       );
       setProposalNotice("Proposal deleted successfully.");
+      showToast("Proposal deleted successfully.", "success");
     } catch (err) {
-      setProposalNotice(err.message || "Unable to delete the proposal.");
+      const errorMessage = err.message || "Unable to delete the proposal.";
+      setProposalNotice(errorMessage);
+      showToast(errorMessage, "error");
     } finally {
       setDeletingProposalId("");
     }
@@ -244,7 +235,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
+      <aside className="w-64 h-screen sticky top-0 self-start bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl overflow-y-auto">
         <div className="space-y-8">
           {/* Logo & Header */}
           <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
@@ -296,6 +287,20 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
+              onClick={() => setActiveTab("events")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "events"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <CalendarIcon
+                className={`w-4 h-4 ${activeTab === "events" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Events</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("roster")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "roster"
@@ -333,96 +338,93 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <ShieldCheckIcon className="w-5 h-5 text-[#4A0E17]" />
-            <span className="text-xs font-bold text-[#4A0E17] uppercase tracking-wider hidden sm:inline-block">
-              Marinduque State University — OVPSAS Secretary Workspace
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs ml-auto">
-            {/* Dynamic Academic Year Badge */}
-            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4A0E17] text-[#D4AF37] shadow-sm">
+                <ShieldCheckIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7A610D]">
+                  Secretary Workspace
+                </p>
+                <h1 className="truncate text-base sm:text-lg font-extrabold text-[#4A0E17]">
+                  Welcome back, {upperName}
+                </h1>
+                <p className="hidden sm:block truncate text-[11px] text-slate-500">
+                  {orgName} <span className="mx-1 text-slate-300">•</span>{" "}
+                  Manage organization records
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               {dynamicAcademicYear}
             </span>
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
-          {/* PAGE BANNER */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="px-2.5 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] border border-[#4A0E17]/20 text-xs font-extrabold rounded-full uppercase tracking-wider">
-                  Secretary Workspace
-                </span>
-                <span className="text-xs font-semibold text-slate-400">
-                  {orgName}
-                </span>
-              </div>
-              <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
-                Welcome back, {upperName}
-              </h1>
-              <p className="text-xs text-slate-500">
-                Manage organization records, prepare proposals, and maintain
-                executive rosters.
-              </p>
-            </div>
+        <MobileTabBar
+          activeItem={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: "overview",
+              label: "Overview",
+              icon: <LayoutDashboardIcon />,
+            },
+            { id: "proposals", label: "Proposals", icon: <CalendarIcon /> },
+            { id: "events", label: "Events", icon: <CalendarIcon /> },
+            { id: "roster", label: "Roster", icon: <UsersIcon /> },
+          ]}
+        />
 
-            <button
-              onClick={openCreateProposal}
-              className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-1.5 border border-[#B8860B]/30 self-start sm:self-center"
-            >
-              <PlusIcon className="w-4 h-4 text-[#36080E]" />
-              <span>Create Proposal</span>
-            </button>
-          </div>
-
+        <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {/* DYNAMIC METRIC CARDS OVERVIEW */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Active Members
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {stats.totalMembers}
-                </h2>
-                <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                  Registered
-                </span>
+          {activeTab === "overview" && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Active Members
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {stats.totalMembers}
+                  </h2>
+                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                    Registered
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Activity Proposals
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {proposals.length}
-                </h2>
-                <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
-                  Submitted
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Activity Proposals
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {proposals.length}
+                  </h2>
+                  <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
+                    Submitted
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Attendance Rate
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {stats.attendanceRate}%
-                </h2>
-                <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                  Avg. Turnout
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Attendance Rate
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {stats.attendanceRate}%
+                  </h2>
+                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                    Avg. Turnout
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* TAB CONTENT 1: OVERVIEW */}
           {activeTab === "overview" && (
@@ -490,7 +492,10 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </div>
           )}
 
-          {/* TAB CONTENT 3: EXECUTIVE ROSTER & MEMBERS */}
+          {/* TAB CONTENT 3: EVENTS */}
+          {activeTab === "events" && <SecretaryEvents proposals={proposals} />}
+
+          {/* TAB CONTENT 4: EXECUTIVE ROSTER & MEMBERS */}
           {activeTab === "roster" && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
               <OrganizationMembers user={currentUser} org={currentOrg} />

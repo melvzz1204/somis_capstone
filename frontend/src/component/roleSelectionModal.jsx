@@ -39,8 +39,8 @@ export default function RoleSelectionModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-8 shadow-2xl space-y-6 animate-in fade-in zoom-in duration-200 relative">
+    <div className="modal-backdrop">
+      <div className="modal-panel max-w-lg p-5 sm:p-8 space-y-6 relative">
         {onClose && (
           <button
             onClick={onClose}

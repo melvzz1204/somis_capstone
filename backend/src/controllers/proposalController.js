@@ -4,6 +4,19 @@ const Proposal = require("../models/Proposal");
 const Member = require("../models/MemberOrganization");
 const Organization = require("../models/OrganizationModels");
 
+const formatMemberSignature = (member) => {
+  if (!member) return "";
+  if (member.surname && member.firstName) {
+    const givenName = [member.firstName, member.middleInitial]
+      .filter(Boolean)
+      .join(" ");
+    return [`${member.surname}, ${givenName}`, member.suffix]
+      .filter(Boolean)
+      .join(", ");
+  }
+  return member.name?.trim() || "";
+};
+
 const resolveLeaderSignature = async (user) => {
   const organizationId = user.organization;
   const normalizedEmail = String(user.email || "")
@@ -24,26 +37,41 @@ const resolveLeaderSignature = async (user) => {
     }).select("name surname firstName middleInitial suffix role");
   }
 
-  if (leader?.surname) {
-    if (!leader.firstName) return "";
-
-    const givenName = [leader.firstName, leader.middleInitial]
-      .filter(Boolean)
-      .join(" ");
-    return [`${leader.surname}, ${givenName}`, leader.suffix]
-      .filter(Boolean)
-      .join(", ");
-  }
-
   // A president must complete the structured name fields before signing. Other
   // legacy officer records may still contain a complete name in one field.
-  if (leader?.role === "President") return "";
-  if (leader?.name?.trim()) return leader.name.trim();
+  if (leader?.role === "President" && !(leader.surname && leader.firstName))
+    return "";
+  const memberSignature = formatMemberSignature(leader);
+  if (memberSignature) return memberSignature;
   if (user.name?.trim()) return user.name.trim();
 
   const organization =
     await Organization.findById(organizationId).select("president");
   return organization?.president?.trim() || "";
+};
+
+const resolveAdviserSignature = async (user) => {
+  const organizationId = user.organization;
+  const normalizedEmail = String(user.email || "")
+    .toLowerCase()
+    .trim();
+
+  let adviser = normalizedEmail
+    ? await Member.findOne({
+        organization: organizationId,
+        email: normalizedEmail,
+        role: "Faculty Adviser",
+      }).select("name surname firstName middleInitial suffix")
+    : null;
+
+  if (!adviser) {
+    adviser = await Member.findOne({
+      organization: organizationId,
+      role: "Faculty Adviser",
+    }).select("name surname firstName middleInitial suffix");
+  }
+
+  return formatMemberSignature(adviser) || user.name?.trim() || "";
 };
 
 const editableFields = [
@@ -102,6 +130,11 @@ const sendValidationError = (res, error) =>
       "The proposal contains invalid information.",
   });
 
+const normalizeExpectedAttendees = (value) => {
+  const count = Number(value);
+  return Number.isInteger(count) && count >= 1 ? count : value;
+};
+
 const createProposal = async (req, res) => {
   const newAttachments = uploadedAttachments(req.files);
 
@@ -117,6 +150,7 @@ const createProposal = async (req, res) => {
       result[field] = req.body[field];
       return result;
     }, {});
+    data.expectedAttendees = normalizeExpectedAttendees(data.expectedAttendees);
 
     const proposal = await Proposal.create({
       ...data,
@@ -149,9 +183,14 @@ const getProposals = async (req, res) => {
         .json({ success: false, message: "Organization context is required." });
     }
 
-    const proposals = await Proposal.find({ org: req.user.organization }).sort({
-      createdAt: -1,
-    });
+    const query = { org: req.user.organization };
+    if (req.user.role === "adviser") {
+      // Advisers only receive proposals approved by the president. In
+      // particular, proposals rejected by the president are never exposed.
+      query.status = { $in: ["Pending Adviser Review", "Approved"] };
+    }
+
+    const proposals = await Proposal.find(query).sort({ createdAt: -1 });
     return res.json({
       success: true,
       count: proposals.length,
@@ -218,6 +257,12 @@ const updateProposal = async (req, res) => {
       if (Object.prototype.hasOwnProperty.call(req.body, field))
         proposal[field] = req.body[field];
     });
+    if (Object.prototype.hasOwnProperty.call(req.body, "expectedAttendees")) {
+      proposal.expectedAttendees = normalizeExpectedAttendees(
+        req.body.expectedAttendees,
+      );
+    }
+
     proposal.attachments = [...retainedAttachments, ...newAttachments];
 
     await proposal.save();
@@ -260,8 +305,29 @@ const getLeaderSignature = async (req, res) => {
   }
 };
 
+const getAdviserSignature = async (req, res) => {
+  try {
+    const digitalSignature = await resolveAdviserSignature(req.user);
+    if (!digitalSignature) {
+      return res.status(404).json({
+        success: false,
+        message: "No faculty adviser name is available for signing.",
+      });
+    }
+
+    return res.json({ success: true, data: { digitalSignature } });
+  } catch (error) {
+    console.error("Error resolving adviser signature:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not retrieve the faculty adviser signature.",
+    });
+  }
+};
+
 const reviewProposal = async (req, res) => {
   const { decision, remarks = "" } = req.body;
+  const isAdviser = req.user.role === "adviser";
 
   if (!["Approved", "Rejected"].includes(decision)) {
     return res.status(400).json({
@@ -271,13 +337,25 @@ const reviewProposal = async (req, res) => {
   }
 
   try {
-    const digitalSignature = await resolveLeaderSignature(req.user);
-    if (!digitalSignature) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Add the organization leader's full name before reviewing proposals.",
-      });
+    let digitalSignature = "";
+    if (isAdviser) {
+      digitalSignature = await resolveAdviserSignature(req.user);
+      if (!digitalSignature) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Add the faculty adviser's full name before approving proposals.",
+        });
+      }
+    } else {
+      digitalSignature = await resolveLeaderSignature(req.user);
+      if (!digitalSignature) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Add the organization leader's full name before reviewing proposals.",
+        });
+      }
     }
 
     const proposal = await Proposal.findOne({
@@ -298,19 +376,49 @@ const reviewProposal = async (req, res) => {
       });
     }
 
-    proposal.status = decision;
-    proposal.leaderReview = {
-      decision,
-      digitalSignature,
-      remarks: String(remarks).trim(),
-      reviewedBy: req.user._id,
-      reviewedAt: new Date(),
-    };
+    if (isAdviser && proposal.status !== "Pending Adviser Review") {
+      return res.status(409).json({
+        success: false,
+        message: "This proposal is not yet ready for adviser review.",
+      });
+    }
+
+    if (!isAdviser && proposal.status === "Pending Adviser Review") {
+      return res.status(409).json({
+        success: false,
+        message: "This proposal is awaiting the faculty adviser's decision.",
+      });
+    }
+
+    if (isAdviser) {
+      proposal.status = decision;
+      proposal.adviserReview = {
+        decision,
+        digitalSignature,
+        remarks: String(remarks).trim(),
+        reviewedBy: req.user._id,
+        reviewedAt: new Date(),
+      };
+    } else {
+      proposal.status =
+        decision === "Approved" ? "Pending Adviser Review" : "Rejected";
+      proposal.leaderReview = {
+        decision,
+        digitalSignature,
+        remarks: String(remarks).trim(),
+        reviewedBy: req.user._id,
+        reviewedAt: new Date(),
+      };
+    }
 
     await proposal.save();
     return res.json({
       success: true,
-      message: `Proposal ${decision.toLowerCase()} successfully.`,
+      message: isAdviser
+        ? `Proposal ${decision.toLowerCase()} successfully.`
+        : decision === "Approved"
+          ? "Proposal approved and forwarded to the faculty adviser."
+          : "Proposal rejected successfully.",
       data: proposal,
     });
   } catch (error) {
@@ -368,6 +476,7 @@ module.exports = {
   getProposals,
   updateProposal,
   getLeaderSignature,
+  getAdviserSignature,
   reviewProposal,
   deleteProposal,
 };

@@ -22,6 +22,7 @@ const formatCurrency = (value) =>
 
 const statusClasses = {
   Submitted: "border-amber-200 bg-amber-50 text-amber-800",
+  "Pending Adviser Review": "border-blue-200 bg-blue-50 text-blue-800",
   Approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   Rejected: "border-rose-200 bg-rose-50 text-rose-800",
 };
@@ -31,29 +32,37 @@ export default function LeaderProposalReview({
   isLoading,
   actionId,
   onReview,
+  reviewRole = "leader",
 }) {
+  const isAdviserReview = reviewRole === "adviser";
   const [reviewForms, setReviewForms] = useState({});
   const [selectedProposal, setSelectedProposal] = useState(null);
-  const [leaderSignature, setLeaderSignature] = useState("");
+  const [digitalSignature, setDigitalSignature] = useState("");
   const [isLoadingSignature, setIsLoadingSignature] = useState(true);
   const [signatureError, setSignatureError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadLeaderSignature = async () => {
+    const loadDigitalSignature = async () => {
       setIsLoadingSignature(true);
       setSignatureError("");
       try {
-        const response = await API.get("/proposals/leader-signature");
+        const endpoint = isAdviserReview
+          ? "/proposals/adviser-signature"
+          : "/proposals/leader-signature";
+        const response = await API.get(endpoint);
         if (isMounted) {
-          setLeaderSignature(response.data?.digitalSignature || "");
+          setDigitalSignature(response.data?.digitalSignature || "");
         }
       } catch (error) {
         if (isMounted) {
-          setLeaderSignature("");
+          setDigitalSignature("");
           setSignatureError(
-            error.message || "Unable to load the organization leader name.",
+            error.message ||
+              `Unable to load the ${
+                isAdviserReview ? "faculty adviser" : "organization leader"
+              } name.`,
           );
         }
       } finally {
@@ -61,28 +70,23 @@ export default function LeaderProposalReview({
       }
     };
 
-    loadLeaderSignature();
+    loadDigitalSignature();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAdviserReview]);
 
-  const updateReviewField = (proposalId, field, value) => {
+  const updateReviewField = (proposalId, value) => {
     setReviewForms((current) => ({
       ...current,
-      [proposalId]: {
-        remarks: "",
-        ...current[proposalId],
-        [field]: value,
-      },
+      [proposalId]: { remarks: value },
     }));
   };
 
   const submitDecision = async (proposal, decision) => {
-    const form = reviewForms[proposal._id] || {};
     const completed = await onReview(proposal, {
       decision,
-      remarks: form.remarks || "",
+      remarks: reviewForms[proposal._id]?.remarks || "",
     });
 
     if (completed) {
@@ -106,27 +110,31 @@ export default function LeaderProposalReview({
     <div className="space-y-4">
       <div className="border-b border-slate-200 pb-4">
         <h3 className="text-base font-bold text-[#4A0E17]">
-          Activity Proposals
+          {isAdviserReview ? "Final Adviser Approval" : "Activity Proposals"}
         </h3>
         <p className="mt-0.5 text-xs text-slate-500">
-          Review proposals prepared by the organization secretary and record
-          your decision.
+          {isAdviserReview
+            ? "Review proposals approved by the organization president. Your decision is final."
+            : "Review proposals prepared by the organization secretary and record your decision."}
         </p>
       </div>
 
       {proposals.length === 0 ? (
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
-            No proposals awaiting organization review
+            {isAdviserReview
+              ? "No president-approved proposals are awaiting final approval"
+              : "No proposals awaiting organization review"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Proposals created by the secretary will appear here.
+            {isAdviserReview
+              ? "President-rejected proposals are not shown in this workspace."
+              : "Proposals created by the secretary will appear here."}
           </p>
         </div>
       ) : (
         <div className="divide-y divide-slate-200 border border-slate-200 bg-white">
           {proposals.map((proposal) => {
-            const reviewForm = reviewForms[proposal._id] || {};
             const isFinal = ["Approved", "Rejected"].includes(proposal.status);
             const isActing = actionId === proposal._id;
 
@@ -242,37 +250,62 @@ export default function LeaderProposalReview({
 
                 {isFinal ? (
                   <div
-                    className={`mt-4 border px-4 py-3 text-xs ${
-                      proposal.status === "Approved"
-                        ? "border-emerald-200 bg-emerald-50"
-                        : "border-rose-200 bg-rose-50"
+                    className={`mt-4 border px-4 py-4 text-xs ${
+                      proposal.status === "Rejected"
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-emerald-200 bg-emerald-50"
                     }`}
                   >
                     <p className="font-extrabold text-slate-800">
-                      {proposal.status} by organization leader
+                      {proposal.status === "Rejected"
+                        ? `${isAdviserReview ? "Adviser" : "Organization leader"} rejected this proposal`
+                        : "Final proposal approved by:"}
                     </p>
-                    <p className="mt-1 text-slate-600">
-                      Digitally signed by{" "}
-                      <span className="font-bold italic">
-                        {proposal.leaderReview?.digitalSignature}
-                      </span>{" "}
-                      on {formatDateTime(proposal.leaderReview?.reviewedAt)}
+                    <p className="mt-3 text-slate-600">
+                      {proposal.status === "Rejected" && isAdviserReview
+                        ? "Adviser e-signature:"
+                        : "Adviser e-signature:"}{" "}
+                      <span className="font-bold italic text-slate-800">
+                        {proposal.adviserReview?.digitalSignature ||
+                          "Not available"}
+                      </span>
                     </p>
-                    {proposal.leaderReview?.remarks && (
+                    <p className="mt-2 text-slate-600">
+                      {proposal.status === "Rejected" && isAdviserReview
+                        ? "Adviser rejected on"
+                        : "Adviser approved on"}{" "}
+                      <span className="font-semibold text-slate-800">
+                        {formatDateTime(proposal.adviserReview?.reviewedAt)}
+                      </span>
+                    </p>
+                    {proposal.adviserReview?.remarks && (
                       <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                        {proposal.leaderReview.remarks}
+                        {proposal.adviserReview.remarks}
                       </p>
                     )}
+                  </div>
+                ) : proposal.status === "Pending Adviser Review" &&
+                  !isAdviserReview ? (
+                  <div className="mt-4 border border-blue-200 bg-blue-50 px-4 py-3 text-xs">
+                    <p className="font-extrabold text-blue-900">
+                      Awaiting faculty adviser approval
+                    </p>
+                    <p className="mt-1 text-blue-700">
+                      The president has approved this proposal.
+                    </p>
                   </div>
                 ) : (
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="text-[11px] font-bold text-slate-700">
-                        Digital Signature
+                        {isAdviserReview
+                          ? "Faculty Adviser E-Signature"
+                          : "Organization President E-Signature"}
                         <div className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold italic uppercase text-slate-800">
                           {isLoadingSignature
-                            ? "Loading leader name..."
-                            : leaderSignature || "Leader name unavailable"}
+                            ? `Loading ${isAdviserReview ? "adviser" : "president"} name...`
+                            : digitalSignature ||
+                              `${isAdviserReview ? "Adviser" : "President"} name unavailable`}
                         </div>
                         {signatureError && (
                           <p className="mt-1 font-medium text-rose-600">
@@ -283,13 +316,9 @@ export default function LeaderProposalReview({
                       <label className="text-[11px] font-bold text-slate-700">
                         Remarks (Optional)
                         <textarea
-                          value={reviewForm.remarks || ""}
+                          value={reviewForms[proposal._id]?.remarks || ""}
                           onChange={(event) =>
-                            updateReviewField(
-                              proposal._id,
-                              "remarks",
-                              event.target.value,
-                            )
+                            updateReviewField(proposal._id, event.target.value)
                           }
                           maxLength={500}
                           rows={2}
@@ -302,7 +331,7 @@ export default function LeaderProposalReview({
                         type="button"
                         onClick={() => submitDecision(proposal, "Rejected")}
                         disabled={
-                          isActing || isLoadingSignature || !leaderSignature
+                          isActing || isLoadingSignature || !digitalSignature
                         }
                         className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -312,11 +341,15 @@ export default function LeaderProposalReview({
                         type="button"
                         onClick={() => submitDecision(proposal, "Approved")}
                         disabled={
-                          isActing || isLoadingSignature || !leaderSignature
+                          isActing || isLoadingSignature || !digitalSignature
                         }
                         className="rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {isActing ? "Saving Decision..." : "Approve"}
+                        {isActing
+                          ? "Saving Decision..."
+                          : isAdviserReview
+                            ? "Final Approve"
+                            : "Approve"}
                       </button>
                     </div>
                   </div>

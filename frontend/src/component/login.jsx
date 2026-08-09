@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import { useToast } from "../util/toastContext";
 
 // Inline SVG Icons
 const UserShieldIcon = ({ className = "w-4 h-4" }) => (
@@ -38,6 +39,7 @@ const UserGroupIcon = ({ className = "w-4 h-4" }) => (
 
 export default function Login() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [portalType, setPortalType] = useState("org"); // "org" or "admin"
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -88,19 +90,21 @@ export default function Login() {
       localStorage.setItem("somis_onboarding_completed", "true");
 
       const redirectPath = getRedirectPathByRole(actualRole);
+      showToast("Signed in successfully.", "success");
       navigate(redirectPath, { replace: true });
     } catch (err) {
       console.error("Login Error:", err);
-      setError(
-        err.response?.data?.message || err.message || "Invalid credentials.",
-      );
+      const errorMessage =
+        err.response?.data?.message || err.message || "Invalid credentials.";
+      setError(errorMessage);
+      showToast(errorMessage, "error");
     } finally {
       setIsLoading(false);
     }
   }; // ✅ Correctly closed handleSubmit before returning JSX
 
   return (
-    <div className="w-full bg-white p-6 rounded-2xl space-y-4 text-slate-900 border border-slate-100 shadow-xl">
+    <div className="w-full bg-white p-6 space-y-5 text-slate-900">
       {/* BRAND HEADER */}
       <div className="text-center space-y-1">
         <img
@@ -117,11 +121,17 @@ export default function Login() {
       </div>
 
       {/* PORTAL TOGGLE SWITCH */}
-      <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100/80 rounded-xl text-xs font-semibold border border-slate-200/60">
+      <div
+        className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg text-xs font-semibold border border-slate-200"
+        role="tablist"
+        aria-label="Choose portal type"
+      >
         <button
           type="button"
           onClick={() => handlePortalSwitch("org")}
-          className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+          role="tab"
+          aria-selected={portalType === "org"}
+          className={`py-2 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             portalType === "org"
               ? "bg-[#4A0E17] text-white shadow-sm font-bold"
               : "text-slate-600 hover:text-slate-900"
@@ -133,7 +143,9 @@ export default function Login() {
         <button
           type="button"
           onClick={() => handlePortalSwitch("admin")}
-          className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+          role="tab"
+          aria-selected={portalType === "admin"}
+          className={`py-2 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             portalType === "admin"
               ? "bg-[#4A0E17] text-white shadow-sm font-bold"
               : "text-slate-600 hover:text-slate-900"
@@ -154,10 +166,11 @@ export default function Login() {
       {/* FORM */}
       <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
         <div>
-          <label className="block text-slate-700 font-bold mb-1">
+          <label htmlFor="portal-email" className="field-label">
             {portalType === "org" ? "Official Email" : "Admin Email"}
           </label>
           <input
+            id="portal-email"
             type="email"
             name="email"
             required
@@ -168,29 +181,32 @@ export default function Login() {
             }
             value={formData.email}
             onChange={handleChange}
-            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
+            autoComplete="email"
+            className="field-control text-xs"
           />
         </div>
 
         <div>
-          <label className="block text-slate-700 font-bold mb-1">
+          <label htmlFor="portal-password" className="field-label">
             Password
           </label>
           <input
+            id="portal-password"
             type="password"
             name="password"
             required
-            placeholder="••••••••"
+            placeholder="Enter your lastname and last 4 GCash account digits"
             value={formData.password}
             onChange={handleChange}
-            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
+            autoComplete="current-password"
+            className="field-control text-xs"
           />
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full py-2.5 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 mt-1 active:scale-[0.99]"
+          className="btn-primary w-full mt-1"
         >
           {isLoading
             ? "Signing in..."

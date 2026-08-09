@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
+import { useToast } from "../util/toastContext";
+import MobileTabBar from "../component/mobileTabBar";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
 import LogoutButton from "../component/logoutButton";
@@ -102,28 +104,6 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
-const AcademicCapIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M12 14l9-5-9-5-9 5 9 5z"
-    />
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0112 20.055a11.952 11.952 0 01-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"
-    />
-  </svg>
-);
-
 const UploadCloudIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -142,6 +122,7 @@ const UploadCloudIcon = ({ className = "w-4 h-4" }) => (
 
 export default function OrgDashboard() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
   const [user, setUser] = useState(() => {
     try {
@@ -156,6 +137,7 @@ export default function OrgDashboard() {
   const [profileError, setProfileError] = useState("");
   const [proposals, setProposals] = useState([]);
   const [isLoadingProposals, setIsLoadingProposals] = useState(true);
+  const [organizationMembers, setOrganizationMembers] = useState([]);
   const [proposalActionId, setProposalActionId] = useState("");
   const [proposalNotice, setProposalNotice] = useState("");
 
@@ -167,7 +149,7 @@ export default function OrgDashboard() {
       const authenticatedUser = await API.get("/auth/me");
 
       if (authenticatedUser?.role === "secretary") {
-        navigate("/secretary-dashboard", { replace: true });
+        navigate("/org-secretary", { replace: true });
         return;
       }
 
@@ -197,19 +179,43 @@ export default function OrgDashboard() {
     }
   }, []);
 
+  const loadOrganizationMembers = useCallback(async () => {
+    try {
+      const response = await API.get("/orgmembers");
+      setOrganizationMembers(Array.isArray(response) ? response : []);
+    } catch (err) {
+      console.error("Failed to fetch organization member counts:", err);
+      setOrganizationMembers([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (user?.role === "secretary") {
-      navigate("/secretary-dashboard", { replace: true });
+      navigate("/org-secretary", { replace: true });
       return undefined;
     }
 
     const profileRequest = window.setTimeout(() => {
       loadOrganizationProfile();
       loadProposals();
+      loadOrganizationMembers();
     }, 0);
 
     return () => window.clearTimeout(profileRequest);
-  }, [loadOrganizationProfile, loadProposals, navigate, user?.role]);
+  }, [
+    loadOrganizationProfile,
+    loadProposals,
+    loadOrganizationMembers,
+    navigate,
+    user?.role,
+  ]);
+
+  const officerCount = organizationMembers.filter(
+    (member) => member.role !== "Member",
+  ).length;
+  const memberCount = organizationMembers.filter(
+    (member) => member.role === "Member",
+  ).length;
 
   const handleProposalReview = async (proposal, review) => {
     setProposalActionId(proposal._id);
@@ -224,10 +230,15 @@ export default function OrgDashboard() {
           item._id === proposal._id ? response.data : item,
         ),
       );
-      setProposalNotice(response.message || "Proposal decision saved.");
+      const successMessage = response.message || "Proposal decision saved.";
+      setProposalNotice(successMessage);
+      showToast(successMessage, "success");
       return true;
     } catch (err) {
-      setProposalNotice(err.message || "Unable to save the proposal decision.");
+      const errorMessage =
+        err.message || "Unable to save the proposal decision.";
+      setProposalNotice(errorMessage);
+      showToast(errorMessage, "error");
       return false;
     } finally {
       setProposalActionId("");
@@ -267,7 +278,7 @@ export default function OrgDashboard() {
     /* 60% DOMINANT: Off-White Canvas Background */
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* 30% SECONDARY: Deep Royal Burgundy Sidebar */}
-      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
+      <aside className="w-64 h-screen sticky top-0 self-start bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl overflow-y-auto">
         <div className="space-y-8">
           {/* Logo & Header */}
           <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
@@ -315,7 +326,7 @@ export default function OrgDashboard() {
               <UserPlusIcon
                 className={`w-4 h-4 ${activeTab === "officers" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Manage Officers</span>
+              <span>Manage Officers ({officerCount})</span>
             </button>
 
             <button
@@ -329,7 +340,7 @@ export default function OrgDashboard() {
               <UserGroupIcon
                 className={`w-4 h-4 ${activeTab === "members" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Organization Members</span>
+              <span>Organization Members ({memberCount})</span>
             </button>
 
             <button
@@ -343,7 +354,7 @@ export default function OrgDashboard() {
               <CalendarEventIcon
                 className={`w-4 h-4 ${activeTab === "activities" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Activity Proposals</span>
+              <span>Activity Proposals ({proposals.length})</span>
             </button>
 
             <button
@@ -357,7 +368,7 @@ export default function OrgDashboard() {
               <FileCheckIcon
                 className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Annual Clearance</span>
+              <span>Annual Clearance ({organizationNeeds.length})</span>
             </button>
           </nav>
         </div>
@@ -386,52 +397,58 @@ export default function OrgDashboard() {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header Bar */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <ShieldCheckIcon className="w-5 h-5 text-[#4A0E17]" />
-            <span className="text-xs font-bold text-[#4A0E17] uppercase tracking-wider hidden sm:inline-block">
-              Marinduque State University — OVPSAS Organization Portal
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs ml-auto">
-            {/* 10% Gold Accent Badge */}
-            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4A0E17] text-[#D4AF37] shadow-sm">
+                <ShieldCheckIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7A610D]">
+                  Organization Portal
+                </p>
+                <h1 className="truncate text-base sm:text-lg font-extrabold text-[#4A0E17]">
+                  Welcome back, {org.president}
+                </h1>
+                <p className="hidden sm:block truncate text-[11px] text-slate-500">
+                  {org.name} <span className="mx-1 text-slate-300">•</span>{" "}
+                  Manage your organization workspace
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               AY 2025–2026
             </span>
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
-          {/* Organization Title Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
-                  {org.name}
-                </h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 font-extrabold text-[#7A610D] border border-[#D4AF37]/30 tracking-wide">
-                  {org.acronym}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                <AcademicCapIcon className="w-4 h-4 text-slate-400 inline" />
-                <span>{org.college}</span>
-                <span>•</span>
-                <span className="font-medium text-slate-600">
-                  Recognized Student organization
-                </span>
-              </p>
-            </div>
+        <MobileTabBar
+          activeItem={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: "overview",
+              label: "Overview",
+              icon: <LayoutDashboardIcon />,
+            },
+            { id: "officers", label: "Officers", icon: <UserPlusIcon /> },
+            { id: "members", label: "Members", icon: <UserGroupIcon /> },
+            {
+              id: "activities",
+              label: "Activities",
+              shortLabel: "Events",
+              icon: <CalendarEventIcon />,
+            },
+            {
+              id: "clearance",
+              label: "Clearance",
+              shortLabel: "Clear",
+              icon: <FileCheckIcon />,
+            },
+          ]}
+        />
 
-            <div className="self-start sm:self-center">
-              <span className="px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Status: {org.status || "Recognized"}
-              </span>
-            </div>
-          </div>
-
+        <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {/* TAB CONTENT: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">

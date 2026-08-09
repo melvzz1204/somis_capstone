@@ -77,7 +77,13 @@ const proposalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Draft", "Submitted", "Approved", "Rejected"],
+      enum: [
+        "Draft",
+        "Submitted",
+        "Pending Adviser Review",
+        "Approved",
+        "Rejected",
+      ],
       default: "Submitted",
     },
     leaderReview: {
@@ -100,6 +106,16 @@ const proposalSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
       },
+      reviewedAt: Date,
+    },
+    adviserReview: {
+      decision: {
+        type: String,
+        enum: ["Approved", "Rejected"],
+      },
+      digitalSignature: { type: String, trim: true, maxlength: 150 },
+      remarks: { type: String, trim: true, maxlength: 500, default: "" },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       reviewedAt: Date,
     },
   },

@@ -49,6 +49,7 @@ export default function FeeModal({
   onSubmitSuccess,
   org,
   user,
+  fee = null,
   // DYNAMIC CONFIGURATION PROPS (Override via parent component or API)
   categories: rawCategories,
   semesters: rawSemesters = ["1st Semester", "2nd Semester", "Summer"],
@@ -114,21 +115,30 @@ export default function FeeModal({
     if (!isOpen) return undefined;
 
     const resetRequest = window.setTimeout(() => {
+      const selectedCategory =
+        fee?.category || categories[0]?.value || "others";
       setFormData({
-        feeCategory: categories[0]?.value || "others",
-        customFeeName: "",
-        amount: "",
-        academicYear: academicYears[1]?.value || academicYears[0]?.value || "",
-        semester: semesters[0]?.value || "",
-        targetYearLevel: targetLevels[0]?.value || "All",
-        dueDate: "",
-        description: "",
+        feeCategory: selectedCategory,
+        customFeeName: selectedCategory === "others" ? fee?.title || "" : "",
+        amount: fee?.amount ?? "",
+        academicYear:
+          fee?.academicYear ||
+          academicYears[1]?.value ||
+          academicYears[0]?.value ||
+          "",
+        semester: fee?.semester || semesters[0]?.value || "",
+        targetYearLevel:
+          fee?.targetYearLevel || targetLevels[0]?.value || "All",
+        dueDate: fee?.dueDate
+          ? new Date(fee.dueDate).toISOString().slice(0, 10)
+          : "",
+        description: fee?.description || "",
       });
       setErrorMsg("");
     }, 0);
 
     return () => window.clearTimeout(resetRequest);
-  }, [isOpen]);
+  }, [isOpen, fee, categories, academicYears, semesters, targetLevels]);
 
   if (!isOpen) return null;
 
@@ -211,9 +221,16 @@ export default function FeeModal({
     };
 
     try {
-      const response = await API.post("/fees", payload);
+      const response = fee
+        ? await API.patch(`/fees/${fee._id}`, payload)
+        : await API.post("/fees", payload);
 
-      showToast?.("Dues Collection created successfully!", "success");
+      showToast?.(
+        fee
+          ? "Dues Collection updated successfully!"
+          : "Dues Collection created successfully!",
+        "success",
+      );
 
       const createdFee =
         response.data?.data || response.data?.fee || response.data || payload;
@@ -236,8 +253,8 @@ export default function FeeModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl border border-slate-200/80 max-w-md w-full p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+    <div className="modal-backdrop">
+      <div className="modal-panel max-w-md p-5 sm:p-6 space-y-5">
         {/* MODAL HEADER */}
         <div className="flex items-start justify-between border-b border-slate-100 pb-4">
           <div className="flex items-center gap-3">
@@ -246,7 +263,7 @@ export default function FeeModal({
             </div>
             <div>
               <h3 className="text-base font-extrabold text-[#4A0E17]">
-                Create Dues Collection
+                {fee ? "Edit Dues Collection" : "Create Dues Collection"}
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Organization:{" "}
@@ -436,9 +453,15 @@ export default function FeeModal({
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 border border-[#B8860B]/30 flex items-center gap-1.5"
+              className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
             >
-              {loading ? "Creating Fee..." : "Create Fee"}
+              {loading
+                ? fee
+                  ? "Updating Fee..."
+                  : "Creating Fee..."
+                : fee
+                  ? "Update Fee"
+                  : "Create Fee"}
             </button>
           </div>
         </form>

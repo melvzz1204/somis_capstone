@@ -4,6 +4,7 @@ const {
   getProposals,
   updateProposal,
   getLeaderSignature,
+  getAdviserSignature,
   reviewProposal,
   deleteProposal,
 } = require("../controllers/proposalController");
@@ -29,7 +30,19 @@ router.get(
   getLeaderSignature,
 );
 
-router.patch("/:id/review", protect, authorize("org_admin"), reviewProposal);
+router.get(
+  "/adviser-signature",
+  protect,
+  authorize("adviser"),
+  getAdviserSignature,
+);
+
+router.patch(
+  "/:id/review",
+  protect,
+  authorize("org_admin", "adviser"),
+  reviewProposal,
+);
 
 router
   .route("/:id")

@@ -1,4 +1,3 @@
-import React from "react";
 import SecretaryDashboard from "../component/organization-main/secretaryDashboard"; // Adjust path if needed
 
 export default function OrgSecretaryPage({ user, org }) {

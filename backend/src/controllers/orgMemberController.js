@@ -199,6 +199,8 @@ exports.addMember = async (req, res) => {
       req.user?.organization ||
       req.body.organization ||
       req.user?._id;
+    const normalizedRole = String(role || "").trim();
+    const isAdviser = normalizedRole === "Faculty Adviser";
 
     const hasStructuredName = Boolean(
       cleanNamePart(surname) && cleanNamePart(firstName),
@@ -207,7 +209,7 @@ exports.addMember = async (req, res) => {
       ? formatMemberName({ surname, firstName, middleInitial, suffix })
       : cleanNamePart(name);
 
-    if (!displayName || !email || !role) {
+    if (!displayName || !email || !normalizedRole) {
       return res.status(400).json({
         message: "Surname, first name, email, and position are required.",
       });
@@ -219,7 +221,7 @@ exports.addMember = async (req, res) => {
     }
 
     const newMember = await Member.create({
-      idNumber,
+      idNumber: isAdviser ? "" : idNumber || "",
       name: displayName,
       surname: hasStructuredName ? cleanNamePart(surname) : "",
       firstName: hasStructuredName ? cleanNamePart(firstName) : "",
@@ -228,11 +230,11 @@ exports.addMember = async (req, res) => {
         : "",
       suffix: hasStructuredName ? cleanNamePart(suffix) : "",
       email,
-      birthday: birthday ? new Date(birthday) : null,
-      year,
-      program,
-      section,
-      role,
+      birthday: isAdviser ? null : birthday ? new Date(birthday) : null,
+      year: isAdviser ? "" : year || "",
+      program: isAdviser ? "" : program || "",
+      section: isAdviser ? "" : section || "",
+      role: normalizedRole,
       avatar: avatarPath,
       organization: orgId,
     });
@@ -341,7 +343,16 @@ exports.updateMember = async (req, res) => {
     if (year !== undefined) member.year = year;
     if (program !== undefined) member.program = program;
     if (section !== undefined) member.section = section;
-    if (role && !isPresident) member.role = role;
+    if (role && !isPresident) {
+      member.role = role;
+      if (String(role).trim() === "Faculty Adviser") {
+        member.idNumber = "";
+        member.birthday = null;
+        member.year = "";
+        member.program = "";
+        member.section = "";
+      }
+    }
 
     if (req.file) {
       member.avatar = `/uploads/${req.file.filename}`;

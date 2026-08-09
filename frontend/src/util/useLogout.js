@@ -1,8 +1,10 @@
 import { useNavigate } from "react-router-dom";
-import API from "../api/axios"; // Adjust path to your axios instance
+import API from "../api/axios";
+import { useToast } from "./toastContext";
 
 export const useLogout = () => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const logout = async () => {
     try {
@@ -22,6 +24,7 @@ export const useLogout = () => {
       }
 
       // 4. Redirect to login page and replace browser history entry
+      showToast("Signed out successfully.", "info");
       navigate("/login", { replace: true });
     }
   };

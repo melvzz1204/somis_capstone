@@ -214,7 +214,7 @@ export default function CollegeCatalog() {
         <button
           type="submit"
           disabled={pendingAction === "college-add"}
-          className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] text-xs font-bold rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+          className="px-4 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
         >
           <PlusIcon />
           <span>

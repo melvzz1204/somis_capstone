@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import { useToast } from "../util/toastContext";
 
 export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -32,10 +34,12 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
     ].some((domain) => normalizedEmail.endsWith(domain));
 
     if (!isApprovedEmail) {
+      const errorMessage =
+        "Use your MarSU email (@marsu.edu.ph or @marstateu.edu.ph), or an approved Gmail address.";
       setIsLoading(false);
-      return setError(
-        "Use your MarSU email (@marsu.edu.ph or @marstateu.edu.ph), or an approved Gmail address.",
-      );
+      setError(errorMessage);
+      showToast(errorMessage, "error");
+      return;
     }
 
     try {
@@ -58,7 +62,10 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
         localStorage.setItem("somis_user_role", user.role);
 
         const redirectPath = getRedirectPathByRole(user.role);
+        showToast("Signed in successfully.", "success");
         navigate(redirectPath, { replace: true });
+      } else {
+        throw new Error("Login response did not include account details.");
       }
     } catch (err) {
       console.error("Student Login Error:", err);
@@ -67,13 +74,14 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
         err.message ||
         "Invalid institutional email or password.";
       setError(backendMsg);
+      showToast(backendMsg, "error");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="w-full bg-white p-6 rounded-2xl space-y-4 text-slate-900">
+    <div className="w-full bg-white p-6 space-y-5 text-slate-900">
       {/* BRAND HEADER */}
       <div className="text-center space-y-1">
         <img
@@ -99,39 +107,43 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
       {/* LOGIN FORM */}
       <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
         <div>
-          <label className="block text-slate-700 font-bold mb-1">
+          <label htmlFor="student-email" className="field-label">
             Institutional Email <span className="text-rose-600">*</span>
           </label>
           <input
+            id="student-email"
             type="email"
             name="email"
             required
             placeholder="student@marsu.edu.ph"
             value={formData.email}
             onChange={handleChange}
-            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
+            autoComplete="email"
+            className="field-control text-xs"
           />
         </div>
 
         <div>
-          <label className="block text-slate-700 font-bold mb-1">
+          <label htmlFor="student-password" className="field-label">
             Password <span className="text-rose-600">*</span>
           </label>
           <input
+            id="student-password"
             type="password"
             name="password"
             required
-            placeholder="••••••••"
+            placeholder="Enter your lastname and last 4 GCash account digits"
             value={formData.password}
             onChange={handleChange}
-            className="w-full px-3.5 py-2.5 bg-white text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-xs transition-all shadow-xs"
+            autoComplete="current-password"
+            className="field-control text-xs"
           />
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full py-2.5 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer disabled:opacity-50 mt-1 active:scale-[0.99]"
+          className="btn-primary w-full mt-1"
         >
           {isLoading ? "Signing in..." : "Sign In as Student"}
         </button>

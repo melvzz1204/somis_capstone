@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import API from "../../api/axios";
+import { useToast } from "../../util/toastContext";
 
 const activityCategories = [
   "Academic",
@@ -54,7 +55,20 @@ const toLocalDateTime = (value) => {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 };
 
+const getSecretaryName = (secretary) => {
+  if (secretary?.name?.trim()) return secretary.name.trim();
+  if (!secretary?.surname || !secretary?.firstName) return "";
+
+  const givenName = [secretary.firstName, secretary.middleInitial]
+    .filter(Boolean)
+    .join(" ");
+  return [`${secretary.surname}, ${givenName}`, secretary.suffix]
+    .filter(Boolean)
+    .join(", ");
+};
+
 export default function ProposalModal({ proposal, onClose, onSaved }) {
+  const { showToast } = useToast();
   const [form, setForm] = useState(() =>
     proposal
       ? {
@@ -75,6 +89,74 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
   const [newFiles, setNewFiles] = useState([]);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [memberCount, setMemberCount] = useState(null);
+  const [leadAutoFillStatus, setLeadAutoFillStatus] = useState(
+    proposal ? "not-needed" : "loading",
+  );
+
+  useEffect(() => {
+    if (proposal) return undefined;
+
+    let isCurrent = true;
+
+    API.get("/orgmembers")
+      .then((response) => {
+        if (!isCurrent) return;
+        const roster = Array.isArray(response)
+          ? response
+          : response?.data || [];
+        const secretary = roster.find(
+          (member) => member.role?.toLowerCase() === "secretary",
+        );
+        const secretaryName = getSecretaryName(secretary);
+        const secretaryContact = secretary?.email?.trim() || "";
+
+        if (!secretaryName && !secretaryContact) {
+          setLeadAutoFillStatus("unavailable");
+          return;
+        }
+
+        setForm((current) => ({
+          ...current,
+          projectLeadPerson: current.projectLeadPerson || secretaryName,
+          projectLeadContact: current.projectLeadContact || secretaryContact,
+        }));
+        setLeadAutoFillStatus("filled");
+      })
+      .catch(() => {
+        if (isCurrent) setLeadAutoFillStatus("unavailable");
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [proposal]);
+
+  useEffect(() => {
+    if (form.targetAudience !== "Org Members Only") return undefined;
+
+    let isCurrent = true;
+
+    API.get("/orgmembers")
+      .then((response) => {
+        if (!isCurrent) return;
+        const roster = Array.isArray(response)
+          ? response
+          : response?.data || [];
+        const count = roster.length;
+        setMemberCount(count);
+        setForm((current) => ({
+          ...current,
+          expectedAttendees: String(count || ""),
+        }));
+      })
+      .catch(() => {
+        if (isCurrent) setMemberCount(-1);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [form.targetAudience]);
 
   const updateField = (event) =>
     setForm((current) => ({
@@ -133,9 +215,17 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
       const response = proposal?._id
         ? await API.put(`/proposals/${proposal._id}`, payload)
         : await API.post("/proposals", payload);
-      onSaved(response.data, proposal ? "updated" : "created");
+      const action = proposal ? "updated" : "created";
+      const uploadNote = newFiles.length
+        ? ` ${newFiles.length} file${newFiles.length === 1 ? "" : "s"} uploaded.`
+        : "";
+      showToast(`Proposal ${action} successfully.${uploadNote}`, "success");
+      onSaved(response.data, action);
     } catch (requestError) {
-      setError(requestError.message || "Unable to save the proposal.");
+      const errorMessage =
+        requestError.message || "Unable to save the proposal.";
+      setError(errorMessage);
+      showToast(errorMessage, "error");
     } finally {
       setIsSaving(false);
     }
@@ -296,6 +386,15 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
                     onChange={updateField}
                     required
                   />
+                  {form.targetAudience === "Org Members Only" && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      {memberCount === -1
+                        ? "Unable to load the organization roster. Enter the expected number manually."
+                        : memberCount !== null
+                          ? `Auto-filled with ${memberCount} organization member${memberCount === 1 ? "" : "s"}. You may adjust this number manually.`
+                          : "Counting all organization roster members..."}
+                    </span>
+                  )}
                 </label>
                 <label className={`${labelClass} md:col-span-2`}>
                   Target Audience <span className="text-rose-600">*</span>
@@ -361,6 +460,15 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
                     onChange={updateField}
                     required
                   />
+                  {!proposal && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      {leadAutoFillStatus === "loading"
+                        ? "Loading the organization secretary..."
+                        : leadAutoFillStatus === "filled"
+                          ? "Auto-filled from the organization secretary. You may edit this manually."
+                          : "Secretary details are unavailable. Enter the project lead manually."}
+                    </span>
+                  )}
                 </label>
                 <label className={labelClass}>
                   Project Lead Contact <span className="text-rose-600">*</span>
@@ -372,6 +480,12 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
                     placeholder="Phone number or email address"
                     required
                   />
+                  {!proposal && leadAutoFillStatus === "filled" && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      Auto-filled with the secretary's email. You may replace it
+                      with another email or phone number.
+                    </span>
+                  )}
                 </label>
               </div>
             </section>
@@ -452,14 +566,14 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              className="rounded-lg border border-[#4A0E17]/30 bg-white px-4 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="rounded-lg border border-[#B8860B]/40 bg-[#D4AF37] px-5 py-2 text-xs font-extrabold text-[#36080E] hover:bg-[#C59B27] disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-[#4A0E17] px-5 py-2 text-xs font-extrabold text-white hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSaving
                 ? "Saving..."

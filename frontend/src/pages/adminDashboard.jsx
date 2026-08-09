@@ -3,6 +3,7 @@ import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
 import CollegeCatalog from "../component/collegeCatalog";
 import { useToast } from "../util/toastContext";
+import MobileTabBar from "../component/mobileTabBar";
 
 // --- SVG ICON COMPONENTS ---
 const BuildingIcon = ({ className = "w-5 h-5" }) => (
@@ -85,22 +86,6 @@ const UserGroupIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
-const ExternalLinkIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-    />
-  </svg>
-);
-
 export default function AdminDashboard() {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("organizations");
@@ -108,13 +93,13 @@ export default function AdminDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [organizations, setOrganizations] = useState([]);
   const [colleges, setColleges] = useState([]);
+  const [editingOrg, setEditingOrg] = useState(null);
 
-  // Form state for creating a new organization
+  // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
     name: "",
     acronym: "",
     college: "",
-    adviser: "",
     president: "",
     email: "",
   });
@@ -147,47 +132,118 @@ export default function AdminDashboard() {
     setNewOrg((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleCreateOrganization = async (e) => {
+  const resetOrgForm = () =>
+    setNewOrg({
+      name: "",
+      acronym: "",
+      college: "",
+      president: "",
+      email: "",
+    });
+
+  const openCreateModal = () => {
+    setEditingOrg(null);
+    resetOrgForm();
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (org) => {
+    setEditingOrg(org);
+    setNewOrg({
+      name: org.name || "",
+      acronym: org.acronym || "",
+      college: org.college || "",
+      president: org.president || "",
+      email: org.email || "",
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeOrgModal = () => {
+    if (!isSubmitting) {
+      setIsModalOpen(false);
+      setEditingOrg(null);
+    }
+  };
+
+  const handleSaveOrganization = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    const payload = {
+      ...newOrg,
+      president: newOrg.president.trim().replace(/\s+/g, " "),
+    };
 
     try {
-      const response = await API.post("/organizations", {
-        ...newOrg,
-        president: newOrg.president.trim().replace(/\s+/g, " "),
-      });
-      const savedOrg = response.data || response;
+      const savedOrg = editingOrg
+        ? await API.put(`/organizations/${editingOrg._id}`, payload)
+        : await API.post("/organizations", payload);
 
-      setOrganizations((prev) => [savedOrg, ...prev]);
-
-      setNewOrg({
-        name: "",
-        acronym: "",
-        college: "",
-        adviser: "",
-        president: "",
-        email: "",
-      });
-
-      showToast("Organization saved successfully!", "success");
+      setOrganizations((prev) =>
+        editingOrg
+          ? prev.map((org) => (org._id === editingOrg._id ? savedOrg : org))
+          : [savedOrg, ...prev],
+      );
+      resetOrgForm();
+      setEditingOrg(null);
       setIsModalOpen(false);
+      showToast(
+        editingOrg
+          ? "Organization updated successfully!"
+          : "Organization saved successfully!",
+        "success",
+      );
     } catch (err) {
       console.error("Save error:", err);
-      showToast(
-        err.response?.data?.message ||
-          err.message ||
-          "Error saving organization",
-        "error",
-      );
+      showToast(err.message || "Error saving organization", "error");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleOrganization = async (org) => {
+    const nextStatus = org.status === "Inactive" ? "Active" : "Inactive";
+    const action = nextStatus === "Active" ? "activate" : "deactivate";
+    if (!window.confirm(`Are you sure you want to ${action} ${org.name}?`))
+      return;
+
+    try {
+      const updatedOrg = await API.patch(`/organizations/${org._id}/status`, {
+        status: nextStatus,
+      });
+      setOrganizations((prev) =>
+        prev.map((item) => (item._id === org._id ? updatedOrg : item)),
+      );
+      showToast(
+        `Organization ${nextStatus.toLowerCase()}d successfully.`,
+        "success",
+      );
+    } catch (err) {
+      showToast(err.message || `Unable to ${action} organization.`, "error");
+    }
+  };
+
+  const handleDeleteOrganization = async (org) => {
+    if (
+      !window.confirm(
+        `Delete ${org.name}? This permanently removes its users, members, fees, payments, and proposals.`,
+      )
+    )
+      return;
+
+    try {
+      await API.delete(`/organizations/${org._id}`);
+      setOrganizations((prev) => prev.filter((item) => item._id !== org._id));
+      showToast("Organization deleted successfully.", "success");
+    } catch (err) {
+      showToast(err.message || "Unable to delete organization.", "error");
     }
   };
 
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR */}
-      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
+      <aside className="w-64 h-screen sticky top-0 self-start bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl overflow-y-auto">
         <div className="space-y-8">
           <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
             <div className="p-1.5 bg-[#D4AF37]/10 rounded-xl border border-[#D4AF37]/30 flex items-center justify-center">
@@ -285,7 +341,27 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
+        <MobileTabBar
+          activeItem={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: "organizations",
+              label: "Organizations",
+              shortLabel: "Orgs",
+              icon: <BuildingIcon />,
+            },
+            { id: "colleges", label: "Colleges", icon: <BuildingIcon /> },
+            {
+              id: "clearance",
+              label: "Clearance",
+              shortLabel: "Clear",
+              icon: <FileCheckIcon />,
+            },
+          ]}
+        />
+
+        <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {activeTab === "colleges" ? (
             <CollegeCatalog />
           ) : (
@@ -346,10 +422,10 @@ export default function AdminDashboard() {
                 </div>
 
                 <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#C59B27] text-[#36080E] font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto flex items-center gap-2 border border-[#B8860B]/30 active:scale-98"
+                  onClick={openCreateModal}
+                  className="px-4 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto flex items-center gap-2 active:scale-98"
                 >
-                  <PlusIcon className="w-4 h-4 text-[#36080E]" />
+                  <PlusIcon className="w-4 h-4 text-white" />
                   <span>Register Organization</span>
                 </button>
               </div>
@@ -380,11 +456,6 @@ export default function AdminDashboard() {
                           </div>
                           <p className="text-xs text-slate-500 leading-relaxed">
                             {org.college} <br className="sm:hidden" />
-                            <span className="hidden sm:inline"> • </span>
-                            Adviser:{" "}
-                            <span className="text-slate-700 font-medium">
-                              {org.adviser || "N/A"}
-                            </span>
                             <span className="mx-1">•</span>
                             President:{" "}
                             <span className="text-slate-700 font-medium">
@@ -393,14 +464,41 @@ export default function AdminDashboard() {
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-3 text-xs self-end sm:self-center">
-                          <span className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-[11px] flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
+                          <span
+                            className={`px-3 py-1 rounded-full border font-bold text-[11px] flex items-center gap-1.5 ${
+                              org.status === "Inactive"
+                                ? "bg-slate-100 border-slate-200 text-slate-600"
+                                : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${org.status === "Inactive" ? "bg-slate-400" : "bg-emerald-500 animate-pulse"}`}
+                            />
                             {org.status || "Active"}
                           </span>
-                          <button className="px-3.5 py-2 rounded-lg border border-[#4A0E17]/20 text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all cursor-pointer font-semibold flex items-center gap-1.5">
-                            <span>Details</span>
-                            <ExternalLinkIcon className="w-3.5 h-3.5" />
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(org)}
+                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleOrganization(org)}
+                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                          >
+                            {org.status === "Inactive"
+                              ? "Activate"
+                              : "Deactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOrganization(org)}
+                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                          >
+                            Delete
                           </button>
                         </div>
                       </div>
@@ -422,20 +520,24 @@ export default function AdminDashboard() {
 
       {/* MODAL: REGISTER ORGANIZATION */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-[#36080E]/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-rose-900/20 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-md p-5 sm:p-6 space-y-5">
             <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[#4A0E17]">
-                  Register Student Organization
+                  {editingOrg
+                    ? "Edit Recognized Organization"
+                    : "Register Student Organization"}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Accredit a new student entity under OVPSAS.
+                  {editingOrg
+                    ? "Update the official organization record and recognition details."
+                    : "Accredit a new student entity under OVPSAS."}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeOrgModal}
                 className="text-slate-400 hover:text-[#4A0E17] text-sm font-bold cursor-pointer"
               >
                 ✕
@@ -443,7 +545,7 @@ export default function AdminDashboard() {
             </div>
 
             <form
-              onSubmit={handleCreateOrganization}
+              onSubmit={handleSaveOrganization}
               className="space-y-4 text-xs"
             >
               <div>
@@ -502,20 +604,6 @@ export default function AdminDashboard() {
 
               <div>
                 <label className="block text-[#4A0E17] font-bold mb-1">
-                  Faculty Adviser
-                </label>
-                <input
-                  type="text"
-                  name="adviser"
-                  placeholder="e.g. Dr. Jane Doe"
-                  value={newOrg.adviser}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[#4A0E17] font-bold mb-1">
                   Surname of Student Leader / President
                 </label>
                 <input
@@ -551,17 +639,21 @@ export default function AdminDashboard() {
               <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2.5 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer font-semibold"
+                  onClick={closeOrgModal}
+                  className="px-4 py-2.5 border border-[#4A0E17]/30 bg-white rounded-xl text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#36080E] text-white font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
                 >
-                  {isSubmitting ? "Saving..." : "Save Organization"}
+                  {isSubmitting
+                    ? "Saving..."
+                    : editingOrg
+                      ? "Update Organization"
+                      : "Save Organization"}
                 </button>
               </div>
             </form>

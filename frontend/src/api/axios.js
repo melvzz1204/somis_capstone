@@ -27,12 +27,16 @@ API.interceptors.response.use(
     const message =
       error.response?.data?.message || "An unexpected error occurred.";
 
-    // Handle 401 Unauthorized (Expired / Invalid Token)
-    if (status === 401) {
+    // A protected PDF can legitimately return 401 for a wrong document password.
+    // Only authentication failures should clear the user's session.
+    const isPdfPasswordError =
+      error.config?.url?.includes("/payments/verify-batch-pdf") &&
+      message === "Incorrect PDF password";
+
+    if (status === 401 && !isPdfPasswordError) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
 
-      // 👈 Redirect to landing page only if the user isn't already there
       if (window.location.pathname !== "/") {
         window.location.href = "/";
       }

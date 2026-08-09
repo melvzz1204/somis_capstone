@@ -1,5 +1,7 @@
 require("dotenv").config();
+const http = require("http");
 const mongoose = require("mongoose");
+const { Server } = require("socket.io");
 const app = require("./src/app");
 const seedAdmin = require("./src/config/seedAdmin");
 const PORT = process.env.PORT || 5000;
@@ -26,8 +28,28 @@ mongoose
       console.error("⚠️ Warning: Seed admin failed:", seedErr.message);
     }
 
-    // Start Express Server
-    app.listen(PORT, () => {
+    // Start HTTP server and attach Socket.IO to the same port as the API.
+    const httpServer = http.createServer(app);
+    const io = new Server(httpServer, {
+      cors: {
+        origin: [
+          "http://localhost:5173",
+          "http://localhost:3000",
+          "http://127.0.0.1:5173",
+        ],
+        credentials: true,
+      },
+    });
+
+    io.on("connection", (socket) => {
+      console.log(`🔌 Realtime client connected: ${socket.id}`);
+      socket.on("disconnect", () => {
+        console.log(`🔌 Realtime client disconnected: ${socket.id}`);
+      });
+    });
+
+    app.locals.io = io;
+    httpServer.listen(PORT, () => {
       console.log(
         `✅ Server running in ${NODE_ENV} mode on http://localhost:${PORT}`,
       );

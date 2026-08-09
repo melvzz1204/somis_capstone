@@ -21,6 +21,7 @@ const formatCurrency = (value) =>
 const statusClasses = {
   Draft: "border-slate-200 bg-slate-50 text-slate-700",
   Submitted: "border-amber-200 bg-amber-50 text-amber-800",
+  "Pending Adviser Review": "border-blue-200 bg-blue-50 text-blue-800",
   Approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   Rejected: "border-rose-200 bg-rose-50 text-rose-800",
 };
@@ -119,7 +120,8 @@ export default function ProposalDocumentModal({ proposal, onClose }) {
                 {proposal.proposalTitle}
               </h1>
               <p className="mt-2 text-xs text-slate-500">
-                Submitted for organization leader review
+                Submitted for organization president and faculty adviser
+                approval
               </p>
             </header>
 
@@ -203,29 +205,55 @@ export default function ProposalDocumentModal({ proposal, onClose }) {
             )}
 
             {proposal.leaderReview?.reviewedAt && (
-              <DocumentSection title="Organization Leader Decision">
-                <div
-                  className={`border px-4 py-3 text-sm ${
-                    proposal.status === "Approved"
-                      ? "border-emerald-200 bg-emerald-50"
-                      : "border-rose-200 bg-rose-50"
-                  }`}
-                >
-                  <p className="font-extrabold text-slate-800">
-                    {proposal.status}
+              <DocumentSection title="Approval Signatories">
+                <div className="border border-slate-200 bg-slate-50 px-4 py-4">
+                  <p className="text-xs font-extrabold text-slate-800">
+                    {proposal.status === "Approved"
+                      ? "Final Proposal — Approved"
+                      : "President Approval Recorded"}
                   </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Digitally signed by{" "}
-                    <span className="font-bold italic">
-                      {proposal.leaderReview.digitalSignature}
-                    </span>
-                    {" on "}
-                    {formatDateTime(proposal.leaderReview.reviewedAt)}
-                  </p>
-                  {proposal.leaderReview.remarks && (
-                    <p className="mt-3 whitespace-pre-wrap border-t border-current/10 pt-3 text-xs text-slate-600">
-                      {proposal.leaderReview.remarks}
-                    </p>
+                  <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                    <div className="border-b border-slate-400 pb-2 text-center">
+                      <p className="font-serif text-lg font-bold italic text-slate-800">
+                        {proposal.leaderReview.digitalSignature}
+                      </p>
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        Organization President
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        E-signed{" "}
+                        {formatDateTime(proposal.leaderReview.reviewedAt)}
+                      </p>
+                    </div>
+                    <div className="border-b border-slate-400 pb-2 text-center">
+                      <p className="font-serif text-lg font-bold italic text-slate-800">
+                        {proposal.adviserReview?.digitalSignature ||
+                          "Awaiting adviser approval"}
+                      </p>
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        Faculty Adviser
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {proposal.adviserReview?.reviewedAt
+                          ? `E-signed ${formatDateTime(proposal.adviserReview.reviewedAt)}`
+                          : "Second signatory pending"}
+                      </p>
+                    </div>
+                  </div>
+                  {(proposal.leaderReview.remarks ||
+                    proposal.adviserReview?.remarks) && (
+                    <div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-600">
+                      {proposal.leaderReview.remarks && (
+                        <p className="whitespace-pre-wrap">
+                          President: {proposal.leaderReview.remarks}
+                        </p>
+                      )}
+                      {proposal.adviserReview?.remarks && (
+                        <p className="mt-1 whitespace-pre-wrap">
+                          Adviser: {proposal.adviserReview.remarks}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </DocumentSection>
@@ -237,7 +265,7 @@ export default function ProposalDocumentModal({ proposal, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+            className="rounded-lg border border-[#4A0E17]/30 bg-white px-4 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
           >
             Close Document
           </button>

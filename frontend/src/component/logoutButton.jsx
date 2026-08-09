@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useLogout } from "../util/useLogout"; // Adjust path if needed
 
 // Inline Logout SVG Icon
@@ -100,8 +100,8 @@ export default function LogoutButton({
 
       {/* CONFIRMATION MODAL */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-sm w-full p-6 space-y-4 shadow-2xl text-center animate-in fade-in zoom-in-95 duration-150">
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-sm p-6 space-y-4 text-center">
             <div className="w-12 h-12 bg-rose-100 border border-rose-200 text-rose-700 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
               <LogoutIcon className="w-6 h-6" />
             </div>

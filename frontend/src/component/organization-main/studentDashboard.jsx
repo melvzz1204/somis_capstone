@@ -1,8 +1,18 @@
 import { useState, useEffect } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  FileImage,
+  LoaderCircle,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import API from "../../api/axios";
 
 // Sub-components
 import LogoutButton from "../logoutButton";
+import MobileTabBar from "../mobileTabBar";
+import StudentPaymentTracker from "./StudentPaymentTracker";
 
 // Helper Date Formatter
 const formatDate = (dateString) => {
@@ -153,9 +163,19 @@ export default function StudentDashboard({ user: propsUser }) {
   const [roster, setRoster] = useState([]);
   const [fees, setFees] = useState([]);
   const [feeError, setFeeError] = useState("");
+  const [payments, setPayments] = useState([]);
+  const [paymentError, setPaymentError] = useState("");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [receiptMetadata, setReceiptMetadata] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState("");
+  const [receiptFileName, setReceiptFileName] = useState("");
+  const [isParsingReceipt, setIsParsingReceipt] = useState(false);
+  const [receiptProgress, setReceiptProgress] = useState(0);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [selectedFee, setSelectedFee] = useState(null);
-  const [studentProfile, setStudentProfile] = useState(null);
-  const [upcomingEvents] = useState([]);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [eventError, setEventError] = useState("");
   const [clearanceItems] = useState([]);
 
   useEffect(() => {
@@ -168,20 +188,62 @@ export default function StudentDashboard({ user: propsUser }) {
         setOrganization(data.organization || null);
         setMembership(data.membership || null);
         setRoster(data.roster || []);
-        setStudentProfile(data.studentProfile || null);
 
         if (data.organization?._id) {
-          try {
-            const feeResponse = await API.get("/fees");
-            setFees(feeResponse.data || []);
+          const [feeResult, paymentResult, eventResult] =
+            await Promise.allSettled([
+              API.get("/fees"),
+              API.get("/payments/mine"),
+              API.get("/events"),
+            ]);
+
+          if (feeResult.status === "fulfilled") {
+            setFees(feeResult.value.data || []);
             setFeeError("");
-          } catch (feeErr) {
-            console.error("Error fetching organization fees:", feeErr);
+          } else {
+            console.error(
+              "Error fetching organization fees:",
+              feeResult.reason,
+            );
             setFees([]);
-            setFeeError(feeErr.message || "Unable to load organization fees.");
+            setFeeError(
+              feeResult.reason.message || "Unable to load organization fees.",
+            );
+          }
+
+          if (paymentResult.status === "fulfilled") {
+            setPayments(paymentResult.value.data || []);
+            setPaymentError("");
+          } else {
+            console.error(
+              "Error fetching student payments:",
+              paymentResult.reason,
+            );
+            setPayments([]);
+            setPaymentError(
+              paymentResult.reason.message || "Unable to load your payments.",
+            );
+          }
+
+          if (eventResult.status === "fulfilled") {
+            setUpcomingEvents(eventResult.value.data || []);
+            setEventError("");
+          } else {
+            console.error(
+              "Error fetching organization events:",
+              eventResult.reason,
+            );
+            setUpcomingEvents([]);
+            setEventError(
+              eventResult.reason.message ||
+                "Unable to load organization events.",
+            );
           }
         } else {
           setFees([]);
+          setPayments([]);
+          setUpcomingEvents([]);
+          setEventError("");
         }
       } catch (err) {
         console.error("Error fetching student organization data:", err);
@@ -194,8 +256,104 @@ export default function StudentDashboard({ user: propsUser }) {
     return () => window.clearTimeout(request);
   }, [currentUser?._id]);
 
-  const studentId =
-    studentProfile?.studentIdNumber || membership?.idNumber || "Not recorded";
+  const resetPaymentDialog = () => {
+    setSelectedFee(null);
+    setReferenceNumber("");
+    setReceiptMetadata(null);
+    setReceiptPreview("");
+    setReceiptFileName("");
+    setReceiptProgress(0);
+    setPaymentError("");
+  };
+
+  const parseReceipt = async (file) => {
+    setPaymentError("");
+    setReferenceNumber("");
+    setReceiptMetadata(null);
+    setReceiptProgress(0);
+
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setPaymentError("Choose a JPEG, PNG, or WebP GCash receipt image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPaymentError("The receipt image must not exceed 5 MB.");
+      return;
+    }
+
+    setReceiptFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setReceiptPreview(String(reader.result || ""));
+    reader.readAsDataURL(file);
+
+    const formData = new FormData();
+    formData.append("receipt", file);
+    formData.append("claimedAmount", String(selectedFee.amount));
+    formData.append("parseOnly", "true");
+
+    setIsParsingReceipt(true);
+    try {
+      const response = await API.post("/payments/upload-receipt", formData, {
+        onUploadProgress: ({ loaded, total }) => {
+          if (total) setReceiptProgress(Math.round((loaded / total) * 100));
+        },
+      });
+      const extractedReference = String(response.referenceNumber || "");
+      if (!/^\d{13}$/.test(extractedReference)) {
+        throw new Error("A 13-digit reference number was not found.");
+      }
+      setReferenceNumber(extractedReference);
+      setReceiptMetadata(response.data);
+      setReceiptProgress(100);
+    } catch (error) {
+      setPaymentError(
+        error.message ||
+          "Unable to read a 13-digit reference from this receipt.",
+      );
+    } finally {
+      setIsParsingReceipt(false);
+    }
+  };
+
+  const submitPayment = async (event) => {
+    event.preventDefault();
+    const normalizedReference = referenceNumber.replace(/\D/g, "");
+
+    if (
+      !selectedFee ||
+      !receiptMetadata ||
+      !/^\d{13}$/.test(normalizedReference)
+    ) {
+      setPaymentError(
+        "Upload a receipt with a readable 13-digit GCash reference number.",
+      );
+      return;
+    }
+
+    setIsSubmittingPayment(true);
+    setPaymentError("");
+
+    try {
+      const response = await API.post("/payments", {
+        feeId: selectedFee._id,
+        referenceNumber: normalizedReference,
+        receiptImageUrl: receiptMetadata.receiptImageUrl,
+        ocrRawText: receiptMetadata.ocrRawText,
+        extractedAmount: receiptMetadata.extractedAmount,
+      });
+      setPayments((current) => [
+        response.data,
+        ...current.filter((payment) => payment._id !== response.data._id),
+      ]);
+      resetPaymentDialog();
+    } catch (error) {
+      setPaymentError(error.message || "Unable to submit the payment.");
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
   const officerRoster = roster.filter(
     (member) => member.role?.trim().toLowerCase() !== "member",
   );
@@ -209,7 +367,7 @@ export default function StudentDashboard({ user: propsUser }) {
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR NAVIGATION */}
-      <aside className="w-64 bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl">
+      <aside className="w-64 h-screen sticky top-0 self-start bg-[#4A0E17] border-r border-[#36080E] flex flex-col justify-between hidden md:flex shrink-0 p-6 text-white shadow-2xl overflow-y-auto">
         <div className="space-y-8">
           {/* Logo & Portal Header */}
           <div className="flex items-center gap-3 pb-5 border-b border-[#601520]">
@@ -263,7 +421,7 @@ export default function StudentDashboard({ user: propsUser }) {
                   activeTab === "orgs" ? "text-[#D4AF37]" : "text-rose-200/60"
                 }
               />
-              <span>My Organization</span>
+              <span>My Organization ({activeMembershipsCount})</span>
             </button>
 
             <button
@@ -279,7 +437,7 @@ export default function StudentDashboard({ user: propsUser }) {
                   activeTab === "events" ? "text-[#D4AF37]" : "text-rose-200/60"
                 }
               />
-              <span>Events & Activities</span>
+              <span>Events & Activities ({upcomingEvents.length})</span>
             </button>
 
             <button
@@ -295,7 +453,7 @@ export default function StudentDashboard({ user: propsUser }) {
                   activeTab === "fees" ? "text-[#D4AF37]" : "text-rose-200/60"
                 }
               />
-              <span>Organization Fees</span>
+              <span>Organization Fees ({fees.length})</span>
             </button>
 
             <button
@@ -313,7 +471,7 @@ export default function StudentDashboard({ user: propsUser }) {
                     : "text-rose-200/60"
                 }
               />
-              <span>Org Clearance Status</span>
+              <span>Org Clearance Status ({clearanceItems.length})</span>
             </button>
           </nav>
         </div>
@@ -340,95 +498,111 @@ export default function StudentDashboard({ user: propsUser }) {
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <ShieldCheckIcon className="text-[#4A0E17]" />
-            <span className="text-xs font-bold text-[#4A0E17] uppercase tracking-wider hidden sm:inline-block">
-              Marinduque State University — OVPSAS Student Services
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs ml-auto">
-            {/* Dynamic Academic Year Badge */}
-            <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4A0E17] text-[#D4AF37] shadow-sm">
+                <ShieldCheckIcon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7A610D]">
+                  Student Services
+                </p>
+                <h1 className="truncate text-base sm:text-lg font-extrabold text-[#4A0E17]">
+                  Welcome back, {upperName}
+                </h1>
+                <p className="hidden sm:block truncate text-[11px] text-slate-500">
+                  {organization?.name || "Student Portal"}{" "}
+                  <span className="mx-1 text-slate-300">•</span> Stay updated
+                  with your organization
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               {dynamicAcademicYear}
             </span>
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-8">
-          {/* WELCOME BANNER */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="px-2.5 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] border border-[#4A0E17]/20 text-xs font-extrabold rounded-full uppercase tracking-wider">
-                  Student Member
-                </span>
-                <span className="text-xs font-semibold text-slate-400">
-                  ID: {studentId}
-                </span>
-              </div>
-              <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
-                Welcome back, {upperName}
-              </h1>
-              <p className="text-xs text-slate-500">
-                {organization
-                  ? `${membership?.role || "Member"} of ${organization.name}`
-                  : "Your organization assignment and roster will appear here once recorded."}
-              </p>
-            </div>
-          </div>
+        <MobileTabBar
+          activeItem={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              id: "overview",
+              label: "Overview",
+              icon: <LayoutDashboardIcon />,
+            },
+            {
+              id: "orgs",
+              label: "Organization",
+              shortLabel: "Org",
+              icon: <UserGroupIcon />,
+            },
+            { id: "events", label: "Events", icon: <CalendarIcon /> },
+            { id: "fees", label: "Fees", icon: <CreditCardIcon /> },
+            {
+              id: "clearance",
+              label: "Clearance",
+              shortLabel: "Clear",
+              icon: <CheckCircleIcon />,
+            },
+          ]}
+        />
 
+        <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {/* METRIC CARDS GRID */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Active Memberships
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {activeMembershipsCount}
-                </h2>
-                <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                  Enrolled
-                </span>
+          {activeTab === "overview" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Active Memberships
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {activeMembershipsCount}
+                  </h2>
+                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                    Enrolled
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Upcoming Events
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {upcomingEvents.length}
-                </h2>
-                <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
-                  Scheduled
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Upcoming Events
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {upcomingEvents.length}
+                  </h2>
+                  <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
+                    Scheduled
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Clearance Status
-              </p>
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                  {isFullyCleared ? "Cleared" : "Pending"}
-                </h2>
-                <span
-                  className={`text-[11px] px-2 py-0.5 rounded-md font-bold ${
-                    isFullyCleared
-                      ? "text-emerald-800 bg-emerald-50 border border-emerald-200"
-                      : "text-rose-800 bg-rose-50 border border-rose-200"
-                  }`}
-                >
-                  {isFullyCleared ? "100%" : "Action Needed"}
-                </span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Clearance Status
+                </p>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                    {isFullyCleared ? "Cleared" : "Pending"}
+                  </h2>
+                  <span
+                    className={`text-[11px] px-2 py-0.5 rounded-md font-bold ${
+                      isFullyCleared
+                        ? "text-emerald-800 bg-emerald-50 border border-emerald-200"
+                        : "text-rose-800 bg-rose-50 border border-rose-200"
+                    }`}
+                  >
+                    {isFullyCleared ? "100%" : "Action Needed"}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* TAB 2: MY ORGANIZATION */}
           {activeTab === "orgs" && (
@@ -517,90 +691,89 @@ export default function StudentDashboard({ user: propsUser }) {
                     </div>
                   </div>
 
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-5">
-                    <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
-                        <h3 className="text-base font-bold text-[#4A0E17]">
-                          Organization Officers
+                        <h3 className="text-sm font-bold text-[#4A0E17]">
+                          Organization Chart
                         </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Meet the registered officers of{" "}
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          Registered leadership of{" "}
                           {organization.acronym || organization.name}.
                         </p>
                       </div>
-                      <span className="text-xs font-bold text-[#6f1c1c] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-3 py-1 rounded-full shrink-0">
+                      <span className="shrink-0 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/15 px-2.5 py-1 text-[10px] font-bold text-[#6f1c1c]">
                         {officerRoster.length}{" "}
                         {officerRoster.length === 1 ? "Officer" : "Officers"}
                       </span>
                     </div>
 
                     {officerRoster.length === 0 ? (
-                      <div className="border border-dashed border-slate-200 rounded-xl p-8 text-center">
+                      <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center">
                         <p className="text-xs text-slate-400">
                           No organization officers are currently recorded.
                         </p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {officerRoster.map((officer) => {
-                          const avatarUrl = getAvatarSrc(officer.avatar);
-
-                          return (
-                            <article
-                              key={officer._id}
-                              className="flex flex-col overflow-hidden border rounded-2xl border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
-                            >
-                              {/* Avatar / Photo */}
-                              <div className="relative aspect-square w-full bg-[#4A0E17]/10 overflow-hidden">
-                                {avatarUrl ? (
-                                  <img
-                                    src={avatarUrl}
-                                    alt={`${officer.name || "Officer"}, ${officer.role || ""}`}
-                                    className="h-full w-full object-cover object-top"
-                                  />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-3xl font-extrabold text-[#4A0E17] uppercase">
-                                    {officer.name?.charAt(0) || "?"}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Officer Information */}
-                              <div className="p-3.5 flex flex-col flex-1 space-y-2">
-                                <div>
-                                  {/* Role Badge */}
-                                  <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold text-[#4A0E17] bg-[#4A0E17]/10 uppercase tracking-wider mb-1">
-                                    {officer.role || "Officer"}
-                                  </span>
-
-                                  {/* Name */}
-                                  <h4 className="font-extrabold text-sm text-slate-900 leading-snug line-clamp-1">
-                                    {officer.name}
-                                  </h4>
-
-                                  {/* Email */}
-                                  {officer.email && (
-                                    <p
-                                      className="text-[11px] text-slate-500 truncate mt-0.5"
-                                      title={officer.email}
-                                    >
-                                      {officer.email}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* Year & Section */}
-                                {(officer.year || officer.section) && (
-                                  <p className="text-[11px] font-medium text-slate-500 border-t border-slate-100 pt-2 mt-auto">
-                                    {[officer.year, officer.section]
-                                      .filter(Boolean)
-                                      .join(" • ")}
-                                  </p>
-                                )}
-                              </div>
-                            </article>
-                          );
-                        })}
+                      <div className="overflow-x-auto rounded-xl bg-slate-50/70 p-3 sm:p-5">
+                        <div className="mx-auto min-w-[560px] max-w-4xl">
+                          <div className="flex justify-center">
+                            <div className="w-56 rounded-xl border border-[#D4AF37]/50 bg-white px-3 py-2 text-center shadow-sm">
+                              <p className="text-[9px] font-black uppercase tracking-wider text-[#7A610D]">
+                                Organization President
+                              </p>
+                              <p className="mt-1 truncate text-xs font-extrabold text-[#4A0E17]">
+                                {organization.president || "Not recorded"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mx-auto h-5 w-px bg-[#D4AF37]" />
+                          <div className="relative border-t border-[#D4AF37] pt-5">
+                            <div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              {officerRoster.map((officer) => {
+                                const avatarUrl = getAvatarSrc(officer.avatar);
+                                return (
+                                  <article
+                                    key={officer._id}
+                                    className="relative flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                                  >
+                                    <div className="absolute -top-5 left-1/2 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
+                                    {avatarUrl ? (
+                                      <img
+                                        src={avatarUrl}
+                                        alt={officer.name || "Officer"}
+                                        className="h-15 w-15 shrink-0 rounded-full border border-[#D4AF37]/50 object-cover object-top"
+                                      />
+                                    ) : (
+                                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
+                                        {officer.name?.charAt(0) || "?"}
+                                      </div>
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="truncate text-[10px] font-black uppercase tracking-wide text-[#7A610D]">
+                                        {officer.role || "Officer"}
+                                      </p>
+                                      <p
+                                        className="truncate text-xs font-bold text-slate-800"
+                                        title={officer.name}
+                                      >
+                                        {officer.name}
+                                      </p>
+                                      {(officer.year || officer.section) && (
+                                        <p className="truncate text-[10px] text-slate-500">
+                                          {[officer.year, officer.section]
+                                            .filter(Boolean)
+                                            .join(" • ")}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -642,54 +815,87 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {fees.map((fee) => (
-                    <article
-                      key={fee._id}
-                      className="bg-slate-50/60 p-5 rounded-2xl border border-slate-200/80 hover:border-[#D4AF37] transition-all space-y-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider font-bold text-[#7A610D]">
-                            {fee.category || "Organization Fee"}
-                          </p>
-                          <h4 className="font-bold text-[#4A0E17] text-sm mt-1">
-                            {fee.title}
-                          </h4>
-                        </div>
-                        <span className="text-sm font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg shrink-0">
-                          ₱{Number(fee.amount || 0).toFixed(2)}
-                        </span>
-                      </div>
+                  {fees.map((fee) => {
+                    const feePayments = payments.filter(
+                      (payment) =>
+                        String(payment.fee?._id || payment.fee || "") ===
+                        String(fee._id),
+                    );
+                    const latestPayment = feePayments[0];
+                    const canPay =
+                      !latestPayment || latestPayment.status === "REJECTED";
 
-                      {fee.description && (
-                        <p className="text-xs text-slate-600">
-                          {fee.description}
-                        </p>
-                      )}
-
-                      <div className="pt-3 border-t border-slate-200/80 space-y-1.5 text-[11px] text-slate-500">
-                        <div className="flex items-center justify-between">
-                          <span>Academic Term:</span>
-                          <span className="font-bold text-slate-700">
-                            {fee.academicYear}{" "}
-                            {fee.semester ? `(${fee.semester})` : ""}
+                    return (
+                      <article
+                        key={fee._id}
+                        className="bg-slate-50/60 p-5 rounded-2xl border border-slate-200/80 hover:border-[#D4AF37] transition-all space-y-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-[#7A610D]">
+                              {fee.category || "Organization Fee"}
+                            </p>
+                            <h4 className="font-bold text-[#4A0E17] text-sm mt-1">
+                              {fee.title}
+                            </h4>
+                          </div>
+                          <span className="text-sm font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg shrink-0">
+                            ₱{Number(fee.amount || 0).toFixed(2)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-amber-700 font-bold">
-                          <span>Due Date:</span>
-                          <span>{formatDate(fee.dueDate)}</span>
-                        </div>
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFee(fee)}
-                        className="w-full px-3 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                      >
-                        Pay Now
-                      </button>
-                    </article>
-                  ))}
+                        {fee.description && (
+                          <p className="text-xs text-slate-600">
+                            {fee.description}
+                          </p>
+                        )}
+
+                        <div className="pt-3 border-t border-slate-200/80 space-y-1.5 text-[11px] text-slate-500">
+                          <div className="flex items-center justify-between">
+                            <span>Academic Term:</span>
+                            <span className="font-bold text-slate-700">
+                              {fee.academicYear}{" "}
+                              {fee.semester ? `(${fee.semester})` : ""}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-amber-700 font-bold">
+                            <span>Due Date:</span>
+                            <span>{formatDate(fee.dueDate)}</span>
+                          </div>
+                        </div>
+
+                        {latestPayment && (
+                          <div className="border-t border-slate-200/80 pt-4">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Payment status
+                              </p>
+                              <span className="text-[10px] font-bold text-slate-400">
+                                Submission {feePayments.length}
+                              </span>
+                            </div>
+                            <StudentPaymentTracker payment={latestPayment} />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            resetPaymentDialog();
+                            setSelectedFee(fee);
+                          }}
+                          disabled={!canPay}
+                          className="w-full px-3 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {latestPayment?.status === "VERIFIED"
+                            ? "Paid"
+                            : latestPayment?.status === "PENDING_MANUAL_REVIEW"
+                              ? "Pending review"
+                              : "Pay Now"}
+                        </button>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -708,6 +914,12 @@ export default function StudentDashboard({ user: propsUser }) {
                 </p>
               </div>
 
+              {eventError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+                  {eventError}
+                </div>
+              )}
+
               {upcomingEvents.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
                   <p className="text-xs font-bold text-slate-700">
@@ -720,25 +932,34 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               ) : (
                 <div className="space-y-3 text-xs">
-                  {upcomingEvents.map((evt, idx) => (
+                  {upcomingEvents.map((evt) => (
                     <div
-                      key={idx}
+                      key={evt._id}
                       className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-xl flex items-center justify-between gap-4"
                     >
-                      <div className="space-y-1">
+                      <div className="min-w-0 space-y-1">
                         <span className="px-2 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] text-[10px] font-bold rounded-md">
-                          {evt.orgName || "Campus Event"}
+                          {organization?.acronym ||
+                            organization?.name ||
+                            "My Organization"}
                         </span>
                         <h4 className="font-bold text-slate-800 text-sm">
-                          {evt.title || evt.name}
+                          {evt.title}
                         </h4>
                         <p className="text-[11px] text-slate-500">
-                          📍 {evt.location || "MSU Main Campus"} • 📅{" "}
-                          {formatDate(evt.date)}
+                          📍 {evt.venue} • 📅{" "}
+                          {new Date(evt.startDateTime).toLocaleString("en-PH", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
                         </p>
                       </div>
-                      <button className="px-3 py-1.5 bg-[#4A0E17] text-white font-bold rounded-lg hover:bg-[#601520] transition-colors shrink-0">
-                        View Ticket
+                      <button
+                        type="button"
+                        onClick={() => setSelectedEvent(evt)}
+                        className="px-3 py-1.5 bg-[#4A0E17] text-white font-bold rounded-lg hover:bg-[#601520] transition-colors shrink-0"
+                      >
+                        View Details
                       </button>
                     </div>
                   ))}
@@ -800,9 +1021,86 @@ export default function StudentDashboard({ user: propsUser }) {
           )}
         </main>
 
+        {selectedEvent && (
+          <div className="modal-backdrop">
+            <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-4">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
+                    {organization?.acronym ||
+                      organization?.name ||
+                      "Organization Event"}
+                  </p>
+                  <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
+                    {selectedEvent.title}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedEvent(null)}
+                  className="grid h-8 w-8 place-items-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close event details"
+                  title="Close"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="font-bold text-slate-400">Schedule</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {new Date(selectedEvent.startDateTime).toLocaleString(
+                      "en-PH",
+                      { dateStyle: "medium", timeStyle: "short" },
+                    )}{" "}
+                    –{" "}
+                    {new Date(selectedEvent.endDateTime).toLocaleString(
+                      "en-PH",
+                      { timeStyle: "short" },
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="font-bold text-slate-400">Venue</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {selectedEvent.venue}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="font-bold text-slate-400">Category</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {selectedEvent.category}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="font-bold text-slate-400">Target audience</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {selectedEvent.targetAudience}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-1 text-xs">
+                <p className="font-bold text-slate-500">Description</p>
+                <p className="leading-relaxed text-slate-700">
+                  {selectedEvent.description}
+                </p>
+              </div>
+              <div className="flex justify-end border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEvent(null)}
+                  className="bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520]"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {selectedFee && (
-          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="modal-backdrop">
+            <div className="modal-panel max-w-md p-5 sm:p-6 space-y-4">
               <div className="flex items-start justify-between border-b border-slate-100 pb-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-[#4A0E17]">
@@ -814,24 +1112,156 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedFee(null)}
-                  className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
+                  onClick={resetPaymentDialog}
+                  className="grid h-8 w-8 place-items-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   aria-label="Close payment dialog"
+                  title="Close"
                 >
-                  X
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                Online payment processing is not connected yet. This fee is
-                displayed for payment setup and validation.
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedFee(null)}
-                className="w-full px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Close
-              </button>
+
+              <form onSubmit={submitPayment} className="space-y-4">
+                {paymentError && (
+                  <div
+                    className="flex items-start gap-2 border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"
+                    role="alert"
+                    aria-live="assertive"
+                  >
+                    <AlertCircle
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>{paymentError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="gcash-receipt"
+                    className="mb-1.5 block text-xs font-bold text-slate-700"
+                  >
+                    GCash receipt image
+                  </label>
+                  <label
+                    htmlFor="gcash-receipt"
+                    className="flex min-h-32 cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center hover:border-[#4A0E17] hover:bg-rose-50"
+                  >
+                    <UploadCloud
+                      className="h-6 w-6 text-[#4A0E17]"
+                      aria-hidden="true"
+                    />
+                    <span className="mt-2 text-xs font-bold text-slate-800">
+                      {receiptFileName || "Choose GCash receipt image"}
+                    </span>
+                    <span className="mt-1 text-[11px] text-slate-500">
+                      JPEG, PNG, or WebP up to 5 MB
+                    </span>
+                  </label>
+                  <input
+                    id="gcash-receipt"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => parseReceipt(event.target.files?.[0])}
+                    disabled={isParsingReceipt || isSubmittingPayment}
+                    className="sr-only"
+                  />
+                </div>
+
+                {receiptPreview && (
+                  <div className="flex items-center gap-3 border border-slate-200 bg-slate-50 p-2.5">
+                    <img
+                      src={receiptPreview}
+                      alt="Selected GCash receipt preview"
+                      className="h-20 w-16 shrink-0 border border-slate-200 bg-white object-contain"
+                    />
+                    <FileImage
+                      className="h-4 w-4 shrink-0 text-slate-500"
+                      aria-hidden="true"
+                    />
+                    <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-700">
+                      {receiptFileName}
+                    </p>
+                  </div>
+                )}
+
+                {isParsingReceipt && (
+                  <div className="space-y-2" role="status">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <LoaderCircle
+                          className="h-4 w-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                        {receiptProgress === 100
+                          ? "Reading receipt"
+                          : "Uploading receipt"}
+                      </span>
+                      <span>{receiptProgress}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden bg-slate-200">
+                      <div
+                        className="h-full bg-[#4A0E17] transition-[width]"
+                        style={{ width: `${receiptProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="gcash-reference"
+                    className="mb-1 block text-xs font-bold text-slate-700"
+                  >
+                    13-digit GCash reference number
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="gcash-reference"
+                      type="text"
+                      value={referenceNumber}
+                      readOnly
+                      placeholder="Upload receipt to extract reference"
+                      className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 pr-10 font-mono text-sm font-bold text-slate-800 outline-none"
+                    />
+                    {referenceNumber && (
+                      <CheckCircle2
+                        className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-600"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {referenceNumber && (
+                  <div className="border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                    Reference extracted successfully. Review it, then submit the
+                    payment.
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                  <button
+                    type="button"
+                    onClick={resetPaymentDialog}
+                    className="border border-[#4A0E17]/30 bg-white px-3 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isSubmittingPayment ||
+                      isParsingReceipt ||
+                      !receiptMetadata ||
+                      !/^\d{13}$/.test(referenceNumber)
+                    }
+                    className="bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSubmittingPayment ? "Submitting..." : "Submit payment"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

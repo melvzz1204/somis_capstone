@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 
@@ -43,6 +43,15 @@ const normalizeOptions = (options = []) =>
       : { value: String(opt), label: String(opt) },
   );
 
+const DEFAULT_SEMESTERS = ["1st Semester", "2nd Semester", "Summer"];
+const DEFAULT_TARGET_LEVELS = [
+  { value: "All", label: "All Students" },
+  { value: "1st Year", label: "1st Year Only" },
+  { value: "2nd Year", label: "2nd Year Only" },
+  { value: "3rd Year", label: "3rd Year Only" },
+  { value: "4th Year", label: "4th Year Only" },
+];
+
 export default function FeeModal({
   isOpen,
   onClose,
@@ -52,14 +61,8 @@ export default function FeeModal({
   fee = null,
   // DYNAMIC CONFIGURATION PROPS (Override via parent component or API)
   categories: rawCategories,
-  semesters: rawSemesters = ["1st Semester", "2nd Semester", "Summer"],
-  targetLevels: rawTargetLevels = [
-    { value: "All", label: "All Students" },
-    { value: "1st Year", label: "1st Year Only" },
-    { value: "2nd Year", label: "2nd Year Only" },
-    { value: "3rd Year", label: "3rd Year Only" },
-    { value: "4th Year", label: "4th Year Only" },
-  ],
+  semesters: rawSemesters = DEFAULT_SEMESTERS,
+  targetLevels: rawTargetLevels = DEFAULT_TARGET_LEVELS,
   academicYears: rawAcademicYears,
 }) {
   const { showToast } = useToast();
@@ -73,27 +76,47 @@ export default function FeeModal({
   )
     .trim()
     .toUpperCase();
-  const defaultCategories = [
-    { value: "organization_fee", label: `${orgFeePrefix} Fee` },
-    { value: "paf", label: `${orgFeePrefix} PAF` },
-    { value: "intrams_fee", label: `${orgFeePrefix} Intrams Fee` },
-    { value: "organization_week_fee", label: `${orgFeePrefix} Week Fee` },
-    { value: "others", label: "Others Fee" },
-  ];
+  const defaultCategories = useMemo(
+    () => [
+      { value: "organization_fee", label: `${orgFeePrefix} Fee` },
+      { value: "paf", label: `${orgFeePrefix} PAF` },
+      { value: "intrams_fee", label: `${orgFeePrefix} Intrams Fee` },
+      { value: "organization_week_fee", label: `${orgFeePrefix} Week Fee` },
+      { value: "others", label: "Others Fee" },
+    ],
+    [orgFeePrefix],
+  );
 
-  // Normalize options array
-  const categories = normalizeOptions(rawCategories || defaultCategories);
-  const semesters = normalizeOptions(rawSemesters);
-  const targetLevels = normalizeOptions(rawTargetLevels);
+  // Keep normalized option arrays stable between renders. Recreating these
+  // arrays on every keystroke retriggers the form reset effect and prevents
+  // controlled inputs such as amount and description from retaining input.
+  const categories = useMemo(
+    () => normalizeOptions(rawCategories || defaultCategories),
+    [rawCategories, defaultCategories],
+  );
+  const semesters = useMemo(
+    () => normalizeOptions(rawSemesters),
+    [rawSemesters],
+  );
+  const targetLevels = useMemo(
+    () => normalizeOptions(rawTargetLevels),
+    [rawTargetLevels],
+  );
 
   // Calculate dynamic academic years if not explicitly provided
   const currentYear = new Date().getFullYear();
-  const defaultAYs = [
-    `${currentYear - 1}-${currentYear}`,
-    `${currentYear}-${currentYear + 1}`,
-    `${currentYear + 1}-${currentYear + 2}`,
-  ];
-  const academicYears = normalizeOptions(rawAcademicYears || defaultAYs);
+  const defaultAYs = useMemo(
+    () => [
+      `${currentYear - 1}-${currentYear}`,
+      `${currentYear}-${currentYear + 1}`,
+      `${currentYear + 1}-${currentYear + 2}`,
+    ],
+    [currentYear],
+  );
+  const academicYears = useMemo(
+    () => normalizeOptions(rawAcademicYears || defaultAYs),
+    [rawAcademicYears, defaultAYs],
+  );
 
   // Form State
   const [formData, setFormData] = useState({
@@ -110,10 +133,10 @@ export default function FeeModal({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Initialize or reset form defaults when modal opens or options change
+  // Initialize or reset form defaults when modal opens or its source data
+  // changes, not on every form value update.
   useEffect(() => {
     if (!isOpen) return undefined;
-
     const resetRequest = window.setTimeout(() => {
       const selectedCategory =
         fee?.category || categories[0]?.value || "others";

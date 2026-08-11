@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { createWorker } = require("tesseract.js");
 const { PDFParse, PasswordException } = require("pdf-parse");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
@@ -181,6 +182,50 @@ const isPdfPasswordError = (error) =>
   error instanceof PasswordException ||
   /password|encrypted|decrypt/i.test(String(error?.message || error));
 
+let statementOcrWorkerPromise;
+let statementOcrQueue = Promise.resolve();
+
+const getStatementOcrWorker = async () => {
+  if (!statementOcrWorkerPromise) {
+    statementOcrWorkerPromise = createWorker("eng").catch((error) => {
+      statementOcrWorkerPromise = undefined;
+      throw error;
+    });
+  }
+  return statementOcrWorkerPromise;
+};
+
+const recognizeStatementPage = (imageBuffer) => {
+  const recognition = statementOcrQueue.then(async () => {
+    const worker = await getStatementOcrWorker();
+    const result = await worker.recognize(imageBuffer);
+    return String(result.data?.text || "");
+  });
+  statementOcrQueue = recognition.catch(() => undefined);
+  return recognition;
+};
+
+/**
+ * Uses OCR as a fallback for image-only/scanned statement pages.
+ * The normal text layer is attempted first because it is faster and more
+ * accurate for digitally generated GCash PDFs.
+ */
+const extractScannedStatementText = async (parser) => {
+  const screenshots = await parser.getScreenshot({
+    scale: 1.5,
+    imageBuffer: true,
+    imageDataUrl: false,
+  });
+  const pageTexts = [];
+  for (const [index, page] of screenshots.pages.entries()) {
+    console.info(
+      `[statement-scan] OCR page ${index + 1}/${screenshots.pages.length}`,
+    );
+    pageTexts.push(await recognizeStatementPage(Buffer.from(page.data)));
+  }
+  return pageTexts.join("\n");
+};
+
 /**
  * Verifies pending student payments from a password-protected GCash statement.
  *
@@ -207,10 +252,27 @@ const verifyBatchPdf = async (req, res) => {
 
   let parser;
   try {
+    console.info(
+      `[statement-scan] started file=${req.file.originalname || "statement.pdf"} size=${req.file.size || req.file.buffer.length} bytes`,
+    );
     parser = new PDFParse({ data: req.file.buffer, password: pdfPassword });
     const result = await parser.getText();
-    const rawText = String(result?.text || "");
-    const references = extractStatementReferences(rawText);
+    let rawText = String(result?.text || "");
+    let references = extractStatementReferences(rawText);
+    let extractionMethod = "text";
+
+    console.info(
+      `[statement-scan] text extraction found ${references.length} reference(s)`,
+    );
+
+    if (references.length === 0) {
+      console.info(
+        "[statement-scan] no text references; starting OCR fallback",
+      );
+      rawText = await extractScannedStatementText(parser);
+      references = extractStatementReferences(rawText);
+      extractionMethod = "ocr";
+    }
 
     if (references.length === 0) {
       return res.status(422).json({
@@ -245,6 +307,10 @@ const verifyBatchPdf = async (req, res) => {
       referenceNumber: { $in: references },
     });
 
+    console.info(
+      `[statement-scan] completed method=${extractionMethod} references=${references.length} verified=${matchedCount}`,
+    );
+
     return res.status(200).json({
       success: true,
       message: "GCash statement processed successfully.",
@@ -257,6 +323,7 @@ const verifyBatchPdf = async (req, res) => {
           0,
           references.length - alreadyVerifiedCount,
         ),
+        extractionMethod,
       },
     });
   } catch (error) {
@@ -267,7 +334,7 @@ const verifyBatchPdf = async (req, res) => {
       });
     }
 
-    console.error("Batch GCash PDF verification failed:", error);
+    console.error("[statement-scan] failed:", error);
     return res.status(422).json({
       success: false,
       message: "The PDF could not be read. Confirm the file and password.",

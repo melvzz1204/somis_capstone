@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -16,13 +16,41 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
   const [file, setFile] = useState(null);
   const [pdfPassword, setPdfPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [scanStage, setScanStage] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
+  const [errorStatus, setErrorStatus] = useState(null);
   const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    if (!isSubmitting) return undefined;
+
+    const startedAt = Date.now();
+    const elapsedTimer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    const readingTimer = window.setTimeout(
+      () => setScanStage("Opening and reading the PDF..."),
+      700,
+    );
+    const scanningTimer = window.setTimeout(
+      () => setScanStage("Scanning transactions for GCash references..."),
+      1800,
+    );
+
+    return () => {
+      window.clearInterval(elapsedTimer);
+      window.clearTimeout(readingTimer);
+      window.clearTimeout(scanningTimer);
+    };
+  }, [isSubmitting]);
 
   if (!isOpen) return null;
 
   const chooseFile = (nextFile) => {
     setError("");
+    setErrorStatus(null);
     setResult(null);
 
     if (!nextFile) return;
@@ -45,7 +73,9 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
   const submit = async (event) => {
     event.preventDefault();
     setError("");
+    setErrorStatus(null);
     setResult(null);
+    setElapsedSeconds(0);
 
     if (!file) {
       setError("Select a PDF statement first.");
@@ -59,6 +89,8 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
     const formData = new FormData();
     formData.append("statement", file);
     formData.append("pdfPassword", pdfPassword);
+    setScanStage("Uploading the statement...");
+    setElapsedSeconds(0);
     setIsSubmitting(true);
 
     try {
@@ -70,9 +102,17 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
       // wrapper and makes every displayed counter fall back to zero.
       const summary = response;
       setResult(summary);
+      setScanStage("Statement scan completed.");
       onComplete?.(summary);
     } catch (requestError) {
-      setError(requestError.message || "Unable to verify the statement.");
+      const status = requestError.status
+        ? ` (HTTP ${requestError.status})`
+        : "";
+      setErrorStatus(requestError.status || null);
+      setError(
+        `${requestError.message || "Unable to verify the statement."}${status}`,
+      );
+      setScanStage("Statement scan stopped.");
     } finally {
       setIsSubmitting(false);
     }
@@ -80,11 +120,11 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-4"
+      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 p-4"
       role="presentation"
     >
       <div
-        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+        className="mx-auto my-4 w-full max-w-lg rounded-2xl bg-white shadow-2xl sm:my-8"
         role="dialog"
         aria-modal="true"
         aria-labelledby="statement-upload-title"
@@ -115,7 +155,7 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
         <form onSubmit={submit} className="space-y-4 p-5">
           {error && (
             <div
-              className="flex items-start gap-2 border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"
+              className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"
               role="alert"
               aria-live="assertive"
             >
@@ -123,10 +163,38 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
                 className="mt-0.5 h-4 w-4 shrink-0"
                 aria-hidden="true"
               />
-              <span>{error}</span>
+              <div>
+                <p>{error}</p>
+                <p className="mt-1 text-[11px] font-normal text-rose-700">
+                  The server returned an error while reading the PDF. Check the
+                  backend terminal for the detailed scan log.
+                  {errorStatus === 401 &&
+                    " Re-enter the PDF password and try again."}
+                </p>
+              </div>
             </div>
           )}
-          {result && (
+          {isSubmitting && (
+            <div
+              className="flex items-center gap-3 rounded-xl border border-[#D4AF37]/60 bg-amber-50 p-4 text-sm font-bold text-[#4A0E17]"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2
+                className="h-6 w-6 shrink-0 animate-spin text-[#7A610D]"
+                aria-hidden="true"
+              />
+              <div>
+                <p>{scanStage || "Preparing statement verification..."}</p>
+                <p className="mt-1 text-xs font-normal text-slate-600">
+                  Elapsed: {elapsedSeconds}s. Keep this window open while the
+                  server reads and scans each PDF page.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {result && !isSubmitting && (
             <div
               className="flex items-start gap-2 border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800"
               role="status"
@@ -138,6 +206,10 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
               />
               <div>
                 <p>{result.message || "Statement processed successfully."}</p>
+                <p className="mt-1 text-[11px] font-normal">
+                  Completed in {elapsedSeconds}s using{" "}
+                  {result.data?.extractionMethod || "text"} extraction.
+                </p>
                 <div className="mt-2 grid grid-cols-2 gap-2 font-normal sm:grid-cols-4">
                   <span>
                     Scanned:{" "}
@@ -219,7 +291,7 @@ export default function StatementUploadModal({ isOpen, onClose, onComplete }) {
               {isSubmitting && (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               )}
-              {isSubmitting ? "Verifying..." : "Verify statement"}
+              {isSubmitting ? "Scanning statement..." : "Verify statement"}
             </button>
           </div>
         </form>

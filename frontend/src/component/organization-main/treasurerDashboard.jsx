@@ -214,10 +214,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       if (!isActive) return;
 
       if (transactionsResult.status === "fulfilled") {
-        const data =
-          transactionsResult.value.data?.data ||
-          transactionsResult.value.data ||
-          [];
+        const data = transactionsResult.value.data || [];
         setTransactions(Array.isArray(data) ? data : []);
       } else {
         console.error(
@@ -228,7 +225,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       }
 
       if (feesResult.status === "fulfilled") {
-        const data = feesResult.value.data?.data || feesResult.value.data || [];
+        const data = feesResult.value.data || [];
         setFeeDrives(Array.isArray(data) ? data : []);
       } else {
         console.error("Failed to fetch dues collections:", feesResult.reason);
@@ -347,8 +344,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
     try {
       const res = await API.post("/transactions", payload);
-      const newEntry = res.data?.data ||
-        res.data || { ...payload, _id: Date.now().toString() };
+      const newEntry = res.data || { ...payload, _id: Date.now().toString() };
       setTransactions((prev) => [newEntry, ...prev]);
       showToast("Transaction recorded successfully.", "success");
       setIsTransactionModalOpen(false);

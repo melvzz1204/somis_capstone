@@ -8,6 +8,11 @@ import {
   X,
 } from "lucide-react";
 import API from "../../api/axios";
+import {
+  formatCountdown,
+  getEventLifecycle,
+  lifecycleStyles,
+} from "../../util/eventLifecycle";
 
 // Sub-components
 import LogoutButton from "../logoutButton";
@@ -177,7 +182,13 @@ export default function StudentDashboard({ user: propsUser }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [eventError, setEventError] = useState("");
+  const [now, setNow] = useState(() => new Date().getTime());
   const [clearanceItems] = useState([]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date().getTime()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const request = window.setTimeout(async () => {
@@ -363,6 +374,23 @@ export default function StudentDashboard({ user: propsUser }) {
     }
   };
 
+  const trackedEvents = upcomingEvents
+    .map((event) => ({
+      ...event,
+      lifecycle: getEventLifecycle(event, now),
+    }))
+    .sort((first, second) => {
+      const statusOrder = { Ongoing: 0, Upcoming: 1, Ended: 2, Cancelled: 3 };
+      const statusDifference =
+        statusOrder[first.lifecycle.status] -
+        statusOrder[second.lifecycle.status];
+      if (statusDifference !== 0) return statusDifference;
+      return (
+        new Date(first.startDateTime).getTime() -
+        new Date(second.startDateTime).getTime()
+      );
+    });
+
   const officerRoster = roster.filter(
     (member) => member.role?.trim().toLowerCase() !== "member",
   );
@@ -446,7 +474,7 @@ export default function StudentDashboard({ user: propsUser }) {
                   activeTab === "events" ? "text-[#D4AF37]" : "text-rose-200/60"
                 }
               />
-              <span>Events & Activities ({upcomingEvents.length})</span>
+              <span>Events & Activities ({trackedEvents.length})</span>
             </button>
 
             <button
@@ -583,10 +611,14 @@ export default function StudentDashboard({ user: propsUser }) {
                 </p>
                 <div className="flex items-baseline justify-between">
                   <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                    {upcomingEvents.length}
+                    {
+                      trackedEvents.filter(
+                        (event) => event.lifecycle.status !== "Ended",
+                      ).length
+                    }
                   </h2>
                   <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
-                    Scheduled
+                    Active
                   </span>
                 </div>
               </div>
@@ -929,29 +961,36 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               )}
 
-              {upcomingEvents.length === 0 ? (
+              {trackedEvents.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
                   <p className="text-xs font-bold text-slate-700">
-                    No Upcoming Events
+                    No Events & Activities
                   </p>
                   <p className="text-xs text-slate-400">
                     Check back later for newly approved activities from your
-                    organizations.
+                    organization.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3 text-xs">
-                  {upcomingEvents.map((evt) => (
+                  {trackedEvents.map((evt) => (
                     <div
                       key={evt._id}
-                      className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-xl flex items-center justify-between gap-4"
+                      className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                       <div className="min-w-0 space-y-1">
-                        <span className="px-2 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] text-[10px] font-bold rounded-md">
-                          {organization?.acronym ||
-                            organization?.name ||
-                            "My Organization"}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 bg-[#4A0E17]/10 text-[#4A0E17] text-[10px] font-bold rounded-md">
+                            {organization?.acronym ||
+                              organization?.name ||
+                              "My Organization"}
+                          </span>
+                          <span
+                            className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${lifecycleStyles[evt.lifecycle.status]}`}
+                          >
+                            {evt.lifecycle.status}
+                          </span>
+                        </div>
                         <h4 className="font-bold text-slate-800 text-sm">
                           {evt.title}
                         </h4>
@@ -962,6 +1001,16 @@ export default function StudentDashboard({ user: propsUser }) {
                             timeStyle: "short",
                           })}
                         </p>
+                        {evt.lifecycle.target && (
+                          <p
+                            className={`font-bold ${evt.lifecycle.status === "Ongoing" ? "text-emerald-700" : "text-amber-700"}`}
+                          >
+                            {evt.lifecycle.status === "Ongoing"
+                              ? "Ends in"
+                              : "Starts in"}
+                            : {formatCountdown(evt.lifecycle.remainingMs)}
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -1054,6 +1103,26 @@ export default function StudentDashboard({ user: propsUser }) {
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
+              {(() => {
+                const lifecycle = getEventLifecycle(selectedEvent, now);
+                return (
+                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
+                    <span
+                      className={`rounded-md border px-2.5 py-1 text-[10px] font-bold ${lifecycleStyles[lifecycle.status]}`}
+                    >
+                      {lifecycle.status}
+                    </span>
+                    {lifecycle.target && (
+                      <span className="text-xs font-bold text-slate-600">
+                        {lifecycle.status === "Ongoing"
+                          ? "Ends in"
+                          : "Starts in"}
+                        : {formatCountdown(lifecycle.remainingMs)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
                 <div className="rounded-xl bg-slate-50 p-3">
                   <p className="font-bold text-slate-400">Schedule</p>

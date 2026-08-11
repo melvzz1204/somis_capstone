@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, Clock3, MapPin } from "lucide-react";
 import API from "../../api/axios";
+import {
+  formatCountdown,
+  getEventLifecycle,
+  lifecycleStyles,
+} from "../../util/eventLifecycle";
 import { useToast } from "../../util/toastContext";
 
 const emptyForm = { proposal: "" };
@@ -19,11 +25,17 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [now, setNow] = useState(() => new Date().getTime());
 
   const approvedProposals = useMemo(
     () => proposals.filter((proposal) => proposal.status === "Approved"),
     [proposals],
   );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -48,6 +60,40 @@ export default function SecretaryEvents({ proposals = [] }) {
   );
   const availableProposals = approvedProposals.filter(
     (proposal) => !existingProposalIds.has(proposal._id),
+  );
+
+  const trackedEvents = useMemo(
+    () =>
+      events
+        .map((event) => ({
+          ...event,
+          lifecycle: getEventLifecycle(event, now),
+        }))
+        .sort((first, second) => {
+          const statusOrder = {
+            Ongoing: 0,
+            Upcoming: 1,
+            Ended: 2,
+            Cancelled: 3,
+          };
+          const statusDifference =
+            statusOrder[first.lifecycle.status] -
+            statusOrder[second.lifecycle.status];
+          if (statusDifference !== 0) return statusDifference;
+          return (
+            new Date(first.startDateTime).getTime() -
+            new Date(second.startDateTime).getTime()
+          );
+        }),
+    [events, now],
+  );
+
+  const statusCounts = trackedEvents.reduce(
+    (counts, event) => ({
+      ...counts,
+      [event.lifecycle.status]: (counts[event.lifecycle.status] || 0) + 1,
+    }),
+    {},
   );
 
   const handleSubmit = async (event) => {
@@ -153,35 +199,81 @@ export default function SecretaryEvents({ proposals = [] }) {
       </form>
 
       <div className="space-y-3">
-        <h4 className="text-sm font-bold text-[#4A0E17]">
-          Created Events ({events.length})
-        </h4>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h4 className="text-sm font-bold text-[#4A0E17]">
+            Event Tracking ({events.length})
+          </h4>
+          <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+            {["Upcoming", "Ongoing", "Ended"].map((status) => (
+              <span
+                key={status}
+                className={`rounded-md border px-2.5 py-1 ${lifecycleStyles[status]}`}
+              >
+                {status}: {statusCounts[status] || 0}
+              </span>
+            ))}
+          </div>
+        </div>
         {loading ? (
           <p className="text-xs text-slate-500">Loading events...</p>
         ) : events.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-xs text-slate-500">
+          <div className="rounded-lg border border-dashed border-slate-200 p-10 text-center text-xs text-slate-500">
             No events created yet.
           </div>
         ) : (
-          events.map((event) => (
-            <div
+          trackedEvents.map((event) => (
+            <article
               key={event._id}
-              className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs"
+              className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-xs"
             >
-              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-                <div>
-                  <p className="text-sm font-bold text-[#4A0E17]">
-                    {event.title}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {event.venue} • {formatDateTime(event.startDateTime)}
-                  </p>
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-bold text-[#4A0E17]">
+                      {event.title}
+                    </p>
+                    <span
+                      className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${lifecycleStyles[event.lifecycle.status]}`}
+                    >
+                      {event.lifecycle.status}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+                    <p className="flex items-center gap-1.5">
+                      <CalendarDays
+                        className="h-3.5 w-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      {formatDateTime(event.startDateTime)} -{" "}
+                      {formatDateTime(event.endDateTime)}
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <MapPin
+                        className="h-3.5 w-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      {event.venue}
+                    </p>
+                  </div>
                 </div>
-                <span className="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800">
-                  {event.status}
-                </span>
+                {event.lifecycle.target && (
+                  <div
+                    className={`min-w-36 rounded-lg border px-3 py-2 ${lifecycleStyles[event.lifecycle.status]}`}
+                    aria-live="polite"
+                  >
+                    <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase">
+                      <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                      {event.lifecycle.status === "Ongoing"
+                        ? "Ends in"
+                        : "Starts in"}
+                    </p>
+                    <p className="mt-1 text-sm font-extrabold tabular-nums">
+                      {formatCountdown(event.lifecycle.remainingMs)}
+                    </p>
+                  </div>
+                )}
               </div>
-            </div>
+            </article>
           ))
         )}
       </div>

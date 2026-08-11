@@ -1,6 +1,27 @@
 const Event = require("../models/Event");
 const Proposal = require("../models/Proposal");
 
+const getLifecycle = (event, now = Date.now()) => {
+  const start = new Date(event.startDateTime).getTime();
+  const end = new Date(event.endDateTime).getTime();
+
+  if (event.status === "Cancelled") {
+    return { lifecycleStatus: "Cancelled", countdownTo: null };
+  }
+  if (event.status === "Completed" || now >= end) {
+    return { lifecycleStatus: "Ended", countdownTo: null };
+  }
+  if (now >= start) {
+    return { lifecycleStatus: "Ongoing", countdownTo: event.endDateTime };
+  }
+  return { lifecycleStatus: "Upcoming", countdownTo: event.startDateTime };
+};
+
+const serializeEvent = (event, now = Date.now()) => {
+  const value = event.toObject ? event.toObject() : event;
+  return { ...value, ...getLifecycle(value, now) };
+};
+
 const getEvents = async (req, res) => {
   try {
     if (!req.user.organization) {
@@ -12,7 +33,11 @@ const getEvents = async (req, res) => {
       .populate("proposal", "proposalTitle status")
       .populate("createdBy", "name role")
       .sort({ startDateTime: 1, createdAt: -1 });
-    res.json({ success: true, data: events });
+    const now = Date.now();
+    res.json({
+      success: true,
+      data: events.map((event) => serializeEvent(event, now)),
+    });
   } catch (error) {
     console.error("Error fetching events:", error);
     res
@@ -73,7 +98,7 @@ const createEvent = async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Event created successfully.",
-      data: event,
+      data: serializeEvent(event),
     });
   } catch (error) {
     console.error("Error creating event:", error);
@@ -86,4 +111,4 @@ const createEvent = async (req, res) => {
   }
 };
 
-module.exports = { getEvents, createEvent };
+module.exports = { getEvents, createEvent, getLifecycle };

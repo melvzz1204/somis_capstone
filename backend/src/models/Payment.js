@@ -11,7 +11,10 @@ const VERIFICATION_METHODS = Object.freeze([
   "AUTOMATE_SMS",
   "BULK_STATEMENT",
   "PAYMONGO",
+  "CASH_MANUAL",
 ]);
+
+const PAYMENT_METHODS = Object.freeze(["GCASH", "CASH"]);
 
 /**
  * Converts a user-entered GCash reference to its canonical database form.
@@ -70,6 +73,12 @@ const paymentSchema = new mongoose.Schema(
         message: "Extracted amount must be a finite number",
       },
     },
+    paymentMethod: {
+      type: String,
+      enum: PAYMENT_METHODS,
+      default: "GCASH",
+      index: true,
+    },
     referenceNumber: {
       type: String,
       trim: true,
@@ -79,6 +88,21 @@ const paymentSchema = new mongoose.Schema(
         message: "GCash reference number must contain 10 to 13 digits",
       },
     },
+    cashReceiptNumber: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Cash receipt number is too long"],
+    },
+    cashNotes: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Cash payment notes are too long"],
+    },
+    recordedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    paidAt: Date,
     receiptImageUrl: {
       type: String,
       required: [
@@ -189,4 +213,5 @@ const Payment = mongoose.model("Payment", paymentSchema);
 module.exports = Payment;
 module.exports.PAYMENT_STATUSES = PAYMENT_STATUSES;
 module.exports.VERIFICATION_METHODS = VERIFICATION_METHODS;
+module.exports.PAYMENT_METHODS = PAYMENT_METHODS;
 module.exports.normalizeReferenceNumber = normalizeReferenceNumber;

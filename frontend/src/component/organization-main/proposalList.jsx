@@ -154,7 +154,8 @@ export default function ProposalList({
                 </div>
               </div>
 
-              {proposal.leaderReview?.reviewedAt && (
+              {(proposal.leaderReview?.reviewedAt ||
+                proposal.adviserReview?.reviewedAt) && (
                 <div
                   className={`mt-4 border px-4 py-3 text-xs ${
                     proposal.status === "Approved"
@@ -210,6 +211,48 @@ export default function ProposalList({
                         </span>{" "}
                         on {formatDateTime(proposal.leaderReview.reviewedAt)}
                       </p>
+                    </>
+                  ) : proposal.status === "Rejected" &&
+                    proposal.adviserReview?.reviewedAt ? (
+                    <>
+                      <p className="font-extrabold text-rose-900">
+                        Proposal rejected by the faculty adviser
+                      </p>
+                      <p className="mt-1 text-slate-600">
+                        The organization president approved this proposal, but
+                        the faculty adviser issued the final rejection.
+                      </p>
+                      <p className="mt-3 text-slate-600">
+                        Adviser e-signature:{" "}
+                        <span className="font-bold italic text-slate-800">
+                          {proposal.adviserReview.digitalSignature ||
+                            "Not available"}
+                        </span>
+                      </p>
+                      <p className="mt-2 text-slate-600">
+                        Adviser rejected on{" "}
+                        <span className="font-semibold text-slate-800">
+                          {formatDateTime(proposal.adviserReview.reviewedAt)}
+                        </span>
+                      </p>
+                      {proposal.adviserReview.remarks && (
+                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
+                          Adviser remarks: {proposal.adviserReview.remarks}
+                        </p>
+                      )}
+                      <p className="mt-3 border-t border-rose-200 pt-3 text-slate-600">
+                        President e-signature:{" "}
+                        <span className="font-bold italic text-slate-800">
+                          {proposal.leaderReview.digitalSignature ||
+                            "Not available"}
+                        </span>{" "}
+                        on {formatDateTime(proposal.leaderReview.reviewedAt)}
+                      </p>
+                      {proposal.leaderReview.remarks && (
+                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
+                          President remarks: {proposal.leaderReview.remarks}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>

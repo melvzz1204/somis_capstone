@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   createPayment,
+  recordCashPayment,
   verifyBatchPdf,
   getMyPayment,
   listMyPayments,
@@ -21,6 +22,7 @@ const {
 const router = express.Router();
 
 router.get("/audit", protect, authorize("treasurer"), listPaymentAudit);
+router.post("/cash", protect, authorize("treasurer"), recordCashPayment);
 router.post(
   "/verify-batch-pdf",
   protect,

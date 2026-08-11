@@ -3,13 +3,15 @@ const { createWorker } = require("tesseract.js");
 const { PDFParse, PasswordException } = require("pdf-parse");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
+const User = require("../models/User");
+const Member = require("../models/MemberOrganization");
 const {
   PAYMENT_STATUSES,
   normalizeReferenceNumber,
 } = require("../models/Payment");
 
 const PAYMENT_PUBLIC_FIELDS =
-  "student organization fee event claimedAmount extractedAmount referenceNumber receiptImageUrl status failureReason verificationMethod verifiedAt createdAt updatedAt";
+  "student organization fee event claimedAmount extractedAmount paymentMethod referenceNumber cashReceiptNumber cashNotes recordedBy paidAt receiptImageUrl status failureReason verificationMethod verifiedAt createdAt updatedAt";
 
 /**
  * @param {unknown} value
@@ -27,13 +29,20 @@ const isObjectId = (value) =>
  */
 const createPayment = async (req, res) => {
   const feeId = req.body?.feeId;
+  const paymentMethod = String(
+    req.body?.paymentMethod || "GCASH",
+  ).toUpperCase();
   const referenceNumber = normalizeReferenceNumber(req.body?.referenceNumber);
   const receiptImageUrl = String(req.body?.receiptImageUrl || "").trim();
   const ocrRawText = String(req.body?.ocrRawText || "").trim();
   const extractedAmount = Number(req.body?.extractedAmount);
   const hasReceiptMetadata = Boolean(receiptImageUrl && ocrRawText);
 
-  if (!isObjectId(feeId) || !/^\d{13}$/.test(referenceNumber)) {
+  if (
+    !isObjectId(feeId) ||
+    paymentMethod !== "GCASH" ||
+    !/^\d{13}$/.test(referenceNumber)
+  ) {
     return res.status(400).json({
       success: false,
       message:
@@ -79,6 +88,7 @@ const createPayment = async (req, res) => {
 
     if (existingFeePayment) {
       existingFeePayment.set({
+        paymentMethod: "GCASH",
         referenceNumber,
         claimedAmount: fee.amount,
         extractedAmount:
@@ -109,6 +119,7 @@ const createPayment = async (req, res) => {
       organization: fee.org,
       fee: fee._id,
       claimedAmount: fee.amount,
+      paymentMethod: "GCASH",
       extractedAmount:
         Number.isFinite(extractedAmount) && extractedAmount >= 0
           ? extractedAmount
@@ -463,8 +474,115 @@ const listPaymentAudit = async (req, res) => {
   }
 };
 
+/**
+ * Records an over-the-counter cash payment after the treasurer physically
+ * receives the money. This is deliberately treasurer-only and immediately
+ * verified because the treasurer is the source of confirmation.
+ *
+ * @route POST /api/v1/payments/cash
+ * @access Treasurer
+ */
+const recordCashPayment = async (req, res) => {
+  const feeId = req.body?.feeId;
+  const studentIdentifier = String(req.body?.studentIdentifier || "").trim();
+  const cashReceiptNumber = String(req.body?.cashReceiptNumber || "").trim();
+  const cashNotes = String(req.body?.cashNotes || "").trim();
+
+  if (!isObjectId(feeId) || !studentIdentifier) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid student selection and fee are required.",
+    });
+  }
+
+  try {
+    const member = await Member.findOne({
+      organization: req.user.organization,
+      $or: [
+        { idNumber: studentIdentifier },
+        { email: studentIdentifier.toLowerCase() },
+      ],
+    }).select("name email idNumber");
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: "The selected student is not in your organization roster.",
+      });
+    }
+
+    const student = await User.findOne({
+      email: member.email,
+      organization: req.user.organization,
+      role: "student",
+      status: "Active",
+    }).select("name email");
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "The selected roster member does not have an active student account.",
+      });
+    }
+
+    const fee = await Fee.findOne({
+      _id: feeId,
+      org: req.user.organization,
+      status: "active",
+    }).select("org amount title");
+    if (!fee)
+      return res.status(404).json({
+        success: false,
+        message: "The selected active fee was not found.",
+      });
+
+    const existing = await Payment.findOne({
+      student: student._id,
+      fee: fee._id,
+      status: { $in: ["PENDING_MANUAL_REVIEW", "VERIFIED"] },
+    }).select(PAYMENT_PUBLIC_FIELDS);
+    if (existing)
+      return res.status(409).json({
+        success: false,
+        message:
+          existing.status === "VERIFIED"
+            ? "This fee is already paid."
+            : "This student already has an active payment for this fee.",
+        data: existing,
+      });
+
+    const payment = await Payment.create({
+      student: student._id,
+      organization: fee.org,
+      fee: fee._id,
+      claimedAmount: fee.amount,
+      paymentMethod: "CASH",
+      cashReceiptNumber: cashReceiptNumber || undefined,
+      cashNotes: cashNotes || undefined,
+      recordedBy: req.user._id,
+      paidAt: new Date(),
+      status: "VERIFIED",
+      verificationMethod: "CASH_MANUAL",
+      verifiedAt: new Date(),
+    });
+    await payment.populate("student", "name email");
+    await payment.populate("fee", "title dueDate academicYear semester");
+
+    return res.status(201).json({
+      success: true,
+      message: "Cash payment recorded and verified.",
+      data: payment,
+    });
+  } catch (error) {
+    console.error("Cash payment recording failed:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Unable to record the cash payment." });
+  }
+};
+
 module.exports = {
   createPayment,
+  recordCashPayment,
   verifyBatchPdf,
   extractStatementReferences,
   getMyPayment,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import API from "../../api/axios";
 import ProposalDocumentModal from "./proposalDocumentModal";
 
@@ -37,6 +37,7 @@ export default function LeaderProposalReview({
   const isAdviserReview = reviewRole === "adviser";
   const [reviewForms, setReviewForms] = useState({});
   const [selectedProposal, setSelectedProposal] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("All");
   const [digitalSignature, setDigitalSignature] = useState("");
   const [isLoadingSignature, setIsLoadingSignature] = useState(true);
   const [signatureError, setSignatureError] = useState("");
@@ -98,6 +99,16 @@ export default function LeaderProposalReview({
     }
   };
 
+  const filteredProposals = useMemo(
+    () =>
+      statusFilter === "All"
+        ? proposals
+        : proposals.filter((proposal) => proposal.status === statusFilter),
+    [proposals, statusFilter],
+  );
+
+  const filterOptions = ["All", "Approved", "Rejected"];
+
   if (isLoading) {
     return (
       <div className="border border-slate-200 bg-white px-6 py-12 text-center text-xs font-semibold text-slate-500">
@@ -109,32 +120,71 @@ export default function LeaderProposalReview({
   return (
     <div className="space-y-4">
       <div className="border-b border-slate-200 pb-4">
-        <h3 className="text-base font-bold text-[#4A0E17]">
-          {isAdviserReview ? "Final Adviser Approval" : "Activity Proposals"}
-        </h3>
-        <p className="mt-0.5 text-xs text-slate-500">
-          {isAdviserReview
-            ? "Review proposals approved by the organization president. Your decision is final."
-            : "Review proposals prepared by the organization secretary and record your decision."}
-        </p>
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div>
+            <h3 className="text-base font-bold text-[#4A0E17]">
+              {isAdviserReview
+                ? "Final Adviser Approval"
+                : "Activity Proposals"}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {isAdviserReview
+                ? "Review proposals approved by the organization president. Your decision is final."
+                : "Review proposals prepared by the organization secretary and record your decision."}
+            </p>
+          </div>
+          <div
+            className="flex w-full rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-auto"
+            role="group"
+            aria-label="Filter activity proposals by status"
+          >
+            {filterOptions.map((option) => {
+              const count =
+                option === "All"
+                  ? proposals.length
+                  : proposals.filter((proposal) => proposal.status === option)
+                      .length;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setStatusFilter(option)}
+                  aria-pressed={statusFilter === option}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-[11px] font-bold transition-colors sm:flex-none ${
+                    statusFilter === option
+                      ? "bg-[#4A0E17] text-white shadow-sm"
+                      : "text-slate-600 hover:bg-white hover:text-[#4A0E17]"
+                  }`}
+                >
+                  {option} <span className="ml-0.5 opacity-70">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {proposals.length === 0 ? (
+      {filteredProposals.length === 0 ? (
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
-            {isAdviserReview
-              ? "No president-approved proposals are awaiting final approval"
-              : "No proposals awaiting organization review"}
+            {statusFilter === "All"
+              ? isAdviserReview
+                ? "No president-approved proposals are awaiting final approval"
+                : "No proposals awaiting organization review"
+              : `No ${statusFilter.toLowerCase()} proposals`}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            {isAdviserReview
-              ? "President-rejected proposals are not shown in this workspace."
-              : "Proposals created by the secretary will appear here."}
+            {statusFilter === "All"
+              ? isAdviserReview
+                ? "Proposals approved by the president will appear here."
+                : "Proposals created by the secretary will appear here."
+              : "Try another status filter to view more activity proposals."}
           </p>
         </div>
       ) : (
         <div className="divide-y divide-slate-200 border border-slate-200 bg-white">
-          {proposals.map((proposal) => {
+          {filteredProposals.map((proposal) => {
             const isFinal = ["Approved", "Rejected"].includes(proposal.status);
             const isActing = actionId === proposal._id;
 

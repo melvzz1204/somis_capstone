@@ -79,7 +79,8 @@ export default function AdviserDashboard() {
           ).filter(
             (proposal) =>
               proposal.status === "Pending Adviser Review" ||
-              proposal.status === "Approved",
+              proposal.status === "Approved" ||
+              proposal.status === "Rejected",
           ),
         );
       })

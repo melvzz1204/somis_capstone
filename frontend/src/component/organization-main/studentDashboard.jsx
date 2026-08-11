@@ -172,6 +172,7 @@ export default function StudentDashboard({ user: propsUser }) {
   const [isParsingReceipt, setIsParsingReceipt] = useState(false);
   const [receiptProgress, setReceiptProgress] = useState(0);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("GCASH");
   const [selectedFee, setSelectedFee] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
@@ -258,6 +259,7 @@ export default function StudentDashboard({ user: propsUser }) {
 
   const resetPaymentDialog = () => {
     setSelectedFee(null);
+    setPaymentMethod("GCASH");
     setReferenceNumber("");
     setReceiptMetadata(null);
     setReceiptPreview("");
@@ -319,6 +321,13 @@ export default function StudentDashboard({ user: propsUser }) {
   const submitPayment = async (event) => {
     event.preventDefault();
     const normalizedReference = referenceNumber.replace(/\D/g, "");
+
+    if (paymentMethod === "CASH") {
+      setPaymentError(
+        "Cash payments are completed in person. Please ask your treasurer to record the payment after you hand over the cash.",
+      );
+      return;
+    }
 
     if (
       !selectedFee ||
@@ -1122,6 +1131,28 @@ export default function StudentDashboard({ user: propsUser }) {
               </div>
 
               <form onSubmit={submitPayment} className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {["GCASH", "CASH"].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod(method);
+                        setPaymentError("");
+                      }}
+                      className={`rounded-xl border px-3 py-2.5 text-xs font-bold ${paymentMethod === method ? "border-[#4A0E17] bg-rose-50 text-[#4A0E17]" : "border-slate-200 text-slate-500"}`}
+                    >
+                      {method === "GCASH" ? "Pay via GCash" : "Pay with Cash"}
+                    </button>
+                  ))}
+                </div>
+                {paymentMethod === "CASH" && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    Bring the exact amount to your organization treasurer. Your
+                    payment will appear as paid after the treasurer records the
+                    cash received.
+                  </div>
+                )}
                 {paymentError && (
                   <div
                     className="flex items-start gap-2 border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"
@@ -1136,131 +1167,140 @@ export default function StudentDashboard({ user: propsUser }) {
                   </div>
                 )}
 
-                <div>
-                  <label
-                    htmlFor="gcash-receipt"
-                    className="mb-1.5 block text-xs font-bold text-slate-700"
-                  >
-                    GCash receipt image
-                  </label>
-                  <label
-                    htmlFor="gcash-receipt"
-                    className="flex min-h-32 cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center hover:border-[#4A0E17] hover:bg-rose-50"
-                  >
-                    <UploadCloud
-                      className="h-6 w-6 text-[#4A0E17]"
-                      aria-hidden="true"
-                    />
-                    <span className="mt-2 text-xs font-bold text-slate-800">
-                      {receiptFileName || "Choose GCash receipt image"}
-                    </span>
-                    <span className="mt-1 text-[11px] text-slate-500">
-                      JPEG, PNG, or WebP up to 5 MB
-                    </span>
-                  </label>
-                  <input
-                    id="gcash-receipt"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={(event) => parseReceipt(event.target.files?.[0])}
-                    disabled={isParsingReceipt || isSubmittingPayment}
-                    className="sr-only"
-                  />
-                </div>
-
-                {receiptPreview && (
-                  <div className="flex items-center gap-3 border border-slate-200 bg-slate-50 p-2.5">
-                    <img
-                      src={receiptPreview}
-                      alt="Selected GCash receipt preview"
-                      className="h-20 w-16 shrink-0 border border-slate-200 bg-white object-contain"
-                    />
-                    <FileImage
-                      className="h-4 w-4 shrink-0 text-slate-500"
-                      aria-hidden="true"
-                    />
-                    <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-700">
-                      {receiptFileName}
-                    </p>
-                  </div>
-                )}
-
-                {isParsingReceipt && (
-                  <div className="space-y-2" role="status">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                      <span className="flex items-center gap-2">
-                        <LoaderCircle
-                          className="h-4 w-4 animate-spin"
+                {paymentMethod === "GCASH" && (
+                  <>
+                    <div>
+                      <label
+                        htmlFor="gcash-receipt"
+                        className="mb-1.5 block text-xs font-bold text-slate-700"
+                      >
+                        GCash receipt image
+                      </label>
+                      <label
+                        htmlFor="gcash-receipt"
+                        className="flex min-h-32 cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center hover:border-[#4A0E17] hover:bg-rose-50"
+                      >
+                        <UploadCloud
+                          className="h-6 w-6 text-[#4A0E17]"
                           aria-hidden="true"
                         />
-                        {receiptProgress === 100
-                          ? "Reading receipt"
-                          : "Uploading receipt"}
-                      </span>
-                      <span>{receiptProgress}%</span>
-                    </div>
-                    <div className="h-2 overflow-hidden bg-slate-200">
-                      <div
-                        className="h-full bg-[#4A0E17] transition-[width]"
-                        style={{ width: `${receiptProgress}%` }}
+                        <span className="mt-2 text-xs font-bold text-slate-800">
+                          {receiptFileName || "Choose GCash receipt image"}
+                        </span>
+                        <span className="mt-1 text-[11px] text-slate-500">
+                          JPEG, PNG, or WebP up to 5 MB
+                        </span>
+                      </label>
+                      <input
+                        id="gcash-receipt"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={(event) =>
+                          parseReceipt(event.target.files?.[0])
+                        }
+                        disabled={isParsingReceipt || isSubmittingPayment}
+                        className="sr-only"
                       />
                     </div>
-                  </div>
-                )}
 
-                <div>
-                  <label
-                    htmlFor="gcash-reference"
-                    className="mb-1 block text-xs font-bold text-slate-700"
-                  >
-                    13-digit GCash reference number
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="gcash-reference"
-                      type="text"
-                      value={referenceNumber}
-                      readOnly
-                      placeholder="Upload receipt to extract reference"
-                      className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 pr-10 font-mono text-sm font-bold text-slate-800 outline-none"
-                    />
-                    {referenceNumber && (
-                      <CheckCircle2
-                        className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-600"
-                        aria-hidden="true"
-                      />
+                    {receiptPreview && (
+                      <div className="flex items-center gap-3 border border-slate-200 bg-slate-50 p-2.5">
+                        <img
+                          src={receiptPreview}
+                          alt="Selected GCash receipt preview"
+                          className="h-20 w-16 shrink-0 border border-slate-200 bg-white object-contain"
+                        />
+                        <FileImage
+                          className="h-4 w-4 shrink-0 text-slate-500"
+                          aria-hidden="true"
+                        />
+                        <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-700">
+                          {receiptFileName}
+                        </p>
+                      </div>
                     )}
-                  </div>
-                </div>
 
-                {referenceNumber && (
-                  <div className="border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
-                    Reference extracted successfully. Review it, then submit the
-                    payment.
-                  </div>
+                    {isParsingReceipt && (
+                      <div className="space-y-2" role="status">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                          <span className="flex items-center gap-2">
+                            <LoaderCircle
+                              className="h-4 w-4 animate-spin"
+                              aria-hidden="true"
+                            />
+                            {receiptProgress === 100
+                              ? "Reading receipt"
+                              : "Uploading receipt"}
+                          </span>
+                          <span>{receiptProgress}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden bg-slate-200">
+                          <div
+                            className="h-full bg-[#4A0E17] transition-[width]"
+                            style={{ width: `${receiptProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label
+                        htmlFor="gcash-reference"
+                        className="mb-1 block text-xs font-bold text-slate-700"
+                      >
+                        13-digit GCash reference number
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="gcash-reference"
+                          type="text"
+                          value={referenceNumber}
+                          readOnly
+                          placeholder="Upload receipt to extract reference"
+                          className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 pr-10 font-mono text-sm font-bold text-slate-800 outline-none"
+                        />
+                        {referenceNumber && (
+                          <CheckCircle2
+                            className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-600"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    {referenceNumber && (
+                      <div className="border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                        Reference extracted successfully. Review it, then submit
+                        the payment.
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        type="button"
+                        onClick={resetPaymentDialog}
+                        className="border border-[#4A0E17]/30 bg-white px-3 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={
+                          isSubmittingPayment ||
+                          isParsingReceipt ||
+                          (paymentMethod === "GCASH" &&
+                            (!receiptMetadata ||
+                              !/^\d{13}$/.test(referenceNumber)))
+                        }
+                        className="bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isSubmittingPayment
+                          ? "Submitting..."
+                          : "Submit payment"}
+                      </button>
+                    </div>
+                  </>
                 )}
-
-                <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                  <button
-                    type="button"
-                    onClick={resetPaymentDialog}
-                    className="border border-[#4A0E17]/30 bg-white px-3 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={
-                      isSubmittingPayment ||
-                      isParsingReceipt ||
-                      !receiptMetadata ||
-                      !/^\d{13}$/.test(referenceNumber)
-                    }
-                    className="bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isSubmittingPayment ? "Submitting..." : "Submit payment"}
-                  </button>
-                </div>
               </form>
             </div>
           </div>

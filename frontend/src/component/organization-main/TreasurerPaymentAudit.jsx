@@ -27,6 +27,7 @@ const formatMethod = (method) => {
   if (method === "AUTOMATE_SMS") return "Legacy SMS";
   if (method === "BULK_STATEMENT") return "Bulk statement";
   if (method === "PAYMONGO") return "PayMongo";
+  if (method === "CASH_MANUAL") return "Cash (treasurer)";
   return "Manual";
 };
 
@@ -82,11 +83,10 @@ export default function TreasurerPaymentAudit() {
             id="payment-audit-heading"
             className="text-base font-bold text-[#4A0E17]"
           >
-            GCash Verification Audit
+            Payment Verification Audit
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            Payment confirmations verified from uploaded GCash transaction
-            statements.
+            Verified GCash and over-the-counter cash payment records.
           </p>
         </div>
         <div
@@ -125,7 +125,7 @@ export default function TreasurerPaymentAudit() {
           <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Student</th>
-              <th className="px-4 py-3">Reference number</th>
+              <th className="px-4 py-3">Payment details</th>
               <th className="px-4 py-3">Amount</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Method</th>
@@ -162,8 +162,15 @@ export default function TreasurerPaymentAudit() {
                       {payment.student?.email || "No email"}
                     </p>
                   </td>
-                  <td className="px-4 py-3 font-mono font-bold text-slate-700">
-                    {payment.referenceNumber}
+                  <td className="px-4 py-3 font-bold text-slate-700">
+                    <span className="rounded bg-slate-100 px-2 py-1 text-[10px] font-black">
+                      {payment.paymentMethod || "GCASH"}
+                    </span>
+                    <p className="mt-1 font-mono text-xs">
+                      {payment.paymentMethod === "CASH"
+                        ? payment.cashReceiptNumber || "No receipt number"
+                        : payment.referenceNumber || "No reference"}
+                    </p>
                   </td>
                   <td className="px-4 py-3 font-bold text-slate-800">
                     {formatCurrency(

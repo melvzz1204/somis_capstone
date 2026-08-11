@@ -6,6 +6,7 @@ import MobileTabBar from "../mobileTabBar";
 import FeeModal from "./feesModal";
 import StatementUploadModal from "./StatementUploadModal";
 import TreasurerPaymentAudit from "./TreasurerPaymentAudit";
+import CashPaymentModal from "./CashPaymentModal";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -182,6 +183,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState(null);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [isCashPaymentModalOpen, setIsCashPaymentModalOpen] = useState(false);
   const [statementModalKey, setStatementModalKey] = useState(0);
   const [paymentAuditKey, setPaymentAuditKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -189,6 +191,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Dynamic Data States
   const [transactions, setTransactions] = useState([]);
   const [feeDrives, setFeeDrives] = useState([]);
+  const [organizationRoster, setOrganizationRoster] = useState([]);
   const [filterType, setFilterType] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -206,10 +209,12 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     let isActive = true;
 
     const fetchTreasuryData = async () => {
-      const [transactionsResult, feesResult] = await Promise.allSettled([
-        API.get(orgId ? `/transactions?org=${orgId}` : "/transactions"),
-        API.get("/fees"),
-      ]);
+      const [transactionsResult, feesResult, rosterResult] =
+        await Promise.allSettled([
+          API.get(orgId ? `/transactions?org=${orgId}` : "/transactions"),
+          API.get("/fees"),
+          API.get("/orgmembers"),
+        ]);
 
       if (!isActive) return;
 
@@ -230,6 +235,17 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       } else {
         console.error("Failed to fetch dues collections:", feesResult.reason);
         setFeeDrives([]);
+      }
+
+      if (rosterResult.status === "fulfilled") {
+        const data = rosterResult.value || [];
+        setOrganizationRoster(Array.isArray(data) ? data : []);
+      } else {
+        console.error(
+          "Failed to fetch organization roster:",
+          rosterResult.reason,
+        );
+        setOrganizationRoster([]);
       }
     };
 
@@ -927,24 +943,33 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-base font-extrabold text-[#4A0E17]">
-                    Batch payment verification
+                    Payment verification
                   </h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Verify student references against a downloaded GCash
-                    Transaction History PDF.
+                    Verify GCash statements or record cash received in person.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStatementModalKey((current) => current + 1);
-                    setIsStatementModalOpen(true);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#601520]"
-                >
-                  <FileTextIcon className="h-4 w-4" />
-                  Verify statement
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setIsCashPaymentModalOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#4A0E17] bg-white px-4 py-2.5 text-xs font-bold text-[#4A0E17] hover:bg-rose-50"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    Record cash payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatementModalKey((current) => current + 1);
+                      setIsStatementModalOpen(true);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#601520]"
+                  >
+                    <FileTextIcon className="h-4 w-4" />
+                    Verify statement
+                  </button>
+                </div>
               </div>
               <TreasurerPaymentAudit key={paymentAuditKey} />
             </div>
@@ -1026,6 +1051,19 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           )}
         </main>
       </div>
+
+      {isCashPaymentModalOpen && (
+        <CashPaymentModal
+          fees={feeDrives}
+          roster={organizationRoster}
+          onClose={() => setIsCashPaymentModalOpen(false)}
+          onRecorded={() => {
+            setIsCashPaymentModalOpen(false);
+            setPaymentAuditKey((current) => current + 1);
+            showToast("Cash payment recorded and verified.", "success");
+          }}
+        />
+      )}
 
       {/* DYNAMIC FEE MODAL */}
       <StatementUploadModal

@@ -148,7 +148,7 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
           disabled={isLoading}
           className="btn-primary w-full mt-1"
         >
-          {isLoading ? "Signing in..." : "Sign In as Student"}
+          {isLoading ? "Signing in..." : "SIGN IN"}
         </button>
       </form>
 

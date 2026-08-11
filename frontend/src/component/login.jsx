@@ -211,11 +211,7 @@ export default function Login() {
           disabled={isLoading}
           className="btn-primary w-full mt-1"
         >
-          {isLoading
-            ? "Signing in..."
-            : `Sign In as ${
-                portalType === "org" ? "Student Officer" : "Admin"
-              }`}
+          {isLoading ? "Signing in..." : `Sign in`}
         </button>
       </form>
 

@@ -1,4 +1,10 @@
-import { useState, useEffect, useEffectEvent, useRef } from "react";
+import {
+  useCallback,
+  useState,
+  useEffect,
+  useEffectEvent,
+  useRef,
+} from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import {
   AlertCircle,
@@ -20,6 +26,8 @@ import {
 import LogoutButton from "../logoutButton";
 import MobileTabBar from "../mobileTabBar";
 import StudentPaymentTracker from "./StudentPaymentTracker";
+import DigitalClearance from "./DigitalClearance";
+import { getClearanceSummary } from "../../util/clearanceStatus";
 
 // Helper Date Formatter
 const formatDate = (dateString) => {
@@ -168,9 +176,13 @@ export default function StudentDashboard({ user: propsUser }) {
   const [organization, setOrganization] = useState(null);
   const [membership, setMembership] = useState(null);
   const [roster, setRoster] = useState([]);
+  const [studentProfile, setStudentProfile] = useState(null);
   const [fees, setFees] = useState([]);
   const [feeError, setFeeError] = useState("");
+  const [clearanceFees, setClearanceFees] = useState([]);
+  const [clearanceFeeError, setClearanceFeeError] = useState("");
   const [payments, setPayments] = useState([]);
+  const [paymentLoadError, setPaymentLoadError] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [receiptMetadata, setReceiptMetadata] = useState(null);
@@ -196,7 +208,23 @@ export default function StudentDashboard({ user: propsUser }) {
   const [announcements, setAnnouncements] = useState([]);
   const [announcementError, setAnnouncementError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
-  const [clearanceItems] = useState([]);
+
+  const handlePaymentChange = useCallback((updatedPayment) => {
+    if (!updatedPayment?._id) return;
+
+    setPayments((current) => {
+      const paymentExists = current.some(
+        (payment) => String(payment._id) === String(updatedPayment._id),
+      );
+
+      if (!paymentExists) return [updatedPayment, ...current];
+      return current.map((payment) =>
+        String(payment._id) === String(updatedPayment._id)
+          ? updatedPayment
+          : payment,
+      );
+    });
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date().getTime()), 1000);
@@ -213,16 +241,19 @@ export default function StudentDashboard({ user: propsUser }) {
         setOrganization(data.organization || null);
         setMembership(data.membership || null);
         setRoster(data.roster || []);
+        setStudentProfile(data.studentProfile || null);
 
         if (data.organization?._id) {
           const [
             feeResult,
+            clearanceFeeResult,
             paymentResult,
             eventResult,
             announcementResult,
             attendanceResult,
           ] = await Promise.allSettled([
             API.get("/fees"),
+            API.get("/fees/clearance"),
             API.get("/payments/mine"),
             API.get("/events"),
             API.get("/announcements"),
@@ -243,16 +274,31 @@ export default function StudentDashboard({ user: propsUser }) {
             );
           }
 
+          if (clearanceFeeResult.status === "fulfilled") {
+            setClearanceFees(clearanceFeeResult.value.data || []);
+            setClearanceFeeError("");
+          } else {
+            console.error(
+              "Error fetching clearance fee records:",
+              clearanceFeeResult.reason,
+            );
+            setClearanceFees([]);
+            setClearanceFeeError(
+              clearanceFeeResult.reason.message ||
+                "Unable to load historical clearance fees.",
+            );
+          }
+
           if (paymentResult.status === "fulfilled") {
             setPayments(paymentResult.value.data || []);
-            setPaymentError("");
+            setPaymentLoadError("");
           } else {
             console.error(
               "Error fetching student payments:",
               paymentResult.reason,
             );
             setPayments([]);
-            setPaymentError(
+            setPaymentLoadError(
               paymentResult.reason.message || "Unable to load your payments.",
             );
           }
@@ -294,10 +340,15 @@ export default function StudentDashboard({ user: propsUser }) {
           }
         } else {
           setFees([]);
+          setClearanceFees([]);
           setPayments([]);
           setUpcomingEvents([]);
           setAttendance([]);
           setAnnouncements([]);
+          setFeeError("");
+          setClearanceFeeError("");
+          setPaymentLoadError("");
+          setPaymentError("");
           setEventError("");
           setAnnouncementError("");
         }
@@ -574,11 +625,13 @@ export default function StudentDashboard({ user: propsUser }) {
     (member) => member.role?.trim().toLowerCase() !== "member",
   );
   const activeMembershipsCount = organization ? 1 : 0;
-  const clearedCount = clearanceItems.filter(
-    (item) => item.status === "Cleared",
-  ).length;
-  const isFullyCleared =
-    clearanceItems.length === 0 || clearedCount === clearanceItems.length;
+  const clearanceSummary = getClearanceSummary(
+    organization,
+    clearanceFees,
+    payments,
+  );
+  const isFullyCleared = clearanceSummary.isCleared;
+  const clearanceProgress = `${clearanceSummary.satisfiedCount}/${clearanceSummary.requirements.length}`;
 
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
@@ -687,7 +740,7 @@ export default function StudentDashboard({ user: propsUser }) {
                     : "text-rose-200/60"
                 }
               />
-              <span>Org Clearance Status ({clearanceItems.length})</span>
+              <span>Digital Clearance ({clearanceProgress})</span>
             </button>
           </nav>
         </div>
@@ -1185,7 +1238,10 @@ export default function StudentDashboard({ user: propsUser }) {
                                 Submission {feePayments.length}
                               </span>
                             </div>
-                            <StudentPaymentTracker payment={latestPayment} />
+                            <StudentPaymentTracker
+                              payment={latestPayment}
+                              onPaymentChange={handlePaymentChange}
+                            />
                           </div>
                         )}
 
@@ -1329,56 +1385,20 @@ export default function StudentDashboard({ user: propsUser }) {
             </div>
           )}
 
-          {/* TAB 5: CLEARANCE STATUS */}
+          {/* TAB 5: DIGITAL CLEARANCE */}
           {activeTab === "clearance" && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
-              <div className="border-b border-slate-100 pb-4">
-                <h3 className="text-base font-bold text-[#4A0E17]">
-                  End-of-Term Organization Clearance
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Verify clearance sign-offs required by your student
-                  organizations.
-                </p>
-              </div>
-
-              {clearanceItems.length === 0 ? (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
-                  <CheckCircleIcon className="text-emerald-700 w-5 h-5" />
-                  <p className="text-xs text-emerald-800 font-bold">
-                    No active clearance holds recorded. You are fully cleared
-                    for the current academic term.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100 text-xs">
-                  {clearanceItems.map((c, idx) => (
-                    <div
-                      key={idx}
-                      className="py-3 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="font-bold text-slate-800">
-                          {c.orgName || "Organization Clearance"}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {c.requirement || "Dues & Assembly Attendance"}
-                        </p>
-                      </div>
-                      <span
-                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${
-                          c.status === "Cleared"
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                            : "bg-rose-50 text-rose-800 border border-rose-200"
-                        }`}
-                      >
-                        {c.status || "Cleared"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <DigitalClearance
+              organization={organization}
+              membership={membership}
+              studentProfile={studentProfile}
+              roster={roster}
+              fees={clearanceFees}
+              payments={payments}
+              isLoading={isLoading}
+              feeError={clearanceFeeError}
+              paymentError={paymentLoadError}
+              onReviewFees={() => setActiveTab("fees")}
+            />
           )}
         </main>
 

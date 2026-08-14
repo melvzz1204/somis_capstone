@@ -4,6 +4,7 @@ const {
   createFee,
   previewFeeTargets,
   getFees,
+  getClearanceFees,
   updateFee,
   archiveFee,
 } = require("../controllers/feeController");
@@ -21,6 +22,8 @@ router.get(
   authorize("treasurer"),
   previewFeeTargets,
 );
+
+router.get("/clearance", protect, authorize("student"), getClearanceFees);
 
 router.route("/:id").patch(protect, authorize("treasurer"), updateFee);
 

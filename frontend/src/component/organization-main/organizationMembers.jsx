@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 import {
@@ -166,7 +166,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
   const [accountModalError, setAccountModalError] = useState("");
   const [accountModalSuccess, setAccountModalSuccess] = useState("");
 
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
@@ -189,7 +189,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [isMemberDirectory]);
 
   async function fetchPrograms(collegeName) {
     setIsLoadingPrograms(true);
@@ -232,7 +232,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
     }, 0);
 
     return () => window.clearTimeout(dataRequest);
-  }, [isMemberDirectory, org?.college]);
+  }, [fetchMembers, isMemberDirectory, org?.college]);
 
   // Open Modal for Creating Officer
   const handleOpenAddModal = () => {

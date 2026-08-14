@@ -1,5 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import API from "../../api/axios";
+import {
+  CLEARANCE_ACADEMIC_YEAR,
+  CLEARANCE_REQUIREMENTS,
+  isCicssoOrganization,
+} from "../../util/clearanceStatus";
 import { useToast } from "../../util/toastContext";
 
 // Inline Icon Components
@@ -77,16 +82,31 @@ export default function FeeModal({
   )
     .trim()
     .toUpperCase();
-  const defaultCategories = useMemo(
-    () => [
-      { value: "organization_fee", label: `${orgFeePrefix} Fee` },
-      { value: "paf", label: `${orgFeePrefix} PAF` },
+  const isCicssoFeeOrganization = isCicssoOrganization({
+    acronym: orgFeePrefix,
+    name: orgDisplayName,
+  });
+  const defaultCategories = useMemo(() => {
+    const dueCategories = isCicssoFeeOrganization
+      ? CLEARANCE_REQUIREMENTS.map((requirement) => ({
+          value: requirement.feeCategories[0],
+          label: requirement.label,
+        }))
+      : [
+          { value: "organization_fee", label: `${orgFeePrefix} Fee` },
+          { value: "paf", label: `${orgFeePrefix} PAF` },
+          {
+            value: "organization_week_fee",
+            label: `${orgFeePrefix} Week Fee`,
+          },
+        ];
+
+    return [
+      ...dueCategories,
       { value: "intrams_fee", label: `${orgFeePrefix} Intrams Fee` },
-      { value: "organization_week_fee", label: `${orgFeePrefix} Week Fee` },
       { value: "others", label: "Others Fee" },
-    ],
-    [orgFeePrefix],
-  );
+    ];
+  }, [isCicssoFeeOrganization, orgFeePrefix]);
 
   // Keep normalized option arrays stable between renders. Recreating these
   // arrays on every keystroke retriggers the form reset effect and prevents
@@ -104,14 +124,19 @@ export default function FeeModal({
     [rawTargetLevels],
   );
 
-  // Calculate dynamic academic years if not explicitly provided
+  // Calculate dynamic academic years if not explicitly provided. Keep the
+  // clearance year selectable so missing historical dues can be encoded.
   const currentYear = new Date().getFullYear();
   const defaultAYs = useMemo(
-    () => [
-      `${currentYear - 1}-${currentYear}`,
-      `${currentYear}-${currentYear + 1}`,
-      `${currentYear + 1}-${currentYear + 2}`,
-    ],
+    () =>
+      Array.from(
+        new Set([
+          `${currentYear - 1}-${currentYear}`,
+          `${currentYear}-${currentYear + 1}`,
+          `${currentYear + 1}-${currentYear + 2}`,
+          CLEARANCE_ACADEMIC_YEAR.replace(/\s+/g, ""),
+        ]),
+      ),
     [currentYear],
   );
   const academicYears = useMemo(
@@ -135,7 +160,6 @@ export default function FeeModal({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [targetMembers, setTargetMembers] = useState([]);
-  const [targetDiagnostics, setTargetDiagnostics] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const unitAmount = Number(formData.amount) || 0;
@@ -185,7 +209,6 @@ export default function FeeModal({
     Promise.resolve().then(() => {
       if (!isCurrentRequest) return;
       setTargetMembers([]);
-      setTargetDiagnostics(null);
       setPreviewError("");
       setPreviewLoading(true);
     });
@@ -196,7 +219,6 @@ export default function FeeModal({
       .then((response) => {
         if (!isCurrentRequest) return;
         setTargetMembers(response.data?.targetMembers || []);
-        setTargetDiagnostics(response.data?.diagnostics || null);
       })
       .catch((error) => {
         if (!isCurrentRequest) return;

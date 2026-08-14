@@ -18,6 +18,12 @@ const studentProfileSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    contactNumber: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: [30, "Contact number is too long"],
+    },
     birthDate: { type: Date, required: true },
     college: { type: String, required: true },
     organization: {

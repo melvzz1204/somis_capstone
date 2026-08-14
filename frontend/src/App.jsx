@@ -10,6 +10,7 @@ import OrgSecretaryPage from "./pages/orgsecretaryPage.jsx";
 import OrgTreasurerPage from "./pages/orgTreasurerPage.jsx";
 import AdviserDashboard from "./pages/adviserDashboard.jsx";
 import OrgPioPage from "./pages/orgPioPage.jsx";
+import ClearanceVisualHarness from "./component/organization-main/ClearanceVisualHarness.jsx";
 
 function App() {
   useEffect(() => {
@@ -35,6 +36,10 @@ function App() {
         <Route path="/org-treasurer" element={<OrgTreasurerPage />} />
         <Route path="/org-pio" element={<OrgPioPage />} />
         <Route path="/adviser-dashboard" element={<AdviserDashboard />} />
+        <Route
+          path="/__clearance-preview"
+          element={<ClearanceVisualHarness />}
+        />
         <Route
           path="/dean-dashboard"
           element={<AdviserDashboard portalRole="dean" />}

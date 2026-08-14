@@ -136,6 +136,7 @@ export default function StudentOnboardingModal({
     lastName: "",
     suffix: "",
     idNumber: "",
+    contactNumber: "",
     birthDate: "",
     officialEmail: "",
   });
@@ -252,7 +253,8 @@ export default function StudentOnboardingModal({
       middleInitial: formData.middleInitial.trim(),
       lastName: formData.lastName.trim(),
       suffix: formData.suffix.trim(),
-      studentIdNumber: formData.idNumber.trim(), // Or "studentId" / "student_id"
+      studentIdNumber: formData.idNumber.trim(),
+      contactNumber: formData.contactNumber.trim(),
       birthDate: formData.birthDate,
       officialEmail: normalizedEmail,
       college: formData.college,
@@ -670,7 +672,7 @@ export default function StudentOnboardingModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
                     Student ID Number <span className="text-rose-600">*</span>
@@ -686,6 +688,24 @@ export default function StudentOnboardingModal({
                 </div>
 
                 <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Contact Number <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={30}
+                    autoComplete="tel"
+                    placeholder="09XX XXX XXXX"
+                    value={formData.contactNumber}
+                    onChange={(e) =>
+                      updateForm("contactNumber", e.target.value)
+                    }
+                    className="w-full px-3.5 py-2.5 bg-white text-slate-900 border border-slate-300 rounded-xl focus:outline-none focus:border-[#4A0E17] font-medium placeholder:text-slate-400 shadow-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
                   <label className="block font-bold text-slate-700 mb-1">
                     Date of Birth <span className="text-rose-600">*</span>
                   </label>

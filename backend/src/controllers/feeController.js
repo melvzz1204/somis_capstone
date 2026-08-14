@@ -380,6 +380,78 @@ const getFees = async (req, res) => {
   }
 };
 
+/**
+ * Returns clearance fee definitions for the authenticated student, including
+ * archived terms. Target rosters are reduced to an applicability flag so no
+ * other student's information is exposed.
+ */
+const getClearanceFees = async (req, res) => {
+  try {
+    const orgId = req.user?.organization;
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "Organization context required to retrieve clearance fees.",
+      });
+    }
+
+    const studentProfile = await StudentProfile.findOne({
+      user: req.user._id,
+    })
+      .select("studentIdNumber yearLevel")
+      .lean();
+    const studentEmail = normalizeEmail(req.user.email);
+    const studentIdNumber = String(
+      studentProfile?.studentIdNumber || "",
+    ).trim();
+    const fees = await Fee.find({ org: orgId })
+      .select(
+        "title category amount academicYear semester status targetYearLevel targetMembers",
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const data = fees.map((fee) => {
+      const hasTargetSnapshot = fee.targetMembers.length > 0;
+      const applicableToStudent = hasTargetSnapshot
+        ? fee.targetMembers.some(
+            (target) =>
+              String(target.student || "") === String(req.user._id) ||
+              normalizeEmail(target.email) === studentEmail ||
+              (studentIdNumber &&
+                String(target.studentIdNumber || "").trim() ===
+                  studentIdNumber),
+          )
+        : ["All", studentProfile?.yearLevel]
+            .filter(Boolean)
+            .includes(fee.targetYearLevel);
+
+      return {
+        _id: fee._id,
+        title: fee.title,
+        category: fee.category,
+        amount: fee.amount,
+        academicYear: fee.academicYear,
+        semester: fee.semester,
+        status: fee.status,
+        applicableToStudent,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error("Error fetching student clearance fees:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error: Could not fetch clearance fee records.",
+    });
+  }
+};
+
 const updateFee = async (req, res) => {
   try {
     const fee = await Fee.findOne({
@@ -500,6 +572,7 @@ module.exports = {
   createFee,
   previewFeeTargets,
   getFees,
+  getClearanceFees,
   updateFee,
   archiveFee,
 };

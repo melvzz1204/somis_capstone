@@ -10,6 +10,10 @@ const StudentProfile = require("../models/studentProfile");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
 const Proposal = require("../models/Proposal");
+const OrganizationDocument = require("../models/OrganizationDocument");
+const {
+  removeOrganizationDocumentFiles,
+} = require("../controllers/organizationDocumentController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 const sendOrgInviteEmail = require("../util/sendEmail");
 
@@ -281,6 +285,7 @@ router.delete(
         return res.status(404).json({ message: "Organization not found." });
       }
 
+      await removeOrganizationDocumentFiles(organization._id);
       await Promise.all([
         User.deleteMany({ organization: organization._id }),
         Member.deleteMany({ organization: organization._id }),
@@ -288,6 +293,7 @@ router.delete(
         Fee.deleteMany({ org: organization._id }),
         Payment.deleteMany({ organization: organization._id }),
         Proposal.deleteMany({ org: organization._id }),
+        OrganizationDocument.deleteMany({ org: organization._id }),
       ]);
       await organization.deleteOne();
 

@@ -7,6 +7,11 @@ import FeeModal from "./feesModal";
 import StatementUploadModal from "./StatementUploadModal";
 import TreasurerPaymentAudit from "./TreasurerPaymentAudit";
 import CashPaymentModal from "./CashPaymentModal";
+import {
+  ActivityPlanIcon,
+  AnnualReportIcon,
+} from "./organizationDocumentIcons";
+import OrganizationDocumentWorkspace from "./organizationDocumentWorkspace";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -530,6 +535,34 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               />
               <span>Budget Allocations</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab("annual-report")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "annual-report"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <AnnualReportIcon
+                className={`w-4 h-4 ${activeTab === "annual-report" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Accomplishment Report</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("activity-plan")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "activity-plan"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <ActivityPlanIcon
+                className={`w-4 h-4 ${activeTab === "activity-plan" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Organization Plan</span>
+            </button>
           </nav>
         </div>
 
@@ -605,6 +638,18 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               icon: <ShieldCheckIcon className="w-4 h-4" />,
             },
             { id: "budgets", label: "Budgets", icon: <PieChartIcon /> },
+            {
+              id: "annual-report",
+              label: "Accomplishment Report",
+              shortLabel: "Accomp. Report",
+              icon: <AnnualReportIcon />,
+            },
+            {
+              id: "activity-plan",
+              label: "Organization Plan",
+              shortLabel: "Org Plan",
+              icon: <ActivityPlanIcon />,
+            },
           ]}
         />
 
@@ -1270,6 +1315,14 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 </p>
               </div>
             </div>
+          )}
+
+          {activeTab === "annual-report" && (
+            <OrganizationDocumentWorkspace documentType="Annual Report" />
+          )}
+
+          {activeTab === "activity-plan" && (
+            <OrganizationDocumentWorkspace documentType="Activity Plan" />
           )}
         </main>
       </div>

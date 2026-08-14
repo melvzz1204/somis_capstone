@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import {
+  ActivityPlanIcon,
+  AnnualReportIcon,
+} from "../component/organization-main/organizationDocumentIcons";
+import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import LogoutButton from "../component/logoutButton";
 import MobileTabBar from "../component/mobileTabBar";
 
@@ -153,6 +158,22 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
       shortLabel: "Proposals",
       icon: <FileCheckIcon />,
     },
+    ...(!isDean
+      ? [
+          {
+            id: "annual-report",
+            label: "Accomplishment Report",
+            shortLabel: "Accomp. Report",
+            icon: <AnnualReportIcon />,
+          },
+          {
+            id: "activity-plan",
+            label: "Organization Plan",
+            shortLabel: "Org Plan",
+            icon: <ActivityPlanIcon />,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -335,6 +356,20 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
               actionId={actionId}
               onReview={handleReview}
               reviewRole={portalRole}
+            />
+          )}
+
+          {!isDean && activeTab === "annual-report" && (
+            <OrganizationDocumentWorkspace
+              documentType="Annual Report"
+              reviewRole="adviser"
+            />
+          )}
+
+          {!isDean && activeTab === "activity-plan" && (
+            <OrganizationDocumentWorkspace
+              documentType="Activity Plan"
+              reviewRole="adviser"
             />
           )}
         </main>

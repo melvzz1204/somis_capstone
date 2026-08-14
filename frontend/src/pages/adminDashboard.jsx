@@ -3,6 +3,11 @@ import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
 import CollegeCatalog from "../component/collegeCatalog";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import {
+  ActivityPlanIcon,
+  AnnualReportIcon,
+} from "../component/organization-main/organizationDocumentIcons";
+import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
 
@@ -351,6 +356,32 @@ export default function AdminDashboard() {
               />
               <span>Proposal Review</span>
             </button>
+            <button
+              onClick={() => setActiveTab("annual-report")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "annual-report"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <AnnualReportIcon
+                className={`w-4 h-4 ${activeTab === "annual-report" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Accomplishment Report</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("activity-plan")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "activity-plan"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <ActivityPlanIcon
+                className={`w-4 h-4 ${activeTab === "activity-plan" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Organization Plan</span>
+            </button>
           </nav>
         </div>
 
@@ -402,9 +433,21 @@ export default function AdminDashboard() {
             { id: "colleges", label: "Colleges", icon: <BuildingIcon /> },
             {
               id: "clearance",
-              label: "Clearance",
-              shortLabel: "Clear",
+              label: "Proposal Review",
+              shortLabel: "Proposals",
               icon: <FileCheckIcon />,
+            },
+            {
+              id: "annual-report",
+              label: "Accomplishment Report",
+              shortLabel: "Accomp. Report",
+              icon: <AnnualReportIcon />,
+            },
+            {
+              id: "activity-plan",
+              label: "Organization Plan",
+              shortLabel: "Org Plan",
+              icon: <ActivityPlanIcon />,
             },
           ]}
         />
@@ -427,6 +470,16 @@ export default function AdminDashboard() {
                 reviewRole="admin"
               />
             </div>
+          ) : activeTab === "annual-report" ? (
+            <OrganizationDocumentWorkspace
+              documentType="Annual Report"
+              reviewRole="admin"
+            />
+          ) : activeTab === "activity-plan" ? (
+            <OrganizationDocumentWorkspace
+              documentType="Activity Plan"
+              reviewRole="admin"
+            />
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

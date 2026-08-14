@@ -5,6 +5,11 @@ import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import {
+  ActivityPlanIcon,
+  AnnualReportIcon,
+} from "../component/organization-main/organizationDocumentIcons";
+import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import LogoutButton from "../component/logoutButton";
 
 // --- SVG ICON COMPONENTS ---
@@ -358,6 +363,34 @@ export default function OrgDashboard() {
             </button>
 
             <button
+              onClick={() => setActiveTab("annual-report")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "annual-report"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <AnnualReportIcon
+                className={`w-4 h-4 ${activeTab === "annual-report" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Accomplishment Report</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("activity-plan")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "activity-plan"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <ActivityPlanIcon
+                className={`w-4 h-4 ${activeTab === "activity-plan" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Organization Plan</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("clearance")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "clearance"
@@ -438,6 +471,18 @@ export default function OrgDashboard() {
               label: "Activities",
               shortLabel: "Events",
               icon: <CalendarEventIcon />,
+            },
+            {
+              id: "annual-report",
+              label: "Accomplishment Report",
+              shortLabel: "Accomp. Report",
+              icon: <AnnualReportIcon />,
+            },
+            {
+              id: "activity-plan",
+              label: "Organization Plan",
+              shortLabel: "Org Plan",
+              icon: <ActivityPlanIcon />,
             },
             {
               id: "clearance",
@@ -647,6 +692,14 @@ export default function OrgDashboard() {
                 onReview={handleProposalReview}
               />
             </div>
+          )}
+
+          {activeTab === "annual-report" && (
+            <OrganizationDocumentWorkspace documentType="Annual Report" />
+          )}
+
+          {activeTab === "activity-plan" && (
+            <OrganizationDocumentWorkspace documentType="Activity Plan" />
           )}
 
           {/* TAB CONTENT: CLEARANCE */}

@@ -31,6 +31,24 @@ const formatDate = (dateString) => {
   });
 };
 
+const formatPostedDateTime = (dateString) => {
+  if (!dateString) return "Posting time unavailable";
+
+  const dateObj = new Date(dateString);
+  if (Number.isNaN(dateObj.getTime())) return "Posting time unavailable";
+
+  return dateObj.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+};
+
 // --- INLINE SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -193,6 +211,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [statementModalKey, setStatementModalKey] = useState(0);
   const [paymentAuditKey, setPaymentAuditKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshingCollections, setIsRefreshingCollections] = useState(false);
 
   // Dynamic Data States
   const [transactions, setTransactions] = useState([]);
@@ -326,17 +345,107 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const incomeEstimatedCost =
     incomeUnitPrice > 0 ? (incomeAmount / incomeUnitPrice) * incomeBaseCost : 0;
   const incomeNetAmount = incomeAmount - incomeEstimatedCost;
+  const incomeTargetMemberCount = Math.max(
+    0,
+    Number(
+      selectedIncomeFee?.targetMemberCount ||
+        selectedIncomeFee?.targetMembers?.length ||
+        0,
+    ),
+  );
+  const incomePaidMemberCount = Math.max(
+    0,
+    Math.min(
+      incomeTargetMemberCount,
+      Number(selectedIncomeFee?.paidMemberCount || 0),
+    ),
+  );
+  const incomePendingMemberCount = Math.max(
+    0,
+    Number(selectedIncomeFee?.pendingMemberCount || 0),
+  );
+  const incomeNotVerifiedMemberCount = Math.max(
+    0,
+    incomeTargetMemberCount - incomePaidMemberCount,
+  );
+  const incomeCollectionPercentage =
+    incomeTargetMemberCount > 0
+      ? Math.min(
+          100,
+          Math.round((incomePaidMemberCount / incomeTargetMemberCount) * 100),
+        )
+      : 0;
+  const isIncomeCollectionComplete =
+    incomeTargetMemberCount > 0 &&
+    incomePaidMemberCount === incomeTargetMemberCount;
 
-  const refreshFeeDrives = async () => {
+  const refreshFeeDrives = async ({
+    syncIncomeEntry = false,
+    notify = false,
+  } = {}) => {
+    if (syncIncomeEntry) setIsRefreshingCollections(true);
+
     try {
-      const response = await API.get("/fees");
-      const data = response.data || [];
-      setFeeDrives(Array.isArray(data) ? data : []);
+      const [feesResponse, transactionsResponse] = await Promise.all([
+        API.get("/fees"),
+        syncIncomeEntry
+          ? API.get(orgId ? `/transactions?org=${orgId}` : "/transactions")
+          : Promise.resolve(null),
+      ]);
+      const feeData = feesResponse.data || [];
+      const latestFees = Array.isArray(feeData) ? feeData : [];
+      setFeeDrives(latestFees);
       setSelectedFee((current) =>
-        current ? data.find((fee) => fee._id === current._id) || current : null,
+        current
+          ? latestFees.find((fee) => fee._id === current._id) || current
+          : null,
       );
+
+      if (syncIncomeEntry) {
+        const transactionData = transactionsResponse?.data || [];
+        const latestTransactions = Array.isArray(transactionData)
+          ? transactionData
+          : [];
+        setTransactions(latestTransactions);
+        setTransactionForm((current) => {
+          if (current.type !== "income" || !current.feeId) return current;
+
+          const latestFee = latestFees.find((fee) => fee._id === current.feeId);
+          if (!latestFee) {
+            return { ...current, feeId: "", title: "", amount: "" };
+          }
+
+          const alreadyPosted = latestTransactions
+            .filter(
+              (entry) =>
+                entry.type === "income" &&
+                String(entry.fee?._id || entry.fee || "") === current.feeId,
+            )
+            .reduce((total, entry) => total + Number(entry.amount || 0), 0);
+          const availableAmount = Math.max(
+            0,
+            Number(latestFee.collectedAmount || 0) - alreadyPosted,
+          );
+
+          return {
+            ...current,
+            title: `${latestFee.title} collection income`,
+            category: "Membership Dues",
+            amount: availableAmount.toFixed(2),
+          };
+        });
+      }
+
+      if (notify) {
+        showToast("Collection payment progress is up to date.", "success");
+      }
     } catch (error) {
       console.error("Failed to refresh collection progress:", error);
+      if (syncIncomeEntry || notify) {
+        showToast("Unable to refresh collection payment progress.", "error");
+      }
+    } finally {
+      if (syncIncomeEntry) setIsRefreshingCollections(false);
     }
   };
 
@@ -802,7 +911,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setIsTransactionModalOpen(true)}
+                    onClick={() => {
+                      setIsTransactionModalOpen(true);
+                      refreshFeeDrives({ syncIncomeEntry: true });
+                    }}
                     className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5"
                   >
                     <PlusIcon className="w-4 h-4 text-white" />
@@ -900,7 +1012,17 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                                 <span className="font-bold text-[#4A0E17]">
                                   {tx.category}
                                 </span>{" "}
-                                {formatDate(tx.date)}
+                                • Transaction date: {formatDate(tx.date)}
+                              </p>
+                              <p
+                                className="mt-1 text-[10px] font-bold text-slate-600"
+                                title={
+                                  tx.createdAt
+                                    ? new Date(tx.createdAt).toISOString()
+                                    : undefined
+                                }
+                              >
+                                Posted: {formatPostedDateTime(tx.createdAt)} PHT
                               </p>
                             </div>
                           </div>
@@ -1348,6 +1470,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         onClose={() => setIsStatementModalOpen(false)}
         onComplete={() => {
           setPaymentAuditKey((current) => current + 1);
+          refreshFeeDrives({ syncIncomeEntry: true });
         }}
       />
 
@@ -1655,6 +1778,124 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
                     {selectedIncomeFee && (
                       <div className="mt-4 space-y-3">
+                        <div className="rounded-xl border border-emerald-200 bg-white p-3.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                                Member Payment Progress
+                              </p>
+                              <p className="mt-1 text-sm font-black text-slate-900">
+                                {incomePaidMemberCount} /{" "}
+                                {incomeTargetMemberCount} members paid
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center">
+                              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-700">
+                                {incomeCollectionPercentage}%
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  refreshFeeDrives({
+                                    syncIncomeEntry: true,
+                                    notify: true,
+                                  })
+                                }
+                                disabled={isRefreshingCollections}
+                                className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {isRefreshingCollections
+                                  ? "Refreshing..."
+                                  : "Refresh payments"}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100"
+                            role="progressbar"
+                            aria-label="Verified member payment progress"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={incomeCollectionPercentage}
+                          >
+                            <div
+                              className="h-full rounded-full bg-emerald-600 transition-all duration-500"
+                              style={{
+                                width: `${incomeCollectionPercentage}%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold text-slate-500">
+                            <span>
+                              {incomeNotVerifiedMemberCount} not yet verified
+                            </span>
+                            {incomePendingMemberCount > 0 && (
+                              <span className="text-amber-700">
+                                {incomePendingMemberCount} awaiting verification
+                              </span>
+                            )}
+                          </div>
+
+                          <div
+                            className={`mt-3 rounded-lg border px-3 py-2.5 text-[10px] font-semibold leading-relaxed ${
+                              isIncomeCollectionComplete
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                : selectedFeeAvailableIncome > 0
+                                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                                  : "border-slate-200 bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            {isIncomeCollectionComplete ? (
+                              selectedFeeAvailableIncome > 0 ? (
+                                <>
+                                  All targeted members have paid. The remaining
+                                  verified amount of{" "}
+                                  <strong>
+                                    ₱{selectedFeeAvailableIncome.toFixed(2)}
+                                  </strong>{" "}
+                                  is ready to post.
+                                </>
+                              ) : (
+                                <>
+                                  All targeted members have paid, and all
+                                  verified collection income has already been
+                                  posted.
+                                </>
+                              )
+                            ) : selectedFeeAvailableIncome > 0 ? (
+                              <>
+                                This is a partial collection. Only the currently
+                                verified, unposted amount of{" "}
+                                <strong>
+                                  ₱{selectedFeeAvailableIncome.toFixed(2)}
+                                </strong>{" "}
+                                will be recorded now. Payments from the
+                                remaining {incomeNotVerifiedMemberCount} member
+                                {incomeNotVerifiedMemberCount === 1
+                                  ? ""
+                                  : "s"}{" "}
+                                are excluded until verified. When more members
+                                pay, refresh this progress and save another
+                                entry for only the new unposted amount; earlier
+                                ledger entries remain unchanged.
+                              </>
+                            ) : incomePaidMemberCount > 0 ? (
+                              <>
+                                All currently verified payments have already
+                                been posted. Wait for another member payment to
+                                be verified before creating a new income entry.
+                              </>
+                            ) : (
+                              <>
+                                No member payment has been verified yet, so
+                                there is no collection income available to post.
+                              </>
+                            )}
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                           {[
                             ["Student Price", selectedIncomeFee.amount],

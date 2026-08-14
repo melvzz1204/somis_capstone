@@ -24,6 +24,16 @@ const feeSchema = new mongoose.Schema(
       required: [true, "Amount is required"],
       min: [0, "Amount cannot be negative"],
     },
+    baseCost: {
+      type: Number,
+      min: [0, "Base cost cannot be negative"],
+      default: 0,
+    },
+    marginPerMember: {
+      type: Number,
+      min: [0, "Margin cannot be negative"],
+      default: 0,
+    },
     academicYear: {
       type: String,
       required: [true, "Academic Year is required"],
@@ -34,7 +44,51 @@ const feeSchema = new mongoose.Schema(
     },
     targetYearLevel: {
       type: String,
+      enum: [
+        "All",
+        "1st Year",
+        "2nd Year",
+        "3rd Year",
+        "4th Year",
+        "5th Year+",
+      ],
       default: "All",
+    },
+    targetMembers: [
+      {
+        _id: false,
+        student: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        name: { type: String, required: true, trim: true },
+        email: { type: String, required: true, trim: true, lowercase: true },
+        studentIdNumber: { type: String, trim: true, default: "" },
+        yearLevel: { type: String, trim: true, default: "" },
+        program: { type: String, trim: true, default: "" },
+        section: { type: String, trim: true, default: "" },
+      },
+    ],
+    targetMemberCount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    expectedCollection: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    expectedCost: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    expectedMargin: {
+      type: Number,
+      min: 0,
+      default: 0,
     },
     dueDate: {
       type: Date,
@@ -58,5 +112,8 @@ const feeSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+feeSchema.index({ org: 1, status: 1, dueDate: 1 });
+feeSchema.index({ org: 1, "targetMembers.student": 1 });
 
 module.exports = mongoose.model("Fee", feeSchema);

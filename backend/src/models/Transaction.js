@@ -12,6 +12,16 @@ const transactionSchema = new mongoose.Schema(
     type: { type: String, enum: ["income", "expense"], required: true },
     category: { type: String, required: true, trim: true, maxlength: 100 },
     amount: { type: Number, required: true, min: 0 },
+    fee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Fee",
+      default: null,
+      index: true,
+    },
+    unitPriceSnapshot: { type: Number, min: 0, default: 0 },
+    baseCostSnapshot: { type: Number, min: 0, default: 0 },
+    estimatedCost: { type: Number, min: 0, default: 0 },
+    netIncome: { type: Number, default: 0 },
     date: { type: Date, required: true },
     reference: { type: String, trim: true, maxlength: 100, default: "" },
     status: {
@@ -29,5 +39,6 @@ const transactionSchema = new mongoose.Schema(
 );
 
 transactionSchema.index({ organization: 1, date: -1, createdAt: -1 });
+transactionSchema.index({ organization: 1, fee: 1, type: 1 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

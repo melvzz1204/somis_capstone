@@ -77,6 +77,7 @@ const memberSchema = new mongoose.Schema(
         "Escort",
         "Member",
         "Faculty Adviser",
+        "Department Dean",
       ],
     },
     avatar: {

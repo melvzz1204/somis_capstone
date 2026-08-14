@@ -50,29 +50,35 @@ const resolveLeaderSignature = async (user) => {
   return organization?.president?.trim() || "";
 };
 
-const resolveAdviserSignature = async (user) => {
+const resolveFacultySignature = async (user, memberRole) => {
   const organizationId = user.organization;
   const normalizedEmail = String(user.email || "")
     .toLowerCase()
     .trim();
 
-  let adviser = normalizedEmail
+  let member = normalizedEmail
     ? await Member.findOne({
         organization: organizationId,
         email: normalizedEmail,
-        role: "Faculty Adviser",
+        role: memberRole,
       }).select("name surname firstName middleInitial suffix")
     : null;
 
-  if (!adviser) {
-    adviser = await Member.findOne({
+  if (!member) {
+    member = await Member.findOne({
       organization: organizationId,
-      role: "Faculty Adviser",
+      role: memberRole,
     }).select("name surname firstName middleInitial suffix");
   }
 
-  return formatMemberSignature(adviser) || user.name?.trim() || "";
+  return formatMemberSignature(member) || user.name?.trim() || "";
 };
+
+const resolveAdviserSignature = (user) =>
+  resolveFacultySignature(user, "Faculty Adviser");
+
+const resolveDeanSignature = (user) =>
+  resolveFacultySignature(user, "Department Dean");
 
 const editableFields = [
   "proposalTitle",
@@ -177,20 +183,51 @@ const createProposal = async (req, res) => {
 
 const getProposals = async (req, res) => {
   try {
-    if (!req.user.organization) {
+    const isOvpsas = req.user.role === "admin";
+    if (!isOvpsas && !req.user.organization) {
       return res
         .status(400)
         .json({ success: false, message: "Organization context is required." });
     }
 
-    const query = { org: req.user.organization };
-    if (req.user.role === "adviser") {
-      // Advisers only receive proposals approved by the president. In
-      // particular, proposals rejected by the president are never exposed.
-      query.status = { $in: ["Pending Adviser Review", "Approved"] };
+    if (req.user.role === "dean") {
+      await Proposal.updateMany(
+        {
+          org: req.user.organization,
+          status: "Approved",
+          "adviserReview.decision": "Approved",
+          "adviserReview.reviewedAt": { $exists: true },
+          "deanReview.reviewedAt": { $exists: false },
+          "ovpsasReview.reviewedAt": { $exists: false },
+        },
+        { $set: { status: "Pending Dean Review" } },
+      );
     }
 
-    const proposals = await Proposal.find(query).sort({ createdAt: -1 });
+    const query = isOvpsas ? {} : { org: req.user.organization };
+    const visibleStatusesByRole = {
+      adviser: [
+        "Pending Adviser Review",
+        "Pending Dean Review",
+        "Pending OVPSAS Review",
+        "Approved",
+        "Rejected",
+      ],
+      dean: [
+        "Pending Dean Review",
+        "Pending OVPSAS Review",
+        "Approved",
+        "Rejected",
+      ],
+      admin: ["Pending OVPSAS Review", "Approved", "Rejected"],
+    };
+    if (visibleStatusesByRole[req.user.role]) {
+      query.status = { $in: visibleStatusesByRole[req.user.role] };
+    }
+
+    const proposals = await Proposal.find(query)
+      .populate("org", "name acronym college")
+      .sort({ createdAt: -1 });
     return res.json({
       success: true,
       count: proposals.length,
@@ -325,9 +362,74 @@ const getAdviserSignature = async (req, res) => {
   }
 };
 
+const getDeanSignature = async (req, res) => {
+  try {
+    const digitalSignature = await resolveDeanSignature(req.user);
+    if (!digitalSignature) {
+      return res.status(404).json({
+        success: false,
+        message: "No department dean name is available for signing.",
+      });
+    }
+    return res.json({ success: true, data: { digitalSignature } });
+  } catch (error) {
+    console.error("Error resolving dean signature:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not retrieve the department dean signature.",
+    });
+  }
+};
+
+const getOvpsasSignature = async (req, res) => {
+  const digitalSignature = req.user.name?.trim() || "";
+  if (!digitalSignature) {
+    return res.status(404).json({
+      success: false,
+      message: "No OVPSAS administrator name is available for signing.",
+    });
+  }
+  return res.json({ success: true, data: { digitalSignature } });
+};
+
+const REVIEW_RULES = {
+  org_admin: {
+    expectedStatus: "Submitted",
+    nextStatus: "Pending Adviser Review",
+    reviewField: "leaderReview",
+    reviewerLabel: "organization leader",
+    nextReviewerLabel: "faculty adviser",
+    resolveSignature: resolveLeaderSignature,
+  },
+  adviser: {
+    expectedStatus: "Pending Adviser Review",
+    nextStatus: "Pending Dean Review",
+    reviewField: "adviserReview",
+    reviewerLabel: "faculty adviser",
+    nextReviewerLabel: "department dean",
+    resolveSignature: resolveAdviserSignature,
+  },
+  dean: {
+    expectedStatus: "Pending Dean Review",
+    nextStatus: "Pending OVPSAS Review",
+    reviewField: "deanReview",
+    reviewerLabel: "department dean",
+    nextReviewerLabel: "OVPSAS",
+    resolveSignature: resolveDeanSignature,
+  },
+  admin: {
+    expectedStatus: "Pending OVPSAS Review",
+    nextStatus: "Approved",
+    reviewField: "ovpsasReview",
+    reviewerLabel: "OVPSAS administrator",
+    nextReviewerLabel: "",
+    resolveSignature: async (user) => user.name?.trim() || "",
+  },
+};
+
 const reviewProposal = async (req, res) => {
   const { decision, remarks = "" } = req.body;
-  const isAdviser = req.user.role === "adviser";
+  const rule = REVIEW_RULES[req.user.role];
 
   if (!["Approved", "Rejected"].includes(decision)) {
     return res.status(400).json({
@@ -336,32 +438,25 @@ const reviewProposal = async (req, res) => {
     });
   }
 
+  if (!rule) {
+    return res.status(403).json({
+      success: false,
+      message: "This account cannot review proposals.",
+    });
+  }
+
   try {
-    let digitalSignature = "";
-    if (isAdviser) {
-      digitalSignature = await resolveAdviserSignature(req.user);
-      if (!digitalSignature) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Add the faculty adviser's full name before approving proposals.",
-        });
-      }
-    } else {
-      digitalSignature = await resolveLeaderSignature(req.user);
-      if (!digitalSignature) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Add the organization leader's full name before reviewing proposals.",
-        });
-      }
+    const digitalSignature = await rule.resolveSignature(req.user);
+    if (!digitalSignature) {
+      return res.status(400).json({
+        success: false,
+        message: `Add the ${rule.reviewerLabel}'s full name before reviewing proposals.`,
+      });
     }
 
-    const proposal = await Proposal.findOne({
-      _id: req.params.id,
-      org: req.user.organization,
-    });
+    const query = { _id: req.params.id };
+    if (req.user.role !== "admin") query.org = req.user.organization;
+    const proposal = await Proposal.findOne(query);
 
     if (!proposal) {
       return res
@@ -376,51 +471,30 @@ const reviewProposal = async (req, res) => {
       });
     }
 
-    if (isAdviser && proposal.status !== "Pending Adviser Review") {
+    if (proposal.status !== rule.expectedStatus) {
       return res.status(409).json({
         success: false,
-        message: "This proposal is not yet ready for adviser review.",
+        message: `This proposal is not ready for ${rule.reviewerLabel} review.`,
       });
     }
 
-    if (!isAdviser && proposal.status === "Pending Adviser Review") {
-      return res.status(409).json({
-        success: false,
-        message: "This proposal is awaiting the faculty adviser's decision.",
-      });
-    }
-
-    if (isAdviser) {
-      proposal.status = decision;
-      proposal.adviserReview = {
-        decision,
-        digitalSignature,
-        remarks: String(remarks).trim(),
-        reviewedBy: req.user._id,
-        reviewedAt: new Date(),
-      };
-    } else {
-      proposal.status =
-        decision === "Approved" ? "Pending Adviser Review" : "Rejected";
-      proposal.leaderReview = {
-        decision,
-        digitalSignature,
-        remarks: String(remarks).trim(),
-        reviewedBy: req.user._id,
-        reviewedAt: new Date(),
-      };
-    }
+    proposal.status = decision === "Approved" ? rule.nextStatus : "Rejected";
+    proposal[rule.reviewField] = {
+      decision,
+      digitalSignature,
+      remarks: String(remarks).trim(),
+      reviewedBy: req.user._id,
+      reviewedAt: new Date(),
+    };
 
     await proposal.save();
-    return res.json({
-      success: true,
-      message: isAdviser
-        ? `Proposal ${decision.toLowerCase()} successfully.`
-        : decision === "Approved"
-          ? "Proposal approved and forwarded to the faculty adviser."
-          : "Proposal rejected successfully.",
-      data: proposal,
-    });
+    const message =
+      decision === "Rejected"
+        ? `Proposal rejected by the ${rule.reviewerLabel}.`
+        : req.user.role === "admin"
+          ? "Proposal received final OVPSAS approval."
+          : `Proposal approved and forwarded to the ${rule.nextReviewerLabel}.`;
+    return res.json({ success: true, message, data: proposal });
   } catch (error) {
     if (error.name === "CastError" || error.name === "ValidationError") {
       return sendValidationError(res, error);
@@ -477,6 +551,8 @@ module.exports = {
   updateProposal,
   getLeaderSignature,
   getAdviserSignature,
+  getDeanSignature,
+  getOvpsasSignature,
   reviewProposal,
   deleteProposal,
 };

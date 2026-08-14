@@ -25,10 +25,28 @@ export default function CashPaymentModal({
       ),
     [roster],
   );
+  const selectedFee = fees.find((fee) => fee._id === form.feeId);
+  const eligibleStudents = useMemo(() => {
+    if (!selectedFee) return students;
+    const targetIds = new Set(
+      (selectedFee.targetMembers || []).map((member) => String(member.student)),
+    );
+    const targetEmails = new Set(
+      (selectedFee.targetMembers || []).map((member) =>
+        String(member.email || "").toLowerCase(),
+      ),
+    );
+    if (targetIds.size === 0 && targetEmails.size === 0) return students;
+    return students.filter(
+      (student) =>
+        targetIds.has(String(student.user || student.userId || "")) ||
+        targetEmails.has(String(student.email || "").toLowerCase()),
+    );
+  }, [selectedFee, students]);
   const matches = useMemo(() => {
     const query = studentQuery.trim().toLowerCase();
     if (!query || selectedStudent) return [];
-    return students
+    return eligibleStudents
       .filter((student) =>
         [
           student.name,
@@ -41,8 +59,7 @@ export default function CashPaymentModal({
           .some((value) => String(value).toLowerCase().includes(query)),
       )
       .slice(0, 8);
-  }, [studentQuery, selectedStudent, students]);
-  const selectedFee = fees.find((fee) => fee._id === form.feeId);
+  }, [studentQuery, selectedStudent, eligibleStudents]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -53,8 +70,17 @@ export default function CashPaymentModal({
     setIsSubmitting(true);
     setError("");
     try {
+      const targetMember = (selectedFee.targetMembers || []).find(
+        (member) =>
+          String(member.email || "").toLowerCase() ===
+          String(selectedStudent.email || "").toLowerCase(),
+      );
       const response = await API.post("/payments/cash", {
         ...form,
+        studentId:
+          targetMember?.student ||
+          selectedStudent.user ||
+          selectedStudent.userId,
         studentIdentifier: selectedStudent.idNumber || selectedStudent.email,
       });
       onRecorded(response.data);
@@ -158,12 +184,14 @@ export default function CashPaymentModal({
               id="cash-fee"
               required
               value={form.feeId}
-              onChange={(event) =>
+              onChange={(event) => {
                 setForm((current) => ({
                   ...current,
                   feeId: event.target.value,
-                }))
-              }
+                }));
+                setSelectedStudent(null);
+                setStudentQuery("");
+              }}
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#4A0E17]"
             >
               <option value="">Select dues collection</option>

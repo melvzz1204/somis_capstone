@@ -16,6 +16,20 @@ const formatCurrency = (value) =>
     currency: "PHP",
   }).format(Number(value || 0));
 
+const reviewStages = [
+  ["leaderReview", "Organization President"],
+  ["adviserReview", "Faculty Adviser"],
+  ["deanReview", "Department Dean"],
+  ["ovpsasReview", "OVPSAS"],
+];
+
+const pendingReviewerByStatus = {
+  Submitted: "organization president",
+  "Pending Adviser Review": "faculty adviser",
+  "Pending Dean Review": "department dean",
+  "Pending OVPSAS Review": "OVPSAS",
+};
+
 export default function ProposalList({
   proposals,
   isLoading,
@@ -154,125 +168,60 @@ export default function ProposalList({
                 </div>
               </div>
 
-              {(proposal.leaderReview?.reviewedAt ||
-                proposal.adviserReview?.reviewedAt) && (
+              {reviewStages.some(([field]) => proposal[field]?.reviewedAt) && (
                 <div
                   className={`mt-4 border px-4 py-3 text-xs ${
                     proposal.status === "Approved"
                       ? "border-emerald-200 bg-emerald-50"
-                      : "border-rose-200 bg-rose-50"
+                      : proposal.status === "Rejected"
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-blue-200 bg-blue-50"
                   }`}
                 >
-                  {proposal.status === "Approved" &&
-                  proposal.adviserReview?.reviewedAt ? (
-                    <>
-                      <p className="font-extrabold text-slate-800">
-                        Final proposal approved by:
-                      </p>
-                      <p className="mt-3 text-slate-600">
-                        Adviser e-signature:{" "}
-                        <span className="font-bold italic text-slate-800">
-                          {proposal.adviserReview.digitalSignature ||
-                            "Not available"}
-                        </span>
-                      </p>
-                      <p className="mt-2 text-slate-600">
-                        President e-signature:{" "}
-                        <span className="font-bold italic text-slate-800">
-                          {proposal.leaderReview.digitalSignature ||
-                            "Not available"}
-                        </span>
-                      </p>
-                      <p className="mt-2 text-slate-600">
-                        Adviser approved on{" "}
-                        <span className="font-semibold text-slate-800">
-                          {formatDateTime(proposal.adviserReview.reviewedAt)}
-                        </span>
-                      </p>
-                      {proposal.adviserReview.remarks && (
-                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                          {proposal.adviserReview.remarks}
-                        </p>
-                      )}
-                    </>
-                  ) : proposal.status === "Pending Adviser Review" ? (
-                    <>
-                      <p className="font-extrabold text-blue-900">
-                        Forwarded to faculty adviser
-                      </p>
-                      <p className="mt-1 text-blue-700">
-                        Organization president approval recorded. Awaiting
-                        adviser's final decision.
-                      </p>
-                      <p className="mt-2 text-slate-600">
-                        President e-signature:{" "}
-                        <span className="font-bold italic text-slate-800">
-                          {proposal.leaderReview.digitalSignature}
-                        </span>{" "}
-                        on {formatDateTime(proposal.leaderReview.reviewedAt)}
-                      </p>
-                    </>
-                  ) : proposal.status === "Rejected" &&
-                    proposal.adviserReview?.reviewedAt ? (
-                    <>
-                      <p className="font-extrabold text-rose-900">
-                        Proposal rejected by the faculty adviser
-                      </p>
-                      <p className="mt-1 text-slate-600">
-                        The organization president approved this proposal, but
-                        the faculty adviser issued the final rejection.
-                      </p>
-                      <p className="mt-3 text-slate-600">
-                        Adviser e-signature:{" "}
-                        <span className="font-bold italic text-slate-800">
-                          {proposal.adviserReview.digitalSignature ||
-                            "Not available"}
-                        </span>
-                      </p>
-                      <p className="mt-2 text-slate-600">
-                        Adviser rejected on{" "}
-                        <span className="font-semibold text-slate-800">
-                          {formatDateTime(proposal.adviserReview.reviewedAt)}
-                        </span>
-                      </p>
-                      {proposal.adviserReview.remarks && (
-                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                          Adviser remarks: {proposal.adviserReview.remarks}
-                        </p>
-                      )}
-                      <p className="mt-3 border-t border-rose-200 pt-3 text-slate-600">
-                        President e-signature:{" "}
-                        <span className="font-bold italic text-slate-800">
-                          {proposal.leaderReview.digitalSignature ||
-                            "Not available"}
-                        </span>{" "}
-                        on {formatDateTime(proposal.leaderReview.reviewedAt)}
-                      </p>
-                      {proposal.leaderReview.remarks && (
-                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                          President remarks: {proposal.leaderReview.remarks}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-extrabold text-slate-800">
-                        Proposal decision: {proposal.status}
-                      </p>
-                      <p className="mt-1 text-slate-600">
-                        Digitally signed by{" "}
-                        <span className="font-bold italic">
-                          {proposal.leaderReview.digitalSignature}
-                        </span>{" "}
-                        on {formatDateTime(proposal.leaderReview.reviewedAt)}
-                      </p>
-                      {proposal.leaderReview.remarks && (
-                        <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                          {proposal.leaderReview.remarks}
-                        </p>
-                      )}
-                    </>
+                  <p className="font-extrabold text-slate-800">
+                    {proposal.status === "Approved"
+                      ? "Final proposal approved by OVPSAS"
+                      : proposal.status === "Rejected"
+                        ? "Proposal rejected"
+                        : `Forwarded to ${pendingReviewerByStatus[proposal.status] || "the next reviewer"}`}
+                  </p>
+                  {pendingReviewerByStatus[proposal.status] && (
+                    <p className="mt-1 text-slate-600">
+                      Awaiting {pendingReviewerByStatus[proposal.status]}{" "}
+                      review.
+                    </p>
                   )}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {reviewStages.map(([field, label]) => {
+                      const review = proposal[field];
+                      if (!review?.reviewedAt) return null;
+
+                      return (
+                        <div
+                          key={field}
+                          className="border border-slate-200 bg-white/70 px-3 py-2.5"
+                        >
+                          <p className="font-bold text-slate-800">
+                            {label}: {review.decision}
+                          </p>
+                          <p className="mt-1 text-slate-600">
+                            E-signature:{" "}
+                            <span className="font-bold italic text-slate-800">
+                              {review.digitalSignature || "Not available"}
+                            </span>
+                          </p>
+                          <p className="mt-1 text-slate-500">
+                            {formatDateTime(review.reviewedAt)}
+                          </p>
+                          {review.remarks && (
+                            <p className="mt-2 whitespace-pre-wrap text-slate-600">
+                              Remarks: {review.remarks}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               {proposal.attachments?.length > 0 && (

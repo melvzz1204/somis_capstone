@@ -50,6 +50,7 @@ const DEFAULT_TARGET_LEVELS = [
   { value: "2nd Year", label: "2nd Year Only" },
   { value: "3rd Year", label: "3rd Year Only" },
   { value: "4th Year", label: "4th Year Only" },
+  { value: "5th Year+", label: "5th Year & Above" },
 ];
 
 export default function FeeModal({
@@ -123,6 +124,7 @@ export default function FeeModal({
     feeCategory: "",
     customFeeName: "",
     amount: "",
+    baseCost: "",
     academicYear: "",
     semester: "",
     targetYearLevel: "",
@@ -132,6 +134,16 @@ export default function FeeModal({
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [targetMembers, setTargetMembers] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const unitAmount = Number(formData.amount) || 0;
+  const unitBaseCost = Number(formData.baseCost) || 0;
+  const marginPerMember = Math.max(0, unitAmount - unitBaseCost);
+  const marginPercentage =
+    unitAmount > 0 ? (marginPerMember / unitAmount) * 100 : 0;
+  const projectedTotal = targetMembers.length * unitAmount;
+  const projectedMargin = targetMembers.length * marginPerMember;
 
   // Initialize or reset form defaults when modal opens or its source data
   // changes, not on every form value update.
@@ -144,6 +156,7 @@ export default function FeeModal({
         feeCategory: selectedCategory,
         customFeeName: selectedCategory === "others" ? fee?.title || "" : "",
         amount: fee?.amount ?? "",
+        baseCost: fee?.baseCost ?? "",
         academicYear:
           fee?.academicYear ||
           academicYears[1]?.value ||
@@ -162,6 +175,40 @@ export default function FeeModal({
 
     return () => window.clearTimeout(resetRequest);
   }, [isOpen, fee, categories, academicYears, semesters, targetLevels]);
+
+  useEffect(() => {
+    if (!isOpen || !formData.targetYearLevel) return undefined;
+
+    let isCurrentRequest = true;
+
+    Promise.resolve().then(() => {
+      if (!isCurrentRequest) return;
+      setTargetMembers([]);
+      setPreviewError("");
+      setPreviewLoading(true);
+    });
+
+    API.get("/fees/target-preview", {
+      params: { targetYearLevel: formData.targetYearLevel },
+    })
+      .then((response) => {
+        if (!isCurrentRequest) return;
+        setTargetMembers(response.data?.targetMembers || []);
+      })
+      .catch((error) => {
+        if (!isCurrentRequest) return;
+        setPreviewError(
+          error.message || "Could not fetch the targeted student accounts.",
+        );
+      })
+      .finally(() => {
+        if (isCurrentRequest) setPreviewLoading(false);
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [isOpen, formData.targetYearLevel]);
 
   if (!isOpen) return null;
 
@@ -217,9 +264,18 @@ export default function FeeModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setErrorMsg("");
 
+    if (previewLoading || previewError || targetMembers.length === 0) {
+      const targetError =
+        previewError ||
+        "Wait for at least one active student account to be fetched.";
+      setErrorMsg(targetError);
+      showToast?.(targetError, "error");
+      return;
+    }
+
+    setLoading(true);
     const targetOrgId = getOrgId();
 
     if (!targetOrgId) {
@@ -236,6 +292,7 @@ export default function FeeModal({
       title: resolveTitle(),
       category: formData.feeCategory,
       amount: Number(formData.amount),
+      baseCost: Number(formData.baseCost) || 0,
       academicYear: formData.academicYear,
       semester: formData.semester,
       targetYearLevel: formData.targetYearLevel,
@@ -351,43 +408,80 @@ export default function FeeModal({
             </div>
           )}
 
-          {/* AMOUNT & DUE DATE */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Amount (₱) <span className="text-rose-600">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                  ₱
-                </span>
+          {/* PRICING */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
+              Collection pricing
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Base Cost (₱)
+                </label>
+                <input
+                  type="number"
+                  name="baseCost"
+                  min="0"
+                  max={formData.amount || undefined}
+                  step="0.01"
+                  placeholder="80.00"
+                  value={formData.baseCost}
+                  onChange={handleChange}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17]"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Student Price (₱) <span className="text-rose-600">*</span>
+                </label>
                 <input
                   type="number"
                   name="amount"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   required
-                  placeholder="0.00"
+                  placeholder="100.00"
                   value={formData.amount}
                   onChange={handleChange}
-                  className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17]"
                 />
               </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-emerald-700">
+                  Margin per Student
+                </p>
+                <p className="mt-0.5 text-sm font-black text-emerald-900">
+                  ₱{marginPerMember.toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-emerald-700">
+                  Margin (%)
+                </p>
+                <p className="mt-0.5 text-sm font-black text-emerald-900">
+                  {marginPercentage.toFixed(2)}%
+                </p>
+              </div>
             </div>
+            {unitAmount > 0 && targetMembers.length > 0 && (
+              <p className="mt-2 text-right text-[10px] font-bold text-slate-500">
+                Projected total margin: ₱{projectedMargin.toFixed(2)}
+              </p>
+            )}
+          </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Due Date <span className="text-rose-600">*</span>
-              </label>
-              <input
-                type="date"
-                name="dueDate"
-                required
-                value={formData.dueDate}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
-              />
-            </div>
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              Due Date <span className="text-rose-600">*</span>
+            </label>
+            <input
+              type="date"
+              name="dueDate"
+              required
+              value={formData.dueDate}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+            />
           </div>
 
           {/* ACADEMIC YEAR & SEMESTER */}
@@ -430,15 +524,18 @@ export default function FeeModal({
           </div>
 
           {/* TARGET LEVEL */}
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">
+          <div className="space-y-2">
+            <label className="block font-bold text-slate-700">
               Target Level / Group
             </label>
             <select
               name="targetYearLevel"
               value={formData.targetYearLevel}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800"
+              disabled={Boolean(
+                fee?.paidMemberCount || fee?.pendingMemberCount,
+              )}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100"
             >
               {targetLevels.map((lvl) => (
                 <option key={lvl.value} value={lvl.value}>
@@ -446,6 +543,42 @@ export default function FeeModal({
                 </option>
               ))}
             </select>
+            <div className="rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/10 p-3">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-[#7A610D]">
+                    Exact collection preview
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-slate-600">
+                    {previewLoading
+                      ? "Fetching active student accounts..."
+                      : `${targetMembers.length} active student account${
+                          targetMembers.length === 1 ? "" : "s"
+                        } will be recorded`}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] font-bold text-slate-500">
+                    Expected total
+                  </p>
+                  <p className="text-base font-black text-[#4A0E17]">
+                    ₱
+                    {projectedTotal.toLocaleString("en-PH", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              {!previewLoading &&
+                (previewError || targetMembers.length === 0) && (
+                  <p className="mt-2 border-t border-amber-200 pt-2 text-[11px] font-bold text-amber-800">
+                    {previewError ||
+                      "No active student accounts currently match this group."}
+                  </p>
+                )}
+            </div>
           </div>
 
           {/* DESCRIPTION */}
@@ -475,8 +608,13 @@ export default function FeeModal({
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              disabled={
+                loading ||
+                previewLoading ||
+                Boolean(previewError) ||
+                targetMembers.length === 0
+              }
+              className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
             >
               {loading
                 ? fee

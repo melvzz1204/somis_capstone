@@ -30,7 +30,7 @@ if (import.meta.env.VITE_SOCKET_URL) {
   try {
     // This safely extracts exactly "https://onrender.com" from your env string
     socketUrl = new URL(apiBaseUrl).origin;
-  } catch (error) {
+  } catch {
     // Local development fallback
     socketUrl = "http://localhost:5000";
   }

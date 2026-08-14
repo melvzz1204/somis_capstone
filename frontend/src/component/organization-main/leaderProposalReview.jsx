@@ -23,9 +23,57 @@ const formatCurrency = (value) =>
 const statusClasses = {
   Submitted: "border-amber-200 bg-amber-50 text-amber-800",
   "Pending Adviser Review": "border-blue-200 bg-blue-50 text-blue-800",
+  "Pending Dean Review": "border-violet-200 bg-violet-50 text-violet-800",
+  "Pending OVPSAS Review": "border-orange-200 bg-orange-50 text-orange-800",
   Approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   Rejected: "border-rose-200 bg-rose-50 text-rose-800",
 };
+
+const reviewConfig = {
+  leader: {
+    title: "Activity Proposals",
+    description:
+      "Review proposals prepared by the organization secretary and record your decision.",
+    expectedStatus: "Submitted",
+    signatureEndpoint: "/proposals/leader-signature",
+    signatureLabel: "Organization President E-Signature",
+    reviewerName: "Organization leader",
+  },
+  adviser: {
+    title: "Faculty Adviser Approval",
+    description:
+      "Review proposals approved by the organization president and forward approved requests to the dean.",
+    expectedStatus: "Pending Adviser Review",
+    signatureEndpoint: "/proposals/adviser-signature",
+    signatureLabel: "Faculty Adviser E-Signature",
+    reviewerName: "Faculty adviser",
+  },
+  dean: {
+    title: "Department Dean Approval",
+    description:
+      "Validate proposals approved by the organization leader and faculty adviser before OVPSAS review.",
+    expectedStatus: "Pending Dean Review",
+    signatureEndpoint: "/proposals/dean-signature",
+    signatureLabel: "Department Dean E-Signature",
+    reviewerName: "Department dean",
+  },
+  admin: {
+    title: "OVPSAS Final Approval",
+    description:
+      "Issue the final approval or rejection for proposals endorsed by the leader, adviser, and dean.",
+    expectedStatus: "Pending OVPSAS Review",
+    signatureEndpoint: "/proposals/ovpsas-signature",
+    signatureLabel: "OVPSAS E-Signature",
+    reviewerName: "OVPSAS",
+  },
+};
+
+const reviewHistory = [
+  ["leaderReview", "Organization Leader"],
+  ["adviserReview", "Faculty Adviser"],
+  ["deanReview", "Department Dean"],
+  ["ovpsasReview", "OVPSAS"],
+];
 
 export default function LeaderProposalReview({
   proposals,
@@ -34,7 +82,7 @@ export default function LeaderProposalReview({
   onReview,
   reviewRole = "leader",
 }) {
-  const isAdviserReview = reviewRole === "adviser";
+  const config = reviewConfig[reviewRole] || reviewConfig.leader;
   const [reviewForms, setReviewForms] = useState({});
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [statusFilter, setStatusFilter] = useState("All");
@@ -49,21 +97,17 @@ export default function LeaderProposalReview({
       setIsLoadingSignature(true);
       setSignatureError("");
       try {
-        const endpoint = isAdviserReview
-          ? "/proposals/adviser-signature"
-          : "/proposals/leader-signature";
-        const response = await API.get(endpoint);
+        const response = await API.get(config.signatureEndpoint);
         if (isMounted) {
-          setDigitalSignature(response.data?.digitalSignature || "");
+          setDigitalSignature(
+            response.data?.digitalSignature || response.digitalSignature || "",
+          );
         }
       } catch (error) {
         if (isMounted) {
           setDigitalSignature("");
           setSignatureError(
-            error.message ||
-              `Unable to load the ${
-                isAdviserReview ? "faculty adviser" : "organization leader"
-              } name.`,
+            error.message || `Unable to load the ${config.reviewerName} name.`,
           );
         }
       } finally {
@@ -75,7 +119,7 @@ export default function LeaderProposalReview({
     return () => {
       isMounted = false;
     };
-  }, [isAdviserReview]);
+  }, [config.reviewerName, config.signatureEndpoint]);
 
   const updateReviewField = (proposalId, value) => {
     setReviewForms((current) => ({
@@ -107,7 +151,7 @@ export default function LeaderProposalReview({
     [proposals, statusFilter],
   );
 
-  const filterOptions = ["All", "Approved", "Rejected"];
+  const filterOptions = ["All", config.expectedStatus, "Approved", "Rejected"];
 
   if (isLoading) {
     return (
@@ -123,14 +167,10 @@ export default function LeaderProposalReview({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
             <h3 className="text-base font-bold text-[#4A0E17]">
-              {isAdviserReview
-                ? "Final Adviser Approval"
-                : "Activity Proposals"}
+              {config.title}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              {isAdviserReview
-                ? "Review proposals approved by the organization president. Your decision is final."
-                : "Review proposals prepared by the organization secretary and record your decision."}
+              {config.description}
             </p>
           </div>
           <div
@@ -169,16 +209,12 @@ export default function LeaderProposalReview({
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
             {statusFilter === "All"
-              ? isAdviserReview
-                ? "No president-approved proposals are awaiting final approval"
-                : "No proposals awaiting organization review"
+              ? `No proposals available for ${config.reviewerName.toLowerCase()} review`
               : `No ${statusFilter.toLowerCase()} proposals`}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {statusFilter === "All"
-              ? isAdviserReview
-                ? "Proposals approved by the president will appear here."
-                : "Proposals created by the secretary will appear here."
+              ? "Proposals will appear here when they reach this approval stage."
               : "Try another status filter to view more activity proposals."}
           </p>
         </div>
@@ -186,6 +222,7 @@ export default function LeaderProposalReview({
         <div className="divide-y divide-slate-200 border border-slate-200 bg-white">
           {filteredProposals.map((proposal) => {
             const isFinal = ["Approved", "Rejected"].includes(proposal.status);
+            const isActionable = proposal.status === config.expectedStatus;
             const isActing = actionId === proposal._id;
 
             return (
@@ -196,6 +233,11 @@ export default function LeaderProposalReview({
                       <h4 className="text-sm font-extrabold text-[#4A0E17]">
                         {proposal.proposalTitle}
                       </h4>
+                      {reviewRole === "admin" && proposal.org && (
+                        <span className="rounded-md border border-[#4A0E17]/20 bg-[#4A0E17]/5 px-2 py-0.5 text-[10px] font-bold text-[#4A0E17]">
+                          {proposal.org.acronym || proposal.org.name}
+                        </span>
+                      )}
                       <span
                         className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${
                           statusClasses[proposal.status] ||
@@ -298,64 +340,52 @@ export default function LeaderProposalReview({
                   </div>
                 )}
 
-                {isFinal ? (
-                  <div
-                    className={`mt-4 border px-4 py-4 text-xs ${
-                      proposal.status === "Rejected"
-                        ? "border-rose-200 bg-rose-50"
-                        : "border-emerald-200 bg-emerald-50"
-                    }`}
-                  >
-                    <p className="font-extrabold text-slate-800">
-                      {proposal.status === "Rejected"
-                        ? `${isAdviserReview ? "Adviser" : "Organization leader"} rejected this proposal`
-                        : "Final proposal approved by:"}
-                    </p>
-                    <p className="mt-3 text-slate-600">
-                      {proposal.status === "Rejected" && isAdviserReview
-                        ? "Adviser e-signature:"
-                        : "Adviser e-signature:"}{" "}
-                      <span className="font-bold italic text-slate-800">
-                        {proposal.adviserReview?.digitalSignature ||
-                          "Not available"}
-                      </span>
-                    </p>
-                    <p className="mt-2 text-slate-600">
-                      {proposal.status === "Rejected" && isAdviserReview
-                        ? "Adviser rejected on"
-                        : "Adviser approved on"}{" "}
-                      <span className="font-semibold text-slate-800">
-                        {formatDateTime(proposal.adviserReview?.reviewedAt)}
-                      </span>
-                    </p>
-                    {proposal.adviserReview?.remarks && (
-                      <p className="mt-2 whitespace-pre-wrap text-slate-600">
-                        {proposal.adviserReview.remarks}
-                      </p>
-                    )}
+                {reviewHistory.some(
+                  ([field]) => proposal[field]?.reviewedAt,
+                ) && (
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {reviewHistory.map(([field, label]) => {
+                      const review = proposal[field];
+                      if (!review?.reviewedAt) return null;
+                      return (
+                        <div
+                          key={field}
+                          className={`border px-3 py-3 text-[11px] ${
+                            review.decision === "Rejected"
+                              ? "border-rose-200 bg-rose-50"
+                              : "border-emerald-200 bg-emerald-50"
+                          }`}
+                        >
+                          <p className="font-extrabold text-slate-800">
+                            {label}: {review.decision}
+                          </p>
+                          <p className="mt-1 font-bold italic text-slate-700">
+                            {review.digitalSignature || "Signature unavailable"}
+                          </p>
+                          <p className="mt-1 text-slate-500">
+                            {formatDateTime(review.reviewedAt)}
+                          </p>
+                          {review.remarks && (
+                            <p className="mt-2 whitespace-pre-wrap text-slate-600">
+                              {review.remarks}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : proposal.status === "Pending Adviser Review" &&
-                  !isAdviserReview ? (
-                  <div className="mt-4 border border-blue-200 bg-blue-50 px-4 py-3 text-xs">
-                    <p className="font-extrabold text-blue-900">
-                      Awaiting faculty adviser approval
-                    </p>
-                    <p className="mt-1 text-blue-700">
-                      The president has approved this proposal.
-                    </p>
-                  </div>
-                ) : (
+                )}
+
+                {isActionable ? (
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="text-[11px] font-bold text-slate-700">
-                        {isAdviserReview
-                          ? "Faculty Adviser E-Signature"
-                          : "Organization President E-Signature"}
+                        {config.signatureLabel}
                         <div className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold italic uppercase text-slate-800">
                           {isLoadingSignature
-                            ? `Loading ${isAdviserReview ? "adviser" : "president"} name...`
+                            ? `Loading ${config.reviewerName.toLowerCase()} name...`
                             : digitalSignature ||
-                              `${isAdviserReview ? "Adviser" : "President"} name unavailable`}
+                              `${config.reviewerName} name unavailable`}
                         </div>
                         {signatureError && (
                           <p className="mt-1 font-medium text-rose-600">
@@ -397,13 +427,23 @@ export default function LeaderProposalReview({
                       >
                         {isActing
                           ? "Saving Decision..."
-                          : isAdviserReview
+                          : reviewRole === "admin"
                             ? "Final Approve"
-                            : "Approve"}
+                            : "Approve and Forward"}
                       </button>
                     </div>
                   </div>
-                )}
+                ) : !isFinal ? (
+                  <div className="mt-4 border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                    <p className="font-extrabold text-slate-800">
+                      {proposal.status}
+                    </p>
+                    <p className="mt-1 text-slate-600">
+                      This proposal has completed your review stage and is
+                      waiting for the next authorized reviewer.
+                    </p>
+                  </div>
+                ) : null}
               </article>
             );
           })}

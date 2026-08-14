@@ -30,6 +30,17 @@ const eventSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    attendanceQr: {
+      onsite: {
+        tokenHash: { type: String, select: false, default: null },
+        generatedAt: { type: Date, default: null },
+        generatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+      },
+    },
     status: {
       type: String,
       enum: ["Scheduled", "Ongoing", "Completed", "Cancelled"],

@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock3, MapPin } from "lucide-react";
+import QRCode from "qrcode";
+import {
+  CalendarDays,
+  Clock3,
+  Download,
+  MapPin,
+  RefreshCw,
+  Users,
+  X,
+} from "lucide-react";
 import API from "../../api/axios";
 import {
   formatCountdown,
@@ -26,6 +35,12 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
+  const [qrDialog, setQrDialog] = useState(null);
+  const [qrImage, setQrImage] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
+  const [attendanceDialog, setAttendanceDialog] = useState(null);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
 
   const approvedProposals = useMemo(
     () => proposals.filter((proposal) => proposal.status === "Approved"),
@@ -120,6 +135,66 @@ export default function SecretaryEvents({ proposals = [] }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const generateQr = async (event) => {
+    const phase = "onsite";
+    setQrLoading(true);
+    setError("");
+    try {
+      const response = await API.post(`/events/${event._id}/attendance/qr`, {
+        phase,
+      });
+      const payload = response.code || response.data?.code;
+      if (!payload) throw new Error("The server did not return a QR payload.");
+      const image = await QRCode.toDataURL(payload, {
+        width: 360,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      });
+      setQrImage(image);
+      setQrDialog({ event, phase, payload });
+      showToast("On-site attendance QR generated.", "success");
+    } catch (requestError) {
+      const message =
+        requestError.response?.data?.message ||
+        requestError.message ||
+        "Unable to generate the attendance QR.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const loadAttendance = async (event) => {
+    setAttendanceDialog({ event, records: [], summary: null });
+    setAttendanceLoading(true);
+    setAttendanceError("");
+    try {
+      const response = await API.get(`/events/${event._id}/attendance`);
+      setAttendanceDialog((current) => ({
+        ...current,
+        records: response.data || [],
+        summary: response.summary || null,
+      }));
+    } catch (requestError) {
+      setAttendanceError(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          "Unable to load attendance.",
+      );
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const downloadQr = () => {
+    if (!qrImage || !qrDialog) return;
+    const link = document.createElement("a");
+    link.href = qrImage;
+    link.download = `${qrDialog.event.title}-${qrDialog.phase}-attendance.png`;
+    link.click();
   };
 
   return (
@@ -273,10 +348,166 @@ export default function SecretaryEvents({ proposals = [] }) {
                   </div>
                 )}
               </div>
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => generateQr(event)}
+                  disabled={qrLoading || event.lifecycle.status !== "Ongoing"}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Generate On-site QR
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadAttendance(event)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  Attendance
+                </button>
+              </div>
             </article>
           ))
         )}
       </div>
+
+      {qrDialog && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-md p-5 text-center">
+            <div className="flex items-start justify-between gap-3 text-left">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
+                  On-site confirmation
+                </p>
+                <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
+                  {qrDialog.event.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setQrDialog(null)}
+                aria-label="Close QR code"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Display this newly generated code at the venue. Students who
+              joined the event can scan it to confirm Present attendance.
+            </p>
+            <div className="mx-auto my-5 w-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              {qrImage ? (
+                <img
+                  src={qrImage}
+                  alt={`${qrDialog.phase} attendance QR`}
+                  className="h-64 w-64"
+                />
+              ) : (
+                "Generating..."
+              )}
+            </div>
+            <div className="flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={downloadQr}
+                className="btn-secondary inline-flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" /> Download QR
+              </button>
+              <button
+                type="button"
+                onClick={() => setQrDialog(null)}
+                className="btn-primary"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {attendanceDialog && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-2xl p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
+                  Attendance roster
+                </p>
+                <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
+                  {attendanceDialog.event.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setAttendanceDialog(null)}
+                aria-label="Close attendance roster"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {attendanceLoading ? (
+              <p className="py-8 text-center text-xs text-slate-500">
+                Loading attendance...
+              </p>
+            ) : attendanceError ? (
+              <p className="mt-4 rounded-lg bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+                {attendanceError}
+              </p>
+            ) : (
+              <>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
+                  {["total", "joined", "pending", "present"].map((key) => (
+                    <div key={key} className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase text-slate-400">
+                        {key === "total" ? "Expected" : key}
+                      </p>
+                      <p className="mt-1 text-lg font-extrabold text-[#4A0E17]">
+                        {attendanceDialog.summary?.[key] || 0}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 max-h-72 overflow-auto rounded-xl border border-slate-100">
+                  {attendanceDialog.records.length === 0 ? (
+                    <p className="p-6 text-center text-xs text-slate-500">
+                      No students have checked in yet.
+                    </p>
+                  ) : (
+                    attendanceDialog.records.map((record) => (
+                      <div
+                        key={record._id}
+                        className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-0"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-bold text-slate-700">
+                            {record.student?.name ||
+                              record.student?.email ||
+                              "Student"}
+                          </p>
+                          <p className="truncate text-[10px] text-slate-400">
+                            {record.student?.email ||
+                              record.member?.idNumber ||
+                              ""}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-md border px-2 py-1 text-[10px] font-bold ${record.status === "Present" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                        >
+                          {record.status}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

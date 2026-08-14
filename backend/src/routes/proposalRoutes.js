@@ -5,6 +5,8 @@ const {
   updateProposal,
   getLeaderSignature,
   getAdviserSignature,
+  getDeanSignature,
+  getOvpsasSignature,
   reviewProposal,
   deleteProposal,
 } = require("../controllers/proposalController");
@@ -37,10 +39,19 @@ router.get(
   getAdviserSignature,
 );
 
+router.get("/dean-signature", protect, authorize("dean"), getDeanSignature);
+
+router.get(
+  "/ovpsas-signature",
+  protect,
+  authorize("admin"),
+  getOvpsasSignature,
+);
+
 router.patch(
   "/:id/review",
   protect,
-  authorize("org_admin", "adviser"),
+  authorize("org_admin", "adviser", "dean", "admin"),
   reviewProposal,
 );
 

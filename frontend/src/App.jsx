@@ -9,6 +9,7 @@ import OrgDashboard from "./pages/orgDashboard.jsx";
 import OrgSecretaryPage from "./pages/orgsecretaryPage.jsx";
 import OrgTreasurerPage from "./pages/orgTreasurerPage.jsx";
 import AdviserDashboard from "./pages/adviserDashboard.jsx";
+import OrgPioPage from "./pages/orgPioPage.jsx";
 
 function App() {
   useEffect(() => {
@@ -32,7 +33,12 @@ function App() {
         <Route path="/org-dashboard" element={<OrgDashboard />} />
         <Route path="/org-secretary" element={<OrgSecretaryPage />} />
         <Route path="/org-treasurer" element={<OrgTreasurerPage />} />
+        <Route path="/org-pio" element={<OrgPioPage />} />
         <Route path="/adviser-dashboard" element={<AdviserDashboard />} />
+        <Route
+          path="/dean-dashboard"
+          element={<AdviserDashboard portalRole="dean" />}
+        />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

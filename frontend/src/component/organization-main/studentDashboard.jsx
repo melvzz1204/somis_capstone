@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useEffectEvent, useRef } from "react";
+import { Html5Qrcode } from "html5-qrcode";
 import {
   AlertCircle,
   CheckCircle2,
   FileImage,
   LoaderCircle,
+  QrCode,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -180,8 +182,19 @@ export default function StudentDashboard({ user: propsUser }) {
   const [paymentMethod, setPaymentMethod] = useState("GCASH");
   const [selectedFee, setSelectedFee] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [eventError, setEventError] = useState("");
+  const [attendance, setAttendance] = useState([]);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanMessage, setScanMessage] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [joiningEventId, setJoiningEventId] = useState("");
+  const scannerRef = useRef(null);
+  const scanHandledRef = useRef(false);
+  const [announcements, setAnnouncements] = useState([]);
+  const [announcementError, setAnnouncementError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
   const [clearanceItems] = useState([]);
 
@@ -202,12 +215,19 @@ export default function StudentDashboard({ user: propsUser }) {
         setRoster(data.roster || []);
 
         if (data.organization?._id) {
-          const [feeResult, paymentResult, eventResult] =
-            await Promise.allSettled([
-              API.get("/fees"),
-              API.get("/payments/mine"),
-              API.get("/events"),
-            ]);
+          const [
+            feeResult,
+            paymentResult,
+            eventResult,
+            announcementResult,
+            attendanceResult,
+          ] = await Promise.allSettled([
+            API.get("/fees"),
+            API.get("/payments/mine"),
+            API.get("/events"),
+            API.get("/announcements"),
+            API.get("/events/attendance/mine"),
+          ]);
 
           if (feeResult.status === "fulfilled") {
             setFees(feeResult.value.data || []);
@@ -251,11 +271,35 @@ export default function StudentDashboard({ user: propsUser }) {
                 "Unable to load organization events.",
             );
           }
+
+          if (announcementResult.status === "fulfilled") {
+            setAnnouncements(announcementResult.value.data || []);
+            setAnnouncementError("");
+          } else {
+            console.error(
+              "Error fetching organization announcements:",
+              announcementResult.reason,
+            );
+            setAnnouncements([]);
+            setAnnouncementError(
+              announcementResult.reason.message ||
+                "Unable to load organization announcements.",
+            );
+          }
+
+          if (attendanceResult.status === "fulfilled") {
+            setAttendance(attendanceResult.value.data || []);
+          } else {
+            setAttendance([]);
+          }
         } else {
           setFees([]);
           setPayments([]);
           setUpcomingEvents([]);
+          setAttendance([]);
+          setAnnouncements([]);
           setEventError("");
+          setAnnouncementError("");
         }
       } catch (err) {
         console.error("Error fetching student organization data:", err);
@@ -267,6 +311,141 @@ export default function StudentDashboard({ user: propsUser }) {
 
     return () => window.clearTimeout(request);
   }, [currentUser?._id]);
+
+  const submitAttendanceCode = async (code) => {
+    if (!String(code || "").trim() || scanning) return;
+    setScanning(true);
+    setScanError("");
+    setScanMessage("");
+    try {
+      const response = await API.post("/events/attendance/scan", { code });
+      const record = response.data;
+      if (record) {
+        setAttendance((current) => [
+          record,
+          ...current.filter(
+            (item) =>
+              (item.event?._id || item.event) !==
+              (record.event?._id || record.event),
+          ),
+        ]);
+      }
+      setScanMessage(response.message || "Attendance updated successfully.");
+    } catch (error) {
+      setScanError(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to process this attendance QR.",
+      );
+      scanHandledRef.current = false;
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const submitScannedAttendance = useEffectEvent((code) => {
+    submitAttendanceCode(code);
+  });
+
+  useEffect(() => {
+    if (!scannerOpen) return undefined;
+    let active = true;
+    scanHandledRef.current = false;
+
+    const disposeScanner = async (scanner) => {
+      if (!scanner) return;
+      try {
+        if (scanner.isScanning) await scanner.stop();
+      } catch {
+        // The scanner may already be stopping or stopped.
+      }
+      try {
+        await scanner.clear();
+      } catch {
+        // clear() throws synchronously if startup or shutdown is still active.
+      }
+    };
+
+    const startScanner = async () => {
+      try {
+        const scanner = new Html5Qrcode("attendance-qr-reader");
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          async (decodedText) => {
+            if (!active || scanHandledRef.current) return;
+            scanHandledRef.current = true;
+            try {
+              if (scanner.isScanning) await scanner.stop();
+            } catch {
+              // The camera may already be stopped after a successful read.
+            }
+            submitScannedAttendance(decodedText);
+          },
+          () => {},
+        );
+        if (!active) await disposeScanner(scanner);
+      } catch (error) {
+        if (active) {
+          setScanError(
+            error?.message ||
+              "Camera access is unavailable. Paste the QR payload below.",
+          );
+        }
+      }
+    };
+
+    void startScanner();
+    return () => {
+      active = false;
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+      void disposeScanner(scanner);
+    };
+  }, [scannerOpen]);
+
+  const openScanner = () => {
+    setScanError("");
+    setScanMessage("");
+    setScannerOpen(true);
+  };
+
+  const closeScanner = () => {
+    setScannerOpen(false);
+    setScanError("");
+    setScanMessage("");
+  };
+
+  const attendanceForEvent = (eventId) =>
+    attendance.find(
+      (record) => (record.event?._id || record.event) === eventId,
+    );
+
+  const joinEvent = async (event) => {
+    setJoiningEventId(event._id);
+    setEventError("");
+    try {
+      const response = await API.post(`/events/${event._id}/join`);
+      const record = response.data;
+      if (record) {
+        setAttendance((current) => [
+          record,
+          ...current.filter(
+            (item) => (item.event?._id || item.event) !== event._id,
+          ),
+        ]);
+      }
+    } catch (error) {
+      setEventError(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to join this event.",
+      );
+    } finally {
+      setJoiningEventId("");
+    }
+  };
 
   const resetPaymentDialog = () => {
     setSelectedFee(null);
@@ -590,58 +769,149 @@ export default function StudentDashboard({ user: propsUser }) {
         <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {/* METRIC CARDS GRID */}
           {activeTab === "overview" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Active Memberships
-                </p>
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                    {activeMembershipsCount}
-                  </h2>
-                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                    Enrolled
-                  </span>
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Active Memberships
+                  </p>
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                      {activeMembershipsCount}
+                    </h2>
+                    <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                      Enrolled
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Upcoming Events
+                  </p>
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                      {
+                        trackedEvents.filter(
+                          (event) => event.lifecycle.status !== "Ended",
+                        ).length
+                      }
+                    </h2>
+                    <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Clearance Status
+                  </p>
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="text-2xl font-extrabold text-[#4A0E17]">
+                      {isFullyCleared ? "Cleared" : "Pending"}
+                    </h2>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-md font-bold ${
+                        isFullyCleared
+                          ? "text-emerald-800 bg-emerald-50 border border-emerald-200"
+                          : "text-rose-800 bg-rose-50 border border-rose-200"
+                      }`}
+                    >
+                      {isFullyCleared ? "100%" : "Action Needed"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Upcoming Events
-                </p>
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                    {
-                      trackedEvents.filter(
-                        (event) => event.lifecycle.status !== "Ended",
-                      ).length
-                    }
-                  </h2>
-                  <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
-                    Active
+              <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-100">
+                  <div>
+                    <h2 className="text-sm font-extrabold text-[#4A0E17]">
+                      Organization Announcements
+                    </h2>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Official notices published by your P.I.O.
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-bold text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/30 px-2.5 py-1 rounded-md">
+                    {announcements.length} active
                   </span>
                 </div>
-              </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Clearance Status
-                </p>
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                    {isFullyCleared ? "Cleared" : "Pending"}
-                  </h2>
-                  <span
-                    className={`text-[11px] px-2 py-0.5 rounded-md font-bold ${
-                      isFullyCleared
-                        ? "text-emerald-800 bg-emerald-50 border border-emerald-200"
-                        : "text-rose-800 bg-rose-50 border border-rose-200"
-                    }`}
-                  >
-                    {isFullyCleared ? "100%" : "Action Needed"}
-                  </span>
-                </div>
-              </div>
+                {announcementError ? (
+                  <div className="m-5 border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+                    {announcementError}
+                  </div>
+                ) : isLoading ? (
+                  <div className="p-8 text-center text-xs text-slate-500">
+                    Loading announcements...
+                  </div>
+                ) : announcements.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <p className="text-xs font-bold text-slate-700">
+                      No active announcements
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Published organization notices will appear here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {announcements.map((announcement) => (
+                      <article
+                        key={announcement._id}
+                        className={`p-5 ${
+                          announcement.priority === "Urgent"
+                            ? "border-l-4 border-l-rose-600 bg-rose-50/30"
+                            : announcement.priority === "Important"
+                              ? "border-l-4 border-l-[#D4AF37]"
+                              : "border-l-4 border-l-transparent"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-[#7A610D]">
+                                {announcement.category}
+                              </span>
+                              {announcement.priority !== "Normal" && (
+                                <span
+                                  className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${
+                                    announcement.priority === "Urgent"
+                                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                                      : "border-amber-200 bg-amber-50 text-amber-800"
+                                  }`}
+                                >
+                                  {announcement.priority}
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="mt-2 text-sm font-extrabold text-slate-800">
+                              {announcement.title}
+                            </h3>
+                            <p className="mt-2 line-clamp-2 text-xs leading-6 text-slate-600">
+                              {announcement.content}
+                            </p>
+                            <p className="mt-3 text-[10px] text-slate-400">
+                              Published {formatDate(announcement.publishedAt)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedAnnouncement(announcement)
+                            }
+                            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-[#4A0E17] bg-white px-4 text-xs font-bold text-[#4A0E17] hover:bg-rose-50"
+                          >
+                            View
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           )}
 
@@ -990,6 +1260,13 @@ export default function StudentDashboard({ user: propsUser }) {
                           >
                             {evt.lifecycle.status}
                           </span>
+                          {attendanceForEvent(evt._id) && (
+                            <span
+                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceForEvent(evt._id).status === "Present" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                            >
+                              {attendanceForEvent(evt._id).status}
+                            </span>
+                          )}
                         </div>
                         <h4 className="font-bold text-slate-800 text-sm">
                           {evt.title}
@@ -1012,13 +1289,39 @@ export default function StudentDashboard({ user: propsUser }) {
                           </p>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedEvent(evt)}
-                        className="px-3 py-1.5 bg-[#4A0E17] text-white font-bold rounded-lg hover:bg-[#601520] transition-colors shrink-0"
-                      >
-                        View Details
-                      </button>
+                      <div className="flex shrink-0 gap-2">
+                        {evt.lifecycle.status === "Upcoming" &&
+                          !attendanceForEvent(evt._id) && (
+                            <button
+                              type="button"
+                              onClick={() => joinEvent(evt)}
+                              disabled={joiningEventId === evt._id}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {joiningEventId === evt._id
+                                ? "Joining..."
+                                : "Join Now"}
+                            </button>
+                          )}
+                        {evt.lifecycle.status === "Ongoing" &&
+                          attendanceForEvent(evt._id)?.status === "Pending" && (
+                            <button
+                              type="button"
+                              onClick={openScanner}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 font-bold text-white hover:bg-emerald-800"
+                            >
+                              <QrCode className="h-3.5 w-3.5" /> Scan On-site
+                            </button>
+                          )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedEvent(evt)}
+                          className="px-3 py-1.5 bg-[#4A0E17] text-white font-bold rounded-lg hover:bg-[#601520] transition-colors"
+                        >
+                          Details
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1078,6 +1381,165 @@ export default function StudentDashboard({ user: propsUser }) {
             </div>
           )}
         </main>
+
+        {scannerOpen && (
+          <div className="modal-backdrop">
+            <div className="modal-panel max-w-md p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
+                    Event attendance
+                  </p>
+                  <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
+                    Scan attendance QR
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closeScanner}
+                  aria-label="Close scanner"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
+                <div id="attendance-qr-reader" className="min-h-64 w-full" />
+              </div>
+              {scanError && (
+                <p className="mt-3 rounded-lg bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+                  {scanError}
+                </p>
+              )}
+              {scanMessage && (
+                <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-700">
+                  {scanMessage}
+                </p>
+              )}
+              {scanning && (
+                <p className="mt-3 flex items-center justify-center gap-2 text-xs font-semibold text-slate-600">
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  Verifying attendance...
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {selectedAnnouncement && (
+          <div className="modal-backdrop">
+            <div
+              className="modal-panel max-w-2xl"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="announcement-detail-title"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[#7A610D]">
+                      {selectedAnnouncement.category}
+                    </span>
+                    <span
+                      className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${
+                        selectedAnnouncement.priority === "Urgent"
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : selectedAnnouncement.priority === "Important"
+                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                      }`}
+                    >
+                      {selectedAnnouncement.priority}
+                    </span>
+                  </div>
+                  <h2
+                    id="announcement-detail-title"
+                    className="mt-2 text-lg font-extrabold text-[#4A0E17]"
+                  >
+                    {selectedAnnouncement.title}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAnnouncement(null)}
+                  className="icon-button shrink-0"
+                  aria-label="Close announcement details"
+                  title="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5 p-5">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Audience
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-700">
+                      {selectedAnnouncement.audience}
+                    </p>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Published
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-700">
+                      {formatDate(selectedAnnouncement.publishedAt)}
+                    </p>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Expires
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-700">
+                      {selectedAnnouncement.expiresAt
+                        ? formatDate(selectedAnnouncement.expiresAt)
+                        : "No expiry"}
+                    </p>
+                  </div>
+                  <div className="border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      Published by
+                    </p>
+                    <p className="mt-1 truncate text-xs font-bold text-slate-700">
+                      {selectedAnnouncement.createdBy?.name || "P.I.O."}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                    Announcement details
+                  </h3>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {selectedAnnouncement.content}
+                  </p>
+                </div>
+
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAnnouncement(null)}
+                    className="btn-secondary"
+                  >
+                    Close
+                  </button>
+                  {selectedAnnouncement.actionUrl && (
+                    <a
+                      href={selectedAnnouncement.actionUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-primary"
+                    >
+                      {selectedAnnouncement.actionLabel}
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {selectedEvent && (
           <div className="modal-backdrop">

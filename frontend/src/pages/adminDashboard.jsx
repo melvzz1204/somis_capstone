@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
 import CollegeCatalog from "../component/collegeCatalog";
+import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
 
@@ -93,6 +94,10 @@ export default function AdminDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [organizations, setOrganizations] = useState([]);
   const [colleges, setColleges] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [isProposalLoading, setIsProposalLoading] = useState(true);
+  const [proposalActionId, setProposalActionId] = useState("");
+  const [proposalNotice, setProposalNotice] = useState("");
   const [editingOrg, setEditingOrg] = useState(null);
 
   // Form state for creating or editing an organization
@@ -109,23 +114,40 @@ export default function AdminDashboard() {
   const adminEmail = storedUser.email || "admin@marsu.edu.ph";
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchDashboardData = async () => {
       try {
-        const [organizationsData, collegesData] = await Promise.all([
-          API.get("/organizations"),
-          API.get("/colleges"),
-        ]);
+        const [organizationsData, collegesData, proposalResponse] =
+          await Promise.all([
+            API.get("/organizations"),
+            API.get("/colleges"),
+            API.get("/proposals"),
+          ]);
+        if (!mounted) return;
         setOrganizations(
           Array.isArray(organizationsData) ? organizationsData : [],
         );
         setColleges(Array.isArray(collegesData) ? collegesData : []);
+        setProposals(
+          Array.isArray(proposalResponse?.data) ? proposalResponse.data : [],
+        );
       } catch (err) {
+        if (!mounted) return;
         console.error("Failed to fetch admin dashboard data:", err);
+        setProposalNotice(
+          err.message || "Unable to load proposals for OVPSAS review.",
+        );
+      } finally {
+        if (mounted) setIsProposalLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, [activeTab]);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -223,6 +245,32 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleProposalReview = async (proposal, review) => {
+    setProposalActionId(proposal._id);
+    setProposalNotice("");
+
+    try {
+      const response = await API.patch(
+        `/proposals/${proposal._id}/review`,
+        review,
+      );
+      setProposals((current) =>
+        current.map((item) =>
+          item._id === proposal._id ? response.data : item,
+        ),
+      );
+      setProposalNotice(response.message || "Final proposal decision saved.");
+      return true;
+    } catch (error) {
+      setProposalNotice(
+        error.message || "Unable to save the final proposal decision.",
+      );
+      return false;
+    } finally {
+      setProposalActionId("");
+    }
+  };
+
   const handleDeleteOrganization = async (org) => {
     if (
       !window.confirm(
@@ -301,7 +349,7 @@ export default function AdminDashboard() {
               <FileCheckIcon
                 className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Clearance Approvals</span>
+              <span>Proposal Review</span>
             </button>
           </nav>
         </div>
@@ -364,6 +412,21 @@ export default function AdminDashboard() {
         <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {activeTab === "colleges" ? (
             <CollegeCatalog />
+          ) : activeTab === "clearance" ? (
+            <div className="space-y-5">
+              {proposalNotice && (
+                <div className="border border-amber-200 bg-amber-50 px-5 py-4 text-xs font-semibold text-amber-800">
+                  {proposalNotice}
+                </div>
+              )}
+              <LeaderProposalReview
+                proposals={proposals}
+                isLoading={isProposalLoading}
+                actionId={proposalActionId}
+                onReview={handleProposalReview}
+                reviewRole="admin"
+              />
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

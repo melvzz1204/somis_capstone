@@ -53,8 +53,16 @@ const ShieldIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
-export default function AdviserDashboard() {
+export default function AdviserDashboard({ portalRole = "adviser" }) {
   const navigate = useNavigate();
+  const isDean = portalRole === "dean";
+  const pendingStatus = isDean
+    ? "Pending Dean Review"
+    : "Pending Adviser Review";
+  const portalTitle = isDean
+    ? "Department Dean Portal"
+    : "Faculty Adviser Portal";
+  const reviewerLabel = isDean ? "Dean" : "Adviser";
   const [activeTab, setActiveTab] = useState("overview");
   const [user, setUser] = useState(null);
   const [proposals, setProposals] = useState([]);
@@ -67,7 +75,7 @@ export default function AdviserDashboard() {
     Promise.all([API.get("/auth/me"), API.get("/proposals")])
       .then(([currentUser, proposalResponse]) => {
         if (!mounted) return;
-        if (currentUser?.role !== "adviser") {
+        if (currentUser?.role !== portalRole) {
           navigate("/", { replace: true });
           return;
         }
@@ -76,11 +84,14 @@ export default function AdviserDashboard() {
           (Array.isArray(proposalResponse.data)
             ? proposalResponse.data
             : []
-          ).filter(
-            (proposal) =>
-              proposal.status === "Pending Adviser Review" ||
-              proposal.status === "Approved" ||
-              proposal.status === "Rejected",
+          ).filter((proposal) =>
+            [
+              pendingStatus,
+              "Pending Dean Review",
+              "Pending OVPSAS Review",
+              "Approved",
+              "Rejected",
+            ].includes(proposal.status),
           ),
         );
       })
@@ -94,7 +105,7 @@ export default function AdviserDashboard() {
     return () => {
       mounted = false;
     };
-  }, [navigate]);
+  }, [navigate, pendingStatus, portalRole]);
 
   const handleReview = async (proposal, review) => {
     setActionId(proposal._id);
@@ -125,10 +136,13 @@ export default function AdviserDashboard() {
     typeof user.organization === "object" ? user.organization : null;
   const orgName = organization?.name || "Student Organization";
   const pendingCount = proposals.filter(
-    (proposal) => proposal.status === "Pending Adviser Review",
+    (proposal) => proposal.status === pendingStatus,
   ).length;
-  const approvedCount = proposals.filter(
-    (proposal) => proposal.status === "Approved",
+  const forwardedStatuses = isDean
+    ? ["Pending OVPSAS Review", "Approved"]
+    : ["Pending Dean Review", "Pending OVPSAS Review", "Approved"];
+  const approvedCount = proposals.filter((proposal) =>
+    forwardedStatuses.includes(proposal.status),
   ).length;
 
   const navItems = [
@@ -158,7 +172,7 @@ export default function AdviserDashboard() {
                 SOMIS
               </span>
               <span className="text-[10px] font-medium text-rose-200/70 tracking-wider block">
-                Faculty Adviser Portal
+                {portalTitle}
               </span>
             </div>
           </div>
@@ -218,14 +232,14 @@ export default function AdviserDashboard() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7A610D]">
-                  Faculty Adviser Portal
+                  {portalTitle}
                 </p>
                 <h1 className="truncate text-base sm:text-lg font-extrabold text-[#4A0E17]">
                   Welcome back, {user.name}
                 </h1>
                 <p className="hidden sm:block truncate text-[11px] text-slate-500">
-                  {orgName} <span className="mx-1 text-slate-300">•</span> Final
-                  proposal approval workspace
+                  {orgName} <span className="mx-1 text-slate-300">•</span>{" "}
+                  Proposal validation workspace
                 </p>
               </div>
             </div>
@@ -239,7 +253,7 @@ export default function AdviserDashboard() {
           activeItem={activeTab}
           onChange={setActiveTab}
           items={navItems}
-          label="Adviser portal navigation"
+          label={`${reviewerLabel} portal navigation`}
         />
 
         <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-6">
@@ -253,11 +267,10 @@ export default function AdviserDashboard() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-extrabold text-[#4A0E17]">
-                  Adviser Overview
+                  {reviewerLabel} Overview
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Monitor proposals forwarded by the organization president for
-                  your final decision.
+                  Monitor proposals forwarded for your validation and approval.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -271,7 +284,7 @@ export default function AdviserDashboard() {
                 </div>
                 <div className="p-5 border border-slate-200/80 rounded-2xl bg-white shadow-xs space-y-1.5">
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    Final Approved
+                    Approved and Forwarded
                   </p>
                   <p className="text-xl font-bold text-emerald-700">
                     {approvedCount} Proposals
@@ -282,7 +295,9 @@ export default function AdviserDashboard() {
                     Signatory Status
                   </p>
                   <p className="text-sm font-bold text-[#4A0E17]">
-                    President + Adviser
+                    {isDean
+                      ? "President + Adviser + Dean"
+                      : "President + Adviser"}
                   </p>
                 </div>
               </div>
@@ -293,12 +308,12 @@ export default function AdviserDashboard() {
                   </div>
                   <div>
                     <h3 className="text-sm font-extrabold text-[#4A0E17]">
-                      Final Approval Responsibility
+                      {reviewerLabel} Approval Responsibility
                     </h3>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Only proposals approved by the organization president
-                      appear in your review queue. Your approval adds the second
-                      e-signature and finalizes the proposal.
+                      Only proposals that completed the required earlier reviews
+                      appear in your queue. Your approval records an e-signature
+                      and forwards the proposal to the next reviewer.
                     </p>
                     <button
                       type="button"
@@ -319,7 +334,7 @@ export default function AdviserDashboard() {
               isLoading={isLoading}
               actionId={actionId}
               onReview={handleReview}
-              reviewRole="adviser"
+              reviewRole={portalRole}
             />
           )}
         </main>

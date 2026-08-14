@@ -8,6 +8,7 @@ import {
 
 const OFFICER_ROLES = [
   "Faculty Adviser",
+  "Department Dean",
   "Vice-President",
   "Secretary",
   "Treasurer",
@@ -329,7 +330,10 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
     setErrorMessage("");
 
     try {
-      const isAdviser = formData.role === "Faculty Adviser";
+      const isFacultySignatory = [
+        "Faculty Adviser",
+        "Department Dean",
+      ].includes(formData.role);
       const payload = new FormData();
       payload.append("surname", formData.surname.trim());
       payload.append("firstName", formData.firstName.trim());
@@ -337,11 +341,26 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       payload.append("suffix", formData.suffix.trim());
       payload.append("email", formData.email.trim());
       payload.append("role", formData.role || OFFICER_ROLES[0]);
-      payload.append("idNumber", isAdviser ? "" : formData.idNumber || "");
-      payload.append("birthday", isAdviser ? "" : formData.birthday || "");
-      payload.append("year", isAdviser ? "" : formData.year || "1st Year");
-      payload.append("program", isAdviser ? "" : formData.program || "");
-      payload.append("section", isAdviser ? "" : formData.section || "");
+      payload.append(
+        "idNumber",
+        isFacultySignatory ? "" : formData.idNumber || "",
+      );
+      payload.append(
+        "birthday",
+        isFacultySignatory ? "" : formData.birthday || "",
+      );
+      payload.append(
+        "year",
+        isFacultySignatory ? "" : formData.year || "1st Year",
+      );
+      payload.append(
+        "program",
+        isFacultySignatory ? "" : formData.program || "",
+      );
+      payload.append(
+        "section",
+        isFacultySignatory ? "" : formData.section || "",
+      );
 
       const orgId = org?._id || user?.organization?._id || user?._id;
       if (orgId) {
@@ -455,7 +474,11 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
 
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
   const isEditingPresident = editingOfficer?.role === "President";
-  const isAdviser = formData.role === "Faculty Adviser";
+  const isFacultySignatory = ["Faculty Adviser", "Department Dean"].includes(
+    formData.role,
+  );
+  const signatoryLabel =
+    formData.role === "Department Dean" ? "Dean" : "Adviser";
 
   return (
     <div className="space-y-5">
@@ -597,8 +620,8 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                 </div>
                 <h3 className="text-sm font-extrabold text-[#4A0E17]">
                   {editingOfficer
-                    ? `Edit ${isAdviser ? "Adviser" : "Officer"} Details`
-                    : `Add ${isAdviser ? "Adviser" : "Officer"}`}
+                    ? `Edit ${isFacultySignatory ? signatoryLabel : "Officer"} Details`
+                    : `Add ${isFacultySignatory ? signatoryLabel : "Officer"}`}
                 </h3>
               </div>
               <button
@@ -636,7 +659,41 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                   />
                 </div>
               </div>
-
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Position / Role
+                </label>
+                <select
+                  value={formData.role}
+                  disabled={isEditingPresident}
+                  onChange={(e) => {
+                    const role = e.target.value;
+                    setFormData({
+                      ...formData,
+                      role,
+                      ...(["Faculty Adviser", "Department Dean"].includes(role)
+                        ? {
+                            idNumber: "",
+                            birthday: "",
+                            year: "",
+                            program: "",
+                            section: "",
+                          }
+                        : { year: formData.year || "1st Year" }),
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100 disabled:cursor-not-allowed"
+                >
+                  {isEditingPresident && (
+                    <option value="President">President</option>
+                  )}
+                  {OFFICER_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 {isEditingPresident && (
                   <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
@@ -704,43 +761,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                 )}
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Position / Role
-                </label>
-                <select
-                  value={formData.role}
-                  disabled={isEditingPresident}
-                  onChange={(e) => {
-                    const role = e.target.value;
-                    setFormData({
-                      ...formData,
-                      role,
-                      ...(role === "Faculty Adviser"
-                        ? {
-                            idNumber: "",
-                            birthday: "",
-                            year: "",
-                            program: "",
-                            section: "",
-                          }
-                        : { year: formData.year || "1st Year" }),
-                    });
-                  }}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100 disabled:cursor-not-allowed"
-                >
-                  {isEditingPresident && (
-                    <option value="President">President</option>
-                  )}
-                  {OFFICER_ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {!isAdviser && (
+              {!isFacultySignatory && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">
@@ -776,7 +797,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                 </div>
               )}
 
-              {!isAdviser && (
+              {!isFacultySignatory && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">
@@ -855,7 +876,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                 </div>
               )}
 
-              {!isAdviser && (
+              {!isFacultySignatory && (
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
                     Section
@@ -891,8 +912,8 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                   {isSubmitting
                     ? "Saving..."
                     : editingOfficer
-                      ? `Update ${isAdviser ? "Adviser" : "Officer"}`
-                      : `Save ${isAdviser ? "Adviser" : "Officer"}`}
+                      ? `Update ${isFacultySignatory ? signatoryLabel : "Officer"}`
+                      : `Save ${isFacultySignatory ? signatoryLabel : "Officer"}`}
                 </button>
               </div>
             </form>

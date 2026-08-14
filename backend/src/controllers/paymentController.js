@@ -55,7 +55,11 @@ const createPayment = async (req, res) => {
       _id: feeId,
       org: req.user.organization,
       status: "active",
-    }).select("org amount title");
+      $or: [
+        { "targetMembers.student": req.user._id },
+        { targetMembers: { $size: 0 } },
+      ],
+    }).select("org amount title targetMembers");
 
     if (!fee) {
       return res.status(404).json({
@@ -484,11 +488,12 @@ const listPaymentAudit = async (req, res) => {
  */
 const recordCashPayment = async (req, res) => {
   const feeId = req.body?.feeId;
+  const studentId = req.body?.studentId;
   const studentIdentifier = String(req.body?.studentIdentifier || "").trim();
   const cashReceiptNumber = String(req.body?.cashReceiptNumber || "").trim();
   const cashNotes = String(req.body?.cashNotes || "").trim();
 
-  if (!isObjectId(feeId) || !studentIdentifier) {
+  if (!isObjectId(feeId) || (!isObjectId(studentId) && !studentIdentifier)) {
     return res.status(400).json({
       success: false,
       message: "A valid student selection and fee are required.",
@@ -496,22 +501,29 @@ const recordCashPayment = async (req, res) => {
   }
 
   try {
-    const member = await Member.findOne({
-      organization: req.user.organization,
-      $or: [
-        { idNumber: studentIdentifier },
-        { email: studentIdentifier.toLowerCase() },
-      ],
-    }).select("name email idNumber");
-    if (!member) {
-      return res.status(404).json({
-        success: false,
-        message: "The selected student is not in your organization roster.",
-      });
+    let studentQuery = null;
+
+    if (isObjectId(studentId)) {
+      studentQuery = { _id: studentId };
+    } else {
+      const member = await Member.findOne({
+        organization: req.user.organization,
+        $or: [
+          { idNumber: studentIdentifier },
+          { email: studentIdentifier.toLowerCase() },
+        ],
+      }).select("email");
+      if (!member) {
+        return res.status(404).json({
+          success: false,
+          message: "The selected student is not in your organization roster.",
+        });
+      }
+      studentQuery = { email: member.email.toLowerCase().trim() };
     }
 
     const student = await User.findOne({
-      email: member.email,
+      ...studentQuery,
       organization: req.user.organization,
       role: "student",
       status: "Active",
@@ -528,11 +540,16 @@ const recordCashPayment = async (req, res) => {
       _id: feeId,
       org: req.user.organization,
       status: "active",
-    }).select("org amount title");
+      $or: [
+        { "targetMembers.student": student._id },
+        { targetMembers: { $size: 0 } },
+      ],
+    }).select("org amount title targetMembers");
     if (!fee)
       return res.status(404).json({
         success: false,
-        message: "The selected active fee was not found.",
+        message:
+          "The selected active fee was not found or does not apply to this student.",
       });
 
     const existing = await Payment.findOne({
@@ -574,6 +591,14 @@ const recordCashPayment = async (req, res) => {
     });
   } catch (error) {
     console.error("Cash payment recording failed:", error);
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: Object.values(error.errors)
+          .map((validationError) => validationError.message)
+          .join(" "),
+      });
+    }
     return res
       .status(500)
       .json({ success: false, message: "Unable to record the cash payment." });

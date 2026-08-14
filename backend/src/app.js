@@ -43,6 +43,7 @@ const proposalRoutes = require("./routes/proposalRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const eventRoutes = require("./routes/eventRoutes");
 const transactionRoutes = require("./routes/transactionRoutes");
+const announcementRoutes = require("./routes/announcementRoutes");
 
 const app = express();
 
@@ -104,6 +105,7 @@ app.use("/api/v1/proposals", proposalRoutes);
 app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/events", eventRoutes);
 app.use("/api/v1/transactions", transactionRoutes);
+app.use("/api/v1/announcements", announcementRoutes);
 app.use("/api/payments", paymentRoutes);
 
 // 6. Base Health Check Route

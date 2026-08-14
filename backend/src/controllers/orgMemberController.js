@@ -200,7 +200,9 @@ exports.addMember = async (req, res) => {
       req.body.organization ||
       req.user?._id;
     const normalizedRole = String(role || "").trim();
-    const isAdviser = normalizedRole === "Faculty Adviser";
+    const isFacultySignatory = ["Faculty Adviser", "Department Dean"].includes(
+      normalizedRole,
+    );
 
     const hasStructuredName = Boolean(
       cleanNamePart(surname) && cleanNamePart(firstName),
@@ -220,8 +222,21 @@ exports.addMember = async (req, res) => {
       avatarPath = `/uploads/${req.file.filename}`;
     }
 
+    if (normalizedRole === "Department Dean") {
+      const existingDean = await Member.findOne({
+        organization: orgId,
+        role: "Department Dean",
+      });
+      if (existingDean) {
+        return res.status(409).json({
+          message:
+            "A department dean is already registered for this organization.",
+        });
+      }
+    }
+
     const newMember = await Member.create({
-      idNumber: isAdviser ? "" : idNumber || "",
+      idNumber: isFacultySignatory ? "" : idNumber || "",
       name: displayName,
       surname: hasStructuredName ? cleanNamePart(surname) : "",
       firstName: hasStructuredName ? cleanNamePart(firstName) : "",
@@ -230,10 +245,14 @@ exports.addMember = async (req, res) => {
         : "",
       suffix: hasStructuredName ? cleanNamePart(suffix) : "",
       email,
-      birthday: isAdviser ? null : birthday ? new Date(birthday) : null,
-      year: isAdviser ? "" : year || "",
-      program: isAdviser ? "" : program || "",
-      section: isAdviser ? "" : section || "",
+      birthday: isFacultySignatory
+        ? null
+        : birthday
+          ? new Date(birthday)
+          : null,
+      year: isFacultySignatory ? "" : year || "",
+      program: isFacultySignatory ? "" : program || "",
+      section: isFacultySignatory ? "" : section || "",
       role: normalizedRole,
       avatar: avatarPath,
       organization: orgId,
@@ -344,8 +363,26 @@ exports.updateMember = async (req, res) => {
     if (program !== undefined) member.program = program;
     if (section !== undefined) member.section = section;
     if (role && !isPresident) {
-      member.role = role;
-      if (String(role).trim() === "Faculty Adviser") {
+      const normalizedRole = String(role).trim();
+      if (
+        normalizedRole === "Department Dean" &&
+        member.role !== "Department Dean"
+      ) {
+        const existingDean = await Member.findOne({
+          organization: member.organization,
+          role: "Department Dean",
+          _id: { $ne: member._id },
+        });
+        if (existingDean) {
+          return res.status(409).json({
+            message:
+              "A department dean is already registered for this organization.",
+          });
+        }
+      }
+
+      member.role = normalizedRole;
+      if (["Faculty Adviser", "Department Dean"].includes(normalizedRole)) {
         member.idNumber = "";
         member.birthday = null;
         member.year = "";
@@ -395,6 +432,9 @@ const mapMemberRoleToUserRole = (memberRole) => {
 
   if (roleLower.includes("secretary")) return "secretary";
   if (roleLower.includes("treasurer")) return "treasurer";
+  if (roleLower === "p.i.o" || roleLower.includes("information officer"))
+    return "pio";
+  if (roleLower.includes("dean")) return "dean";
   if (roleLower.includes("adviser") || roleLower.includes("advisor"))
     return "adviser";
   if (roleLower.includes("president")) return "org_admin";

@@ -22,9 +22,18 @@ const statusClasses = {
   Draft: "border-slate-200 bg-slate-50 text-slate-700",
   Submitted: "border-amber-200 bg-amber-50 text-amber-800",
   "Pending Adviser Review": "border-blue-200 bg-blue-50 text-blue-800",
+  "Pending Dean Review": "border-violet-200 bg-violet-50 text-violet-800",
+  "Pending OVPSAS Review": "border-cyan-200 bg-cyan-50 text-cyan-800",
   Approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   Rejected: "border-rose-200 bg-rose-50 text-rose-800",
 };
+
+const reviewStages = [
+  ["leaderReview", "Organization President", "Awaiting president approval"],
+  ["adviserReview", "Faculty Adviser", "Awaiting adviser approval"],
+  ["deanReview", "Department Dean", "Awaiting dean approval"],
+  ["ovpsasReview", "OVPSAS", "Awaiting OVPSAS final decision"],
+];
 
 function Detail({ label, children }) {
   return (
@@ -120,8 +129,7 @@ export default function ProposalDocumentModal({ proposal, onClose }) {
                 {proposal.proposalTitle}
               </h1>
               <p className="mt-2 text-xs text-slate-500">
-                Submitted for organization president and faculty adviser
-                approval
+                Submitted for president, adviser, dean, and OVPSAS approval
               </p>
             </header>
 
@@ -209,49 +217,42 @@ export default function ProposalDocumentModal({ proposal, onClose }) {
                 <div className="border border-slate-200 bg-slate-50 px-4 py-4">
                   <p className="text-xs font-extrabold text-slate-800">
                     {proposal.status === "Approved"
-                      ? "Final Proposal — Approved"
-                      : "President Approval Recorded"}
+                      ? "Final Proposal - Approved by OVPSAS"
+                      : proposal.status === "Rejected"
+                        ? "Proposal Review - Rejected"
+                        : "Approval Chain in Progress"}
                   </p>
                   <div className="mt-4 grid gap-5 sm:grid-cols-2">
-                    <div className="border-b border-slate-400 pb-2 text-center">
-                      <p className="font-serif text-lg font-bold italic text-slate-800">
-                        {proposal.leaderReview.digitalSignature}
-                      </p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                        Organization President
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        E-signed{" "}
-                        {formatDateTime(proposal.leaderReview.reviewedAt)}
-                      </p>
-                    </div>
-                    <div className="border-b border-slate-400 pb-2 text-center">
-                      <p className="font-serif text-lg font-bold italic text-slate-800">
-                        {proposal.adviserReview?.digitalSignature ||
-                          "Awaiting adviser approval"}
-                      </p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                        Faculty Adviser
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        {proposal.adviserReview?.reviewedAt
-                          ? `E-signed ${formatDateTime(proposal.adviserReview.reviewedAt)}`
-                          : "Second signatory pending"}
-                      </p>
-                    </div>
+                    {reviewStages.map(([field, label, pendingLabel]) => {
+                      const review = proposal[field];
+                      return (
+                        <div
+                          key={field}
+                          className="border-b border-slate-400 pb-2 text-center"
+                        >
+                          <p className="font-serif text-lg font-bold italic text-slate-800">
+                            {review?.digitalSignature || pendingLabel}
+                          </p>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                            {label}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {review?.reviewedAt
+                              ? `${review.decision} - E-signed ${formatDateTime(review.reviewedAt)}`
+                              : "Signature pending"}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {(proposal.leaderReview.remarks ||
-                    proposal.adviserReview?.remarks) && (
+                  {reviewStages.some(([field]) => proposal[field]?.remarks) && (
                     <div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-600">
-                      {proposal.leaderReview.remarks && (
-                        <p className="whitespace-pre-wrap">
-                          President: {proposal.leaderReview.remarks}
-                        </p>
-                      )}
-                      {proposal.adviserReview?.remarks && (
-                        <p className="mt-1 whitespace-pre-wrap">
-                          Adviser: {proposal.adviserReview.remarks}
-                        </p>
+                      {reviewStages.map(([field, label]) =>
+                        proposal[field]?.remarks ? (
+                          <p key={field} className="mt-1 whitespace-pre-wrap">
+                            {label}: {proposal[field].remarks}
+                          </p>
+                        ) : null,
                       )}
                     </div>
                   )}

@@ -182,6 +182,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState(null);
+  const [selectedFee, setSelectedFee] = useState(null);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
   const [isCashPaymentModalOpen, setIsCashPaymentModalOpen] = useState(false);
   const [statementModalKey, setStatementModalKey] = useState(0);
@@ -191,8 +192,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Dynamic Data States
   const [transactions, setTransactions] = useState([]);
   const [feeDrives, setFeeDrives] = useState([]);
+  const [feeView, setFeeView] = useState("active");
   const [organizationRoster, setOrganizationRoster] = useState([]);
-  const [filterType, setFilterType] = useState("all");
+  const [filterType, setFilterType] = useState("income");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [transactionForm, setTransactionForm] = useState({
@@ -200,6 +202,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     type: "expense",
     category: "Events & Logistics",
     amount: "",
+    feeId: "",
     date: new Date().toISOString().split("T")[0],
     reference: "",
   });
@@ -283,7 +286,8 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           current._id === fee._id ? archivedFee : current,
         ),
       );
-      showToast("Dues Collection archived successfully.", "success");
+      setFeeView("archived");
+      showToast("Dues Collection moved to Archive.", "success");
     } catch (error) {
       const message =
         error.response?.data?.message || "Failed to archive Dues Collection.";
@@ -291,12 +295,61 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     }
   };
 
-  // Dynamic Calculations
-  const totalIncome = transactions
+  const activeFeeDrives = feeDrives.filter((fee) => fee.status === "active");
+  const archivedFeeDrives = feeDrives.filter(
+    (fee) => fee.status === "archived" || fee.status === "closed",
+  );
+  const visibleFeeDrives =
+    feeView === "archived" ? archivedFeeDrives : activeFeeDrives;
+  const selectedIncomeFee = activeFeeDrives.find(
+    (fee) => fee._id === transactionForm.feeId,
+  );
+  const selectedFeePostedIncome = transactions
     .filter(
-      (t) => t.type === "income" && (t.status === "Approved" || !t.status),
+      (entry) =>
+        entry.type === "income" &&
+        String(entry.fee?._id || entry.fee || "") === transactionForm.feeId,
     )
-    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    .reduce((total, entry) => total + Number(entry.amount || 0), 0);
+  const selectedFeeAvailableIncome = Math.max(
+    0,
+    Number(selectedIncomeFee?.collectedAmount || 0) - selectedFeePostedIncome,
+  );
+  const incomeBaseCost = Number(selectedIncomeFee?.baseCost || 0);
+  const incomeUnitPrice = Number(selectedIncomeFee?.amount || 0);
+  const incomeAmount = Number(transactionForm.amount || 0);
+  const incomeEstimatedCost =
+    incomeUnitPrice > 0 ? (incomeAmount / incomeUnitPrice) * incomeBaseCost : 0;
+  const incomeNetAmount = incomeAmount - incomeEstimatedCost;
+
+  const refreshFeeDrives = async () => {
+    try {
+      const response = await API.get("/fees");
+      const data = response.data || [];
+      setFeeDrives(Array.isArray(data) ? data : []);
+      setSelectedFee((current) =>
+        current ? data.find((fee) => fee._id === current._id) || current : null,
+      );
+    } catch (error) {
+      console.error("Failed to refresh collection progress:", error);
+    }
+  };
+
+  // Dynamic Calculations
+  const approvedIncomeTransactions = transactions.filter(
+    (transaction) =>
+      transaction.type === "income" &&
+      (transaction.status === "Approved" || !transaction.status),
+  );
+  const totalIncome = approvedIncomeTransactions.reduce(
+    (sum, transaction) => sum + Number(transaction.amount || 0),
+    0,
+  );
+  const totalNetIncome = approvedIncomeTransactions.reduce(
+    (sum, transaction) =>
+      sum + Number(transaction.netIncome ?? transaction.amount ?? 0),
+    0,
+  );
 
   const totalExpense = transactions
     .filter(
@@ -330,11 +383,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
   // Filtered Ledger List
   const filteredTransactions = transactions.filter((t) => {
-    const matchesFilter =
-      filterType === "all" ||
-      (filterType === "income" && t.type === "income") ||
-      (filterType === "expense" && t.type === "expense") ||
-      (filterType === "pending" && t.status === "Pending");
+    const matchesFilter = t.type === filterType;
 
     const matchesSearch =
       (t.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -347,7 +396,12 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Handle Record Creation
   const handleTransactionSubmit = async (e) => {
     e.preventDefault();
-    if (!transactionForm.title || !transactionForm.amount) return;
+    if (
+      !transactionForm.title ||
+      !transactionForm.amount ||
+      (transactionForm.type === "income" && !transactionForm.feeId)
+    )
+      return;
 
     setIsSubmitting(true);
     const payload = {
@@ -369,6 +423,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         type: "expense",
         category: "Events & Logistics",
         amount: "",
+        feeId: "",
         date: new Date().toISOString().split("T")[0],
         reference: "",
       });
@@ -576,17 +631,17 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Total Revenues
+                  Total Net Income
                 </p>
                 <div className="flex items-baseline justify-between">
                   <h2 className="text-2xl font-extrabold text-[#4A0E17]">
                     ₱
-                    {totalIncome.toLocaleString("en-PH", {
+                    {totalNetIncome.toLocaleString("en-PH", {
                       minimumFractionDigits: 2,
                     })}
                   </h2>
-                  <span className="text-[11px] text-[#7A610D] bg-[#D4AF37]/15 border border-[#D4AF37]/40 px-2 py-0.5 rounded-md font-bold">
-                    Approved
+                  <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
+                    Net
                   </span>
                 </div>
               </div>
@@ -725,7 +780,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 </div>
 
                 <div className="flex items-center gap-1 bg-slate-200/60 p-1 rounded-lg text-xs font-semibold shrink-0">
-                  {["all", "income", "expense", "pending"].map((type) => (
+                  {["income", "expense"].map((type) => (
                     <button
                       key={type}
                       type="button"
@@ -754,65 +809,119 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 text-xs">
-                  {filteredTransactions.map((tx, idx) => (
-                    <div
-                      key={tx._id || tx.id || idx}
-                      className="py-3.5 px-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 rounded-xl transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${
-                            tx.type === "income"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                              : "bg-rose-50 text-rose-700 border border-rose-200/60"
-                          }`}
-                        >
-                          {tx.type === "income" ? "+" : "-"}
-                        </div>
+                <div className="space-y-3 text-xs">
+                  {filteredTransactions.map((tx, idx) => {
+                    const studentPrice = Number(
+                      tx.unitPriceSnapshot ?? tx.fee?.amount ?? 0,
+                    );
+                    const baseCost = Number(
+                      tx.baseCostSnapshot ?? tx.fee?.baseCost ?? 0,
+                    );
+                    const marginPerStudent = Math.max(
+                      0,
+                      studentPrice - baseCost,
+                    );
+                    const marginPercentage =
+                      studentPrice > 0
+                        ? (marginPerStudent / studentPrice) * 100
+                        : 0;
+                    const netIncome = Number(tx.netIncome ?? tx.amount ?? 0);
 
-                        <div>
-                          <p className="font-bold text-slate-800">{tx.title}</p>
-                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                            <span className="text-[#4A0E17] font-bold">
-                              {tx.category}
+                    return (
+                      <div
+                        key={tx._id || tx.id || idx}
+                        className={`rounded-2xl border p-4 transition-colors ${
+                          tx.type === "income"
+                            ? "border-emerald-200 bg-emerald-50/30"
+                            : "border-slate-200 bg-white hover:bg-slate-50/80"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-black ${
+                                tx.type === "income"
+                                  ? "border border-emerald-200 bg-emerald-100 text-emerald-700"
+                                  : "border border-rose-200 bg-rose-50 text-rose-700"
+                              }`}
+                            >
+                              {tx.type === "income" ? "+" : "−"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-black text-slate-800">
+                                {tx.title}
+                              </p>
+                              <p className="mt-0.5 text-[10px] font-medium text-slate-500">
+                                <span className="font-bold text-[#4A0E17]">
+                                  {tx.category}
+                                </span>{" "}
+                                {formatDate(tx.date)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                            <span
+                              className={`text-sm font-black ${
+                                tx.type === "income"
+                                  ? "text-emerald-700"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {tx.type === "income" ? "+" : "−"}₱
+                              {Number(tx.amount || 0).toLocaleString("en-PH", {
+                                minimumFractionDigits: 2,
+                              })}
                             </span>
-                            {" • "}
-                            <span>Ref: {tx.reference || "N/A"}</span>
-                            {" • "}
-                            <span>{formatDate(tx.date)}</span>
-                          </p>
+                            <span
+                              className={`rounded-md border px-2.5 py-1 text-[9px] font-black ${
+                                tx.status === "Approved" || !tx.status
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                  : tx.status === "Pending"
+                                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                                    : "border-rose-200 bg-rose-50 text-rose-800"
+                              }`}
+                            >
+                              {tx.status || "Approved"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
-                        <span
-                          className={`font-extrabold text-sm ${
-                            tx.type === "income"
-                              ? "text-emerald-700"
-                              : "text-slate-800"
-                          }`}
-                        >
-                          {tx.type === "income" ? "+" : "-"}₱
-                          {Number(tx.amount || 0).toLocaleString("en-PH", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-
-                        <span
-                          className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${
-                            tx.status === "Approved" || !tx.status
-                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                              : tx.status === "Pending"
-                                ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                : "bg-rose-50 text-rose-800 border border-rose-200"
-                          }`}
-                        >
-                          {tx.status || "Approved"}
-                        </span>
+                        {tx.type === "income" && (
+                          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3 sm:grid-cols-5">
+                            {[
+                              ["Student Price", `₱${studentPrice.toFixed(2)}`],
+                              ["Base Cost", `₱${baseCost.toFixed(2)}`],
+                              [
+                                "Margin / Student",
+                                `₱${marginPerStudent.toFixed(2)}`,
+                              ],
+                              ["Margin", `${marginPercentage.toFixed(2)}%`],
+                            ].map(([label, value]) => (
+                              <div
+                                key={label}
+                                className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5"
+                              >
+                                <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
+                                  {label}
+                                </p>
+                                <p className="mt-1 font-black text-slate-800">
+                                  {value}
+                                </p>
+                              </div>
+                            ))}
+                            <div className="col-span-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-white sm:col-span-1">
+                              <p className="text-[8px] font-black uppercase tracking-wide text-emerald-100">
+                                Net Income
+                              </p>
+                              <p className="mt-1 text-sm font-black">
+                                ₱{netIncome.toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -840,19 +949,69 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 </button>
               </div>
 
-              {feeDrives.length === 0 ? (
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2 sm:flex-row sm:items-center sm:justify-between">
+                <div
+                  className="inline-flex rounded-lg bg-slate-200/70 p-1"
+                  role="tablist"
+                  aria-label="Dues collection status"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={feeView === "active"}
+                    onClick={() => setFeeView("active")}
+                    className={`rounded-md px-4 py-2 text-xs font-black transition-all ${feeView === "active" ? "bg-white text-[#4A0E17] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  >
+                    Active{" "}
+                    <span className="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700">
+                      {activeFeeDrives.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={feeView === "archived"}
+                    onClick={() => setFeeView("archived")}
+                    className={`rounded-md px-4 py-2 text-xs font-black transition-all ${feeView === "archived" ? "bg-white text-[#4A0E17] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                  >
+                    Archive{" "}
+                    <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] text-slate-600">
+                      {archivedFeeDrives.length}
+                    </span>
+                  </button>
+                </div>
+                <p className="px-2 text-[11px] font-medium text-slate-500">
+                  {feeView === "active"
+                    ? "Current collections accepting payments"
+                    : "Completed and past collections kept for records"}
+                </p>
+              </div>
+
+              {visibleFeeDrives.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
                   <p className="text-xs font-bold text-slate-700">
-                    No Dues Collection Created Yet
+                    {feeView === "archived"
+                      ? "Archive is empty"
+                      : "No active dues collections"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    Click “Add Dues Collection” to create a collection for
-                    membership or activities.
+                    {feeView === "archived"
+                      ? "Collections you archive will be stored here for future reference."
+                      : "Click “Add Dues Collection” to create a collection for membership or activities."}
                   </p>
+                  {feeView === "active" && (
+                    <button
+                      type="button"
+                      onClick={openCreateFeeModal}
+                      className="pt-2 text-xs font-black text-[#7A610D]"
+                    >
+                      Create a collection
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {feeDrives.map((fee, idx) => (
+                  {visibleFeeDrives.map((fee, idx) => (
                     <div
                       key={fee._id || fee.id || idx}
                       className={`bg-slate-50/60 p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
@@ -889,11 +1048,65 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                           </p>
                         )}
                       </div>
-                      <div className="pt-3 border-t border-slate-200/80 space-y-1.5 text-[11px] text-slate-500">
+                      <div className="pt-3 border-t border-slate-200/80 space-y-2 text-[11px] text-slate-500">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="rounded-lg bg-white p-2 border border-slate-200">
+                            <p className="text-[9px] font-bold uppercase text-slate-400">
+                              Target
+                            </p>
+                            <p className="font-black text-slate-800">
+                              ₱
+                              {Number(
+                                fee.expectedCollection || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200">
+                            <p className="text-[9px] font-bold uppercase text-emerald-600">
+                              Received
+                            </p>
+                            <p className="font-black text-emerald-800">
+                              ₱
+                              {Number(fee.collectedAmount || 0).toLocaleString(
+                                "en-PH",
+                              )}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-amber-50 p-2 border border-amber-200">
+                            <p className="text-[9px] font-bold uppercase text-amber-600">
+                              Balance
+                            </p>
+                            <p className="font-black text-amber-900">
+                              ₱
+                              {Number(fee.remainingAmount || 0).toLocaleString(
+                                "en-PH",
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="mb-1 flex items-center justify-between font-bold">
+                            <span>
+                              {fee.paidMemberCount || 0} of{" "}
+                              {fee.targetMemberCount || 0} paid
+                            </span>
+                            <span>{fee.collectionPercentage || 0}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-emerald-600 transition-all"
+                              style={{
+                                width: `${fee.collectionPercentage || 0}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
                         <div className="flex items-center justify-between">
                           <span>Applies To:</span>
                           <span className="font-bold text-slate-700">
-                            {fee.targetYearLevel || "All"}
+                            {fee.targetYearLevel === "All"
+                              ? "All Students"
+                              : fee.targetYearLevel}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -909,25 +1122,34 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             <span>{formatDate(fee.dueDate)}</span>
                           </div>
                         )}
-                        <div className="pt-2 flex items-center justify-end gap-2">
-                          {fee.status === "active" && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => openEditFeeModal(fee)}
-                                className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleArchiveFee(fee)}
-                                className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold"
-                              >
-                                Archive
-                              </button>
-                            </>
-                          )}
+                        <div className="pt-2 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFee(fee)}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#4A0E17] text-white hover:bg-[#601520] font-bold"
+                          >
+                            View students
+                          </button>
+                          <div className="flex items-center gap-2">
+                            {fee.status === "active" && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditFeeModal(fee)}
+                                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveFee(fee)}
+                                  className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold"
+                                >
+                                  Archive
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1060,6 +1282,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           onRecorded={() => {
             setIsCashPaymentModalOpen(false);
             setPaymentAuditKey((current) => current + 1);
+            refreshFeeDrives();
             showToast("Cash payment recorded and verified.", "success");
           }}
         />
@@ -1098,190 +1321,526 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         fee={editingFee}
         org={currentOrg}
         user={currentUser}
+        roster={organizationRoster}
       />
+
+      {selectedFee && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-3xl p-0 overflow-hidden">
+            <div className="bg-[#4A0E17] p-5 text-white sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D4AF37]">
+                    Collection member ledger
+                  </p>
+                  <h3 className="mt-1 text-xl font-black">
+                    {selectedFee.title}
+                  </h3>
+                  <p className="mt-1 text-xs text-rose-100/70">
+                    {selectedFee.targetYearLevel === "All"
+                      ? "All Students"
+                      : selectedFee.targetYearLevel}{" "}
+                    • ₱{Number(selectedFee.amount || 0).toFixed(2)} per student
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFee(null)}
+                  className="rounded-lg bg-white/10 px-3 py-2 text-xs font-black hover:bg-white/20"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mt-5 grid grid-cols-3 gap-3">
+                <div className="rounded-xl bg-white/10 p-3">
+                  <p className="text-[9px] font-bold uppercase text-rose-100/60">
+                    Expected
+                  </p>
+                  <p className="mt-1 font-black">
+                    ₱
+                    {Number(selectedFee.expectedCollection || 0).toLocaleString(
+                      "en-PH",
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-emerald-500/20 p-3">
+                  <p className="text-[9px] font-bold uppercase text-emerald-100/70">
+                    Collected
+                  </p>
+                  <p className="mt-1 font-black">
+                    ₱
+                    {Number(selectedFee.collectedAmount || 0).toLocaleString(
+                      "en-PH",
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-amber-400/20 p-3">
+                  <p className="text-[9px] font-bold uppercase text-amber-100/70">
+                    Remaining
+                  </p>
+                  <p className="mt-1 font-black">
+                    ₱
+                    {Number(selectedFee.remainingAmount || 0).toLocaleString(
+                      "en-PH",
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto p-4 sm:p-6">
+              <div className="space-y-2">
+                {(selectedFee.targetMembers || []).map((member) => (
+                  <div
+                    key={member.student}
+                    className="flex flex-col gap-2 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-800">
+                        {member.name}
+                      </p>
+                      <p className="truncate text-[11px] text-slate-500">
+                        {member.studentIdNumber || "No student ID"} •{" "}
+                        {member.program} {member.section} • {member.yearLevel}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black ${member.paymentStatus === "VERIFIED" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : member.paymentStatus === "PENDING_MANUAL_REVIEW" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-100 text-slate-600"}`}
+                    >
+                      {member.paymentStatus === "VERIFIED"
+                        ? `Paid • ${member.paymentMethod}`
+                        : member.paymentStatus === "PENDING_MANUAL_REVIEW"
+                          ? "Pending verification"
+                          : "Unpaid"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DYNAMIC RECORD TRANSACTION MODAL */}
       {isTransactionModalOpen && (
         <div className="modal-backdrop">
-          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-sm font-extrabold text-[#4A0E17]">
-                  Record Financial Entry
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Log an official revenue or disbursement into the treasury
-                  ledger.
-                </p>
+          <div className="modal-panel max-h-[92vh] max-w-2xl overflow-hidden p-0">
+            <div className="bg-[#4A0E17] px-5 py-5 text-white sm:px-7">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-[#D4AF37] ring-1 ring-white/15">
+                    <WalletIcon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#D4AF37]">
+                      Treasury Ledger
+                    </p>
+                    <h3 className="mt-0.5 text-lg font-black">
+                      Record Financial Entry
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-rose-100/70">
+                      Record official collection income or organization
+                      expenses.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsTransactionModalOpen(false)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-xs font-black text-white transition hover:bg-white/20"
+                  aria-label="Close financial entry modal"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                onClick={() => setIsTransactionModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer font-bold"
-              >
-                ✕
-              </button>
             </div>
 
             <form
               onSubmit={handleTransactionSubmit}
-              className="space-y-3.5 text-xs"
+              className="max-h-[calc(92vh-108px)] overflow-y-auto text-xs"
             >
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Entry Type
-                </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+              <div className="space-y-5 p-5 sm:p-7">
+                <section>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="font-black uppercase tracking-wider text-slate-500">
+                      Entry Type
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      Choose how this affects the ledger
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTransactionForm({
+                          ...transactionForm,
+                          type: "income",
+                          title: "",
+                          category: "Membership Dues",
+                          amount: "",
+                          feeId: "",
+                        })
+                      }
+                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                        transactionForm.type === "income"
+                          ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/10"
+                          : "border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40"
+                      }`}
+                    >
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-black ${
+                          transactionForm.type === "income"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        +
+                      </span>
+                      <span>
+                        <span className="block font-black text-slate-800">
+                          Income Entry
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          Post verified dues revenue
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTransactionForm({
+                          ...transactionForm,
+                          type: "expense",
+                          title: "",
+                          category: "Events & Logistics",
+                          amount: "",
+                          feeId: "",
+                        })
+                      }
+                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                        transactionForm.type === "expense"
+                          ? "border-[#4A0E17] bg-rose-50 ring-2 ring-[#4A0E17]/10"
+                          : "border-slate-200 bg-white hover:border-rose-200 hover:bg-rose-50/40"
+                      }`}
+                    >
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-black ${
+                          transactionForm.type === "expense"
+                            ? "bg-[#4A0E17] text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        −
+                      </span>
+                      <span>
+                        <span className="block font-black text-slate-800">
+                          Expense Entry
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          Record an official disbursement
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </section>
+
+                {transactionForm.type === "income" && (
+                  <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
+                    <div className="mb-3">
+                      <p className="font-black text-emerald-950">
+                        Link an Active Collection
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-emerald-800/70">
+                        Only verified, unposted collections can be recognized as
+                        income.
+                      </p>
+                    </div>
+                    <label className="mb-1.5 block font-bold text-slate-700">
+                      Dues Collection <span className="text-rose-600">*</span>
+                    </label>
+                    <select
+                      required
+                      value={transactionForm.feeId}
+                      onChange={(event) => {
+                        const fee = activeFeeDrives.find(
+                          (item) => item._id === event.target.value,
+                        );
+                        const posted = transactions
+                          .filter(
+                            (entry) =>
+                              entry.type === "income" &&
+                              String(entry.fee?._id || entry.fee || "") ===
+                                event.target.value,
+                          )
+                          .reduce(
+                            (total, entry) => total + Number(entry.amount || 0),
+                            0,
+                          );
+                        setTransactionForm({
+                          ...transactionForm,
+                          feeId: event.target.value,
+                          title: fee ? `${fee.title} collection income` : "",
+                          category: "Membership Dues",
+                          amount: fee
+                            ? Math.max(
+                                0,
+                                Number(fee.collectedAmount || 0) - posted,
+                              ).toFixed(2)
+                            : "",
+                        });
+                      }}
+                      className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-3 font-bold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+                    >
+                      <option value="">Select active collection</option>
+                      {activeFeeDrives.map((fee) => (
+                        <option key={fee._id} value={fee._id}>
+                          {fee.title} · ₱{Number(fee.amount || 0).toFixed(2)}{" "}
+                          per student
+                        </option>
+                      ))}
+                    </select>
+
+                    {selectedIncomeFee && (
+                      <div className="mt-4 space-y-3">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {[
+                            ["Student Price", selectedIncomeFee.amount],
+                            ["Base Cost", selectedIncomeFee.baseCost],
+                            [
+                              "Margin / Student",
+                              selectedIncomeFee.marginPerMember,
+                            ],
+                            [
+                              "Margin",
+                              `${
+                                Number(selectedIncomeFee.amount || 0) > 0
+                                  ? (
+                                      (Number(
+                                        selectedIncomeFee.marginPerMember || 0,
+                                      ) /
+                                        Number(selectedIncomeFee.amount)) *
+                                      100
+                                    ).toFixed(2)
+                                  : "0.00"
+                              }%`,
+                            ],
+                          ].map(([label, value], index) => (
+                            <div
+                              key={label}
+                              className="rounded-xl border border-emerald-100 bg-white p-2.5"
+                            >
+                              <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
+                                {label}
+                              </p>
+                              <p className="mt-1 font-black text-slate-800">
+                                {index === 3
+                                  ? value
+                                  : `₱${Number(value || 0).toFixed(2)}`}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                          <div className="grid grid-cols-1 divide-y divide-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                            <div className="p-3">
+                              <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">
+                                Verified Collection
+                              </p>
+                              <p className="mt-1 text-base font-black text-slate-900">
+                                ₱
+                                {Number(
+                                  selectedIncomeFee.collectedAmount || 0,
+                                ).toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="p-3">
+                              <p className="text-[9px] font-black uppercase tracking-wide text-slate-400">
+                                Already Posted
+                              </p>
+                              <p className="mt-1 text-base font-black text-slate-700">
+                                ₱{selectedFeePostedIncome.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="bg-emerald-600 p-3 text-white">
+                              <p className="text-[9px] font-black uppercase tracking-wide text-emerald-100">
+                                Available to Post
+                              </p>
+                              <p className="mt-1 text-base font-black">
+                                ₱{selectedFeeAvailableIncome.toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 border-t border-slate-100 bg-slate-50">
+                            {" "}
+                            <div className="border-l border-slate-200 p-3">
+                              <p className="text-[9px] font-black uppercase tracking-wide text-emerald-600">
+                                Net Income
+                              </p>
+                              <p className="mt-1 font-black text-emerald-700">
+                                ₱{incomeNetAmount.toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {transactionForm.type === "expense" && (
+                  <section>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1.5 block font-bold text-slate-700">
+                          Title / Particulars{" "}
+                          <span className="text-rose-600">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          readOnly={transactionForm.type === "income"}
+                          placeholder="e.g. General Assembly Refreshments"
+                          value={transactionForm.title}
+                          onChange={(e) =>
+                            setTransactionForm({
+                              ...transactionForm,
+                              title: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10 read-only:bg-slate-50 read-only:text-slate-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block font-bold text-slate-700">
+                            Category
+                          </label>
+                          <select
+                            value={transactionForm.category}
+                            disabled={transactionForm.type === "income"}
+                            onChange={(e) =>
+                              setTransactionForm({
+                                ...transactionForm,
+                                category: e.target.value,
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-medium outline-none transition focus:border-[#4A0E17] disabled:bg-slate-50 disabled:text-slate-500"
+                          >
+                            <option value="Events & Logistics">
+                              Events & Logistics
+                            </option>
+                            <option value="Operational Supplies">
+                              Operational Supplies
+                            </option>
+                            <option value="Membership Dues">
+                              Membership Dues
+                            </option>
+                            <option value="Sponsorship">Sponsorship</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block font-bold text-slate-700">
+                            Amount to Post (₱){" "}
+                            <span className="text-rose-600">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="0.01"
+                            max={
+                              transactionForm.type === "income"
+                                ? selectedFeeAvailableIncome
+                                : undefined
+                            }
+                            step="0.01"
+                            required
+                            placeholder="0.00"
+                            value={transactionForm.amount}
+                            onChange={(e) =>
+                              setTransactionForm({
+                                ...transactionForm,
+                                amount: e.target.value,
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-bold outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
+                          />
+                          {transactionForm.type === "income" &&
+                            selectedIncomeFee && (
+                              <p className="mt-1 text-[9px] font-medium text-slate-400">
+                                Maximum available: ₱
+                                {selectedFeeAvailableIncome.toFixed(2)}
+                              </p>
+                            )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1.5 block font-bold text-slate-700">
+                            Reference / OR No.
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. OR-9901"
+                            value={transactionForm.reference}
+                            onChange={(e) =>
+                              setTransactionForm({
+                                ...transactionForm,
+                                reference: e.target.value,
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block font-bold text-slate-700">
+                            Transaction Date{" "}
+                            <span className="text-rose-600">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={transactionForm.date}
+                            onChange={(e) =>
+                              setTransactionForm({
+                                ...transactionForm,
+                                date: e.target.value,
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </div>
+
+              <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-7">
+                <p className="text-center text-[9px] text-slate-400 sm:text-left">
+                  Entries are saved to the official organization ledger.
+                </p>
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      setTransactionForm({ ...transactionForm, type: "income" })
-                    }
-                    className={`py-2 rounded-lg font-bold cursor-pointer transition-all ${
-                      transactionForm.type === "income"
-                        ? "bg-emerald-600 text-white shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
+                    onClick={() => setIsTransactionModalOpen(false)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-bold text-slate-600 transition hover:bg-slate-50 sm:flex-none"
                   >
-                    + Income Entry
+                    Cancel
                   </button>
                   <button
-                    type="button"
-                    onClick={() =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        type: "expense",
-                      })
+                    type="submit"
+                    disabled={
+                      isSubmitting ||
+                      (transactionForm.type === "income" &&
+                        (!selectedIncomeFee || selectedFeeAvailableIncome <= 0))
                     }
-                    className={`py-2 rounded-lg font-bold cursor-pointer transition-all ${
-                      transactionForm.type === "expense"
-                        ? "bg-[#4A0E17] text-white shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
+                    className="flex-1 rounded-xl bg-[#4A0E17] px-5 py-2.5 font-black text-white shadow-sm transition hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                   >
-                    - Expense Entry
+                    {isSubmitting ? "Saving Entry..." : "Save Financial Entry"}
                   </button>
                 </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Title / Particulars <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. General Assembly Refreshments / T-Shirt Sales"
-                  value={transactionForm.title}
-                  onChange={(e) =>
-                    setTransactionForm({
-                      ...transactionForm,
-                      title: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={transactionForm.category}
-                    onChange={(e) =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        category: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] bg-white font-medium"
-                  >
-                    <option value="Events & Logistics">
-                      Events & Logistics
-                    </option>
-                    <option value="Operational Supplies">
-                      Operational Supplies
-                    </option>
-                    <option value="Membership Dues">Membership Dues</option>
-                    <option value="Sponsorship">Sponsorship</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Amount (₱) <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="0.00"
-                    value={transactionForm.amount}
-                    onChange={(e) =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        amount: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17]"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Reference / OR No.
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. OR-9901"
-                    value={transactionForm.reference}
-                    onChange={(e) =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        reference: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Date <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={transactionForm.date}
-                    onChange={(e) =>
-                      setTransactionForm({
-                        ...transactionForm,
-                        date: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17]"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsTransactionModalOpen(false)}
-                  className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-lg transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isSubmitting ? "Saving..." : "Save Transaction"}
-                </button>
               </div>
             </form>
           </div>

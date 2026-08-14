@@ -81,6 +81,8 @@ const proposalSchema = new mongoose.Schema(
         "Draft",
         "Submitted",
         "Pending Adviser Review",
+        "Pending Dean Review",
+        "Pending OVPSAS Review",
         "Approved",
         "Rejected",
       ],
@@ -109,6 +111,26 @@ const proposalSchema = new mongoose.Schema(
       reviewedAt: Date,
     },
     adviserReview: {
+      decision: {
+        type: String,
+        enum: ["Approved", "Rejected"],
+      },
+      digitalSignature: { type: String, trim: true, maxlength: 150 },
+      remarks: { type: String, trim: true, maxlength: 500, default: "" },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      reviewedAt: Date,
+    },
+    deanReview: {
+      decision: {
+        type: String,
+        enum: ["Approved", "Rejected"],
+      },
+      digitalSignature: { type: String, trim: true, maxlength: 150 },
+      remarks: { type: String, trim: true, maxlength: 500, default: "" },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      reviewedAt: Date,
+    },
+    ovpsasReview: {
       decision: {
         type: String,
         enum: ["Approved", "Rejected"],

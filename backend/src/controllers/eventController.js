@@ -1,5 +1,31 @@
+const crypto = require("crypto");
 const Event = require("../models/Event");
+const EventAttendance = require("../models/EventAttendance");
+const Member = require("../models/MemberOrganization");
 const Proposal = require("../models/Proposal");
+
+const ATTENDANCE_PHASES = new Set(["onsite"]);
+
+const hashAttendanceToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
+const parseAttendanceCode = (code) => {
+  try {
+    const payload = JSON.parse(String(code || ""));
+    if (
+      payload?.type !== "somis-event-attendance" ||
+      payload?.version !== 1 ||
+      !payload.eventId ||
+      !ATTENDANCE_PHASES.has(payload.phase) ||
+      !payload.token
+    ) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+};
 
 const getLifecycle = (event, now = Date.now()) => {
   const start = new Date(event.startDateTime).getTime();
@@ -111,4 +137,316 @@ const createEvent = async (req, res) => {
   }
 };
 
-module.exports = { getEvents, createEvent, getLifecycle };
+const generateAttendanceQr = async (req, res) => {
+  try {
+    const phase = String(req.body?.phase || "").toLowerCase();
+    if (!ATTENDANCE_PHASES.has(phase)) {
+      return res.status(400).json({
+        success: false,
+        message: "Only on-site attendance QR codes can be generated.",
+      });
+    }
+
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    }).select("+attendanceQr.onsite.tokenHash");
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+
+    const now = new Date();
+    if (event.status === "Cancelled" || now >= event.endDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "Attendance QR codes cannot be generated for a closed event.",
+      });
+    }
+    if (now < event.startDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "The on-site QR can only be generated when the event starts.",
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    event.attendanceQr[phase] = {
+      tokenHash: hashAttendanceToken(token),
+      generatedAt: now,
+      generatedBy: req.user._id,
+    };
+    await event.save();
+
+    const code = JSON.stringify({
+      type: "somis-event-attendance",
+      version: 1,
+      eventId: String(event._id),
+      phase,
+      token,
+    });
+
+    return res.json({
+      success: true,
+      message: "On-site attendance QR generated.",
+      data: { eventId: event._id, phase, code, generatedAt: now },
+    });
+  } catch (error) {
+    console.error("Error generating attendance QR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not generate the attendance QR code.",
+    });
+  }
+};
+
+const joinEvent = async (req, res) => {
+  try {
+    if (!Event.db.base.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event identifier.",
+      });
+    }
+
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+
+    const member = await Member.findOne({
+      organization: event.org,
+      email: req.user.email.toLowerCase().trim(),
+    });
+    if (!member) {
+      return res.status(403).json({
+        success: false,
+        message: "Only registered student members can join this event.",
+      });
+    }
+
+    const now = new Date();
+    if (
+      event.status === "Cancelled" ||
+      now >= event.startDateTime ||
+      now >= event.endDateTime
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Joining has closed because this event is no longer upcoming.",
+      });
+    }
+
+    const attendance = await EventAttendance.findOneAndUpdate(
+      { event: event._id, student: req.user._id },
+      {
+        $setOnInsert: {
+          org: event.org,
+          member: member._id,
+          status: "Pending",
+          joinedAt: now,
+        },
+      },
+      { new: true, upsert: true, runValidators: true },
+    );
+
+    return res.json({
+      success: true,
+      message:
+        "You joined the event. Attendance is pending on-site verification.",
+      data: attendance,
+    });
+  } catch (error) {
+    console.error("Error joining event:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already joined this event.",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Could not join this event.",
+    });
+  }
+};
+
+const scanAttendanceQr = async (req, res) => {
+  try {
+    const payload = parseAttendanceCode(req.body?.code);
+    if (!payload) {
+      return res.status(400).json({
+        success: false,
+        message: "This is not a valid SOMIS attendance QR code.",
+      });
+    }
+
+    if (!Event.db.base.Types.ObjectId.isValid(payload.eventId)) {
+      return res.status(400).json({
+        success: false,
+        message: "This attendance QR contains an invalid event identifier.",
+      });
+    }
+
+    const event = await Event.findById(payload.eventId).select(
+      "+attendanceQr.onsite.tokenHash",
+    );
+    if (!event || String(event.org) !== String(req.user.organization || "")) {
+      return res.status(404).json({
+        success: false,
+        message: "This event is not available to your organization.",
+      });
+    }
+
+    const member = await Member.findOne({
+      organization: event.org,
+      email: req.user.email.toLowerCase().trim(),
+    });
+    if (!member || req.user.role !== "student") {
+      return res.status(403).json({
+        success: false,
+        message: "Only registered student members can record attendance.",
+      });
+    }
+
+    const storedHash = event.attendanceQr?.[payload.phase]?.tokenHash;
+    const suppliedHash = hashAttendanceToken(payload.token);
+    if (
+      !storedHash ||
+      storedHash.length !== suppliedHash.length ||
+      !crypto.timingSafeEqual(
+        Buffer.from(storedHash),
+        Buffer.from(suppliedHash),
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "This attendance QR has expired or was replaced.",
+      });
+    }
+
+    const now = new Date();
+    if (event.status === "Cancelled" || now >= event.endDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "Attendance for this event is closed.",
+      });
+    }
+
+    let attendance = await EventAttendance.findOne({
+      event: event._id,
+      student: req.user._id,
+    });
+
+    if (now < event.startDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "On-site attendance opens when the event starts.",
+      });
+    }
+    if (!attendance) {
+      return res.status(409).json({
+        success: false,
+        message: "Join this event before scanning the on-site QR code.",
+      });
+    }
+    attendance.status = "Present";
+    attendance.presentAt = attendance.presentAt || now;
+    await attendance.save();
+
+    return res.json({
+      success: true,
+      message: "Attendance confirmed. You are marked present.",
+      data: attendance,
+    });
+  } catch (error) {
+    console.error("Error scanning attendance QR:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Your attendance was already recorded. Refresh to see its status.",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Could not record attendance.",
+    });
+  }
+};
+
+const getMyAttendance = async (req, res) => {
+  try {
+    const records = await EventAttendance.find({
+      student: req.user._id,
+    }).select("event status joinedAt presentAt updatedAt");
+    return res.json({ success: true, data: records });
+  } catch (error) {
+    console.error("Error fetching student attendance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not fetch your attendance records.",
+    });
+  }
+};
+
+const getEventAttendance = async (req, res) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+
+    const records = await EventAttendance.find({ event: event._id })
+      .populate("student", "name email")
+      .populate("member", "idNumber name year program section")
+      .sort({ status: 1, joinedAt: 1 });
+    const summary = records.reduce(
+      (counts, record) => {
+        counts.joined += 1;
+        counts[record.status.toLowerCase()] += 1;
+        return counts;
+      },
+      {
+        total: event.expectedAttendees,
+        joined: 0,
+        pending: 0,
+        present: 0,
+      },
+    );
+
+    return res.json({ success: true, data: records, summary });
+  } catch (error) {
+    console.error("Error fetching event attendance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not fetch event attendance.",
+    });
+  }
+};
+
+module.exports = {
+  getEvents,
+  createEvent,
+  getLifecycle,
+  generateAttendanceQr,
+  joinEvent,
+  scanAttendanceQr,
+  getMyAttendance,
+  getEventAttendance,
+  parseAttendanceCode,
+};

@@ -46,7 +46,13 @@ const paymentSchema = new mongoose.Schema(
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: [true, "Student is required"],
+      default: null,
+      index: true,
+    },
+    member: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Member",
+      default: null,
       index: true,
     },
     event: {
@@ -181,6 +187,9 @@ const paymentSchema = new mongoose.Schema(
 
 // Keep legacy and canonical amount fields synchronized during future writes.
 paymentSchema.pre("validate", function syncAmountFields() {
+  if (!this.student && !this.member) {
+    this.invalidate("student", "A user or roster member is required");
+  }
   if (this.claimedAmount == null && this.amount != null) {
     this.claimedAmount = this.amount;
   }
@@ -207,6 +216,7 @@ paymentSchema.index({
   createdAt: -1,
 });
 paymentSchema.index({ student: 1, createdAt: -1 });
+paymentSchema.index({ member: 1, createdAt: -1 });
 
 const Payment = mongoose.model("Payment", paymentSchema);
 

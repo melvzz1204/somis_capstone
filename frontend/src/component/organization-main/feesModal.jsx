@@ -135,6 +135,7 @@ export default function FeeModal({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [targetMembers, setTargetMembers] = useState([]);
+  const [targetDiagnostics, setTargetDiagnostics] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const unitAmount = Number(formData.amount) || 0;
@@ -184,6 +185,7 @@ export default function FeeModal({
     Promise.resolve().then(() => {
       if (!isCurrentRequest) return;
       setTargetMembers([]);
+      setTargetDiagnostics(null);
       setPreviewError("");
       setPreviewLoading(true);
     });
@@ -194,6 +196,7 @@ export default function FeeModal({
       .then((response) => {
         if (!isCurrentRequest) return;
         setTargetMembers(response.data?.targetMembers || []);
+        setTargetDiagnostics(response.data?.diagnostics || null);
       })
       .catch((error) => {
         if (!isCurrentRequest) return;
@@ -545,16 +548,13 @@ export default function FeeModal({
             </select>
             <div className="rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/10 p-3">
               <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-[#7A610D]">
-                    Exact collection preview
-                  </p>
-                  <p className="mt-1 text-xs font-medium text-slate-600">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-700">
                     {previewLoading
-                      ? "Fetching active student accounts..."
-                      : `${targetMembers.length} active student account${
-                          targetMembers.length === 1 ? "" : "s"
-                        } will be recorded`}
+                      ? "Checking available members..."
+                      : `${targetMembers.length} member${
+                          targetMembers.length === 1 ? " is" : "s are"
+                        } available`}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
@@ -575,7 +575,7 @@ export default function FeeModal({
                 (previewError || targetMembers.length === 0) && (
                   <p className="mt-2 border-t border-amber-200 pt-2 text-[11px] font-bold text-amber-800">
                     {previewError ||
-                      "No active student accounts currently match this group."}
+                      "No eligible roster members currently match this group."}
                   </p>
                 )}
             </div>

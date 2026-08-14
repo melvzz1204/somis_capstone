@@ -21,7 +21,7 @@ export default function CashPaymentModal({
     () =>
       (roster || []).filter(
         (member) =>
-          member.role?.toLowerCase() === "member" || member.hasAccount,
+          !["Faculty Adviser", "Department Dean"].includes(member.role),
       ),
     [roster],
   );
@@ -29,7 +29,7 @@ export default function CashPaymentModal({
   const eligibleStudents = useMemo(() => {
     if (!selectedFee) return students;
     const targetIds = new Set(
-      (selectedFee.targetMembers || []).map((member) => String(member.student)),
+      (selectedFee.targetMembers || []).map((member) => String(member.member)),
     );
     const targetEmails = new Set(
       (selectedFee.targetMembers || []).map((member) =>
@@ -39,7 +39,7 @@ export default function CashPaymentModal({
     if (targetIds.size === 0 && targetEmails.size === 0) return students;
     return students.filter(
       (student) =>
-        targetIds.has(String(student.user || student.userId || "")) ||
+        targetIds.has(String(student._id || "")) ||
         targetEmails.has(String(student.email || "").toLowerCase()),
     );
   }, [selectedFee, students]);
@@ -77,10 +77,7 @@ export default function CashPaymentModal({
       );
       const response = await API.post("/payments/cash", {
         ...form,
-        studentId:
-          targetMember?.student ||
-          selectedStudent.user ||
-          selectedStudent.userId,
+        memberId: targetMember?.member || selectedStudent._id,
         studentIdentifier: selectedStudent.idNumber || selectedStudent.email,
       });
       onRecorded(response.data);
@@ -163,7 +160,7 @@ export default function CashPaymentModal({
                           {student.name}
                         </p>
                         <p className="text-[11px] text-slate-500">
-                          {student.idNumber || "No student ID"} •{" "}
+                          {student.idNumber || "No student ID"} -{" "}
                           {student.email}
                         </p>
                       </button>

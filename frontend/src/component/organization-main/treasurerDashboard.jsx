@@ -1391,7 +1391,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               <div className="space-y-2">
                 {(selectedFee.targetMembers || []).map((member) => (
                   <div
-                    key={member.student}
+                    key={member.member || member.student || member.email}
                     className="flex flex-col gap-2 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">

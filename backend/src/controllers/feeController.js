@@ -1,4 +1,5 @@
 const Fee = require("../models/Fee");
+const Member = require("../models/MemberOrganization");
 const Payment = require("../models/Payment");
 const StudentProfile = require("../models/studentProfile");
 const User = require("../models/User");
@@ -12,41 +13,62 @@ const TARGET_LEVELS = [
   "5th Year+",
 ];
 
-const getTargetMembers = async (orgId, targetYearLevel) => {
-  const profileQuery = { organization: orgId };
-  if (targetYearLevel !== "All") profileQuery.yearLevel = targetYearLevel;
+const normalizeEmail = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
-  const profiles = await StudentProfile.find(profileQuery)
-    .select("user studentIdNumber yearLevel program section firstName lastName")
-    .lean();
-  const activeStudents = await User.find({
-    _id: { $in: profiles.map((profile) => profile.user) },
+const resolveTargetMembers = async (orgId, targetYearLevel) => {
+  const rosterQuery = {
     organization: orgId,
-    role: "student",
+    role: { $nin: ["Faculty Adviser", "Department Dean"] },
+  };
+  if (targetYearLevel !== "All") rosterQuery.year = targetYearLevel;
+
+  const rosterMembers = await Member.find(rosterQuery)
+    .select("idNumber name email year program section role")
+    .lean();
+  const rosterEmails = rosterMembers.map((member) =>
+    normalizeEmail(member.email),
+  );
+  const linkedUsers = await User.find({
+    organization: orgId,
+    email: { $in: rosterEmails },
     status: "Active",
   })
-    .select("name email")
+    .select("email")
     .lean();
-  const usersById = new Map(
-    activeStudents.map((student) => [String(student._id), student]),
+  const usersByEmail = new Map(
+    linkedUsers.map((user) => [normalizeEmail(user.email), user]),
   );
 
-  return profiles
-    .map((profile) => {
-      const student = usersById.get(String(profile.user));
-      if (!student) return null;
-      return {
-        student: student._id,
-        name: student.name || `${profile.firstName} ${profile.lastName}`.trim(),
-        email: student.email,
-        studentIdNumber: profile.studentIdNumber,
-        yearLevel: profile.yearLevel,
-        program: profile.program,
-        section: profile.section,
-      };
-    })
-    .filter(Boolean)
+  const targetMembers = rosterMembers
+    .map((member) => ({
+      member: member._id,
+      student: usersByEmail.get(normalizeEmail(member.email))?._id || null,
+      name: member.name,
+      email: member.email,
+      studentIdNumber: member.idNumber,
+      yearLevel: member.year,
+      program: member.program,
+      section: member.section,
+      role: member.role,
+    }))
     .sort((left, right) => left.name.localeCompare(right.name));
+
+  return {
+    targetMembers,
+    diagnostics: {
+      rosterMemberCount: targetMembers.length,
+      linkedAccountCount: targetMembers.filter((member) => member.student)
+        .length,
+      excludedRoleCount: await Member.countDocuments({
+        organization: orgId,
+        role: { $in: ["Faculty Adviser", "Department Dean"] },
+        ...(targetYearLevel === "All" ? {} : { year: targetYearLevel }),
+      }),
+    },
+  };
 };
 
 const addCollectionProgress = async (fees) => {
@@ -57,7 +79,7 @@ const addCollectionProgress = async (fees) => {
     status: { $in: ["VERIFIED", "PENDING_MANUAL_REVIEW"] },
   })
     .select(
-      "fee student claimedAmount status paymentMethod verifiedAt createdAt",
+      "fee student member claimedAmount status paymentMethod verifiedAt createdAt",
     )
     .lean();
   const paymentsByFee = new Map();
@@ -70,9 +92,15 @@ const addCollectionProgress = async (fees) => {
   return fees.map((feeDocument) => {
     const fee = feeDocument.toObject ? feeDocument.toObject() : feeDocument;
     const feePayments = paymentsByFee.get(String(fee._id)) || [];
-    const paymentByStudent = new Map(
-      feePayments.map((payment) => [String(payment.student), payment]),
-    );
+    const paymentsByTarget = new Map();
+    feePayments.forEach((payment) => {
+      if (payment.member) {
+        paymentsByTarget.set(`member:${payment.member}`, payment);
+      }
+      if (payment.student) {
+        paymentsByTarget.set(`student:${payment.student}`, payment);
+      }
+    });
     const verifiedPayments = feePayments.filter(
       (payment) => payment.status === "VERIFIED",
     );
@@ -81,7 +109,11 @@ const addCollectionProgress = async (fees) => {
       0,
     );
     const targetMembers = (fee.targetMembers || []).map((member) => {
-      const payment = paymentByStudent.get(String(member.student));
+      const payment =
+        (member.member &&
+          paymentsByTarget.get(`member:${String(member.member)}`)) ||
+        (member.student &&
+          paymentsByTarget.get(`student:${String(member.student)}`));
       return {
         ...member,
         paymentStatus: payment?.status || "UNPAID",
@@ -168,7 +200,7 @@ const archiveExpiredFees = async (orgId) => {
 };
 
 /**
- * @desc    Preview the exact active students that will be snapshotted
+ * @desc    Preview all roster members except advisers and deans
  * @route   GET /api/v1/fees/target-preview
  * @access  Private (Treasurer)
  */
@@ -183,7 +215,7 @@ const previewFeeTargets = async (req, res) => {
       });
     }
 
-    const targetMembers = await getTargetMembers(
+    const { targetMembers, diagnostics } = await resolveTargetMembers(
       req.user.organization,
       targetYearLevel,
     );
@@ -194,6 +226,7 @@ const previewFeeTargets = async (req, res) => {
         targetYearLevel,
         targetMemberCount: targetMembers.length,
         targetMembers,
+        diagnostics,
       },
     });
   } catch (error) {
@@ -250,18 +283,18 @@ const createFee = async (req, res) => {
       });
     }
 
-    const targetMembers = await getTargetMembers(
+    const { targetMembers } = await resolveTargetMembers(
       targetOrgId,
       feeFields.targetYearLevel,
     );
     if (targetMembers.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "No active student accounts match the selected target group.",
+        message: "No eligible roster members match the selected target group.",
       });
     }
 
-    // Snapshot the eligible students so the collection target stays exact even
+    // Snapshot the eligible roster members so the collection target stays exact even
     // when the organization roster changes later.
     const newFee = await Fee.create({
       org: targetOrgId,
@@ -278,7 +311,7 @@ const createFee = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Collection created for ${targetMembers.length} student${targetMembers.length === 1 ? "" : "s"}.`,
+      message: `Collection created for ${targetMembers.length} member${targetMembers.length === 1 ? "" : "s"}.`,
       data: feeWithProgress,
     });
   } catch (error) {
@@ -393,15 +426,16 @@ const updateFee = async (req, res) => {
 
     let targetMembers = fee.targetMembers;
     if (targetChanged || !targetMembers.length) {
-      targetMembers = await getTargetMembers(
+      const resolvedTargets = await resolveTargetMembers(
         req.user.organization,
         feeFields.targetYearLevel,
       );
+      targetMembers = resolvedTargets.targetMembers;
       if (targetMembers.length === 0) {
         return res.status(400).json({
           success: false,
           message:
-            "No active student accounts match the selected target group.",
+            "No eligible roster members match the selected target group.",
         });
       }
     }

@@ -11,7 +11,7 @@ const {
 } = require("../models/Payment");
 
 const PAYMENT_PUBLIC_FIELDS =
-  "student organization fee event claimedAmount extractedAmount paymentMethod referenceNumber cashReceiptNumber cashNotes recordedBy paidAt receiptImageUrl status failureReason verificationMethod verifiedAt createdAt updatedAt";
+  "student member organization fee event claimedAmount extractedAmount paymentMethod referenceNumber cashReceiptNumber cashNotes recordedBy paidAt receiptImageUrl status failureReason verificationMethod verifiedAt createdAt updatedAt";
 
 /**
  * @param {unknown} value
@@ -68,8 +68,14 @@ const createPayment = async (req, res) => {
       });
     }
 
+    const targetMember = fee.targetMembers.find(
+      (target) => String(target.student || "") === String(req.user._id),
+    );
+    const targetIdentityQuery = targetMember?.member
+      ? { $or: [{ member: targetMember.member }, { student: req.user._id }] }
+      : { student: req.user._id };
     const existingFeePayment = await Payment.findOne({
-      student: req.user._id,
+      ...targetIdentityQuery,
       fee: fee._id,
       status: { $in: ["PENDING_MANUAL_REVIEW", "VERIFIED"] },
     })
@@ -120,6 +126,7 @@ const createPayment = async (req, res) => {
 
     const payment = await Payment.create({
       student: req.user._id,
+      member: targetMember?.member || undefined,
       organization: fee.org,
       fee: fee._id,
       claimedAmount: fee.amount,
@@ -460,6 +467,7 @@ const listPaymentAudit = async (req, res) => {
     const payments = await Payment.find(query)
       .select(`${PAYMENT_PUBLIC_FIELDS} rawSmsMessage`)
       .populate("student", "name email")
+      .populate("member", "name email idNumber role")
       .populate("fee", "title")
       .sort({ verifiedAt: -1, createdAt: -1 })
       .lean();
@@ -488,72 +496,68 @@ const listPaymentAudit = async (req, res) => {
  */
 const recordCashPayment = async (req, res) => {
   const feeId = req.body?.feeId;
-  const studentId = req.body?.studentId;
+  const memberId = req.body?.memberId;
   const studentIdentifier = String(req.body?.studentIdentifier || "").trim();
   const cashReceiptNumber = String(req.body?.cashReceiptNumber || "").trim();
   const cashNotes = String(req.body?.cashNotes || "").trim();
 
-  if (!isObjectId(feeId) || (!isObjectId(studentId) && !studentIdentifier)) {
+  if (!isObjectId(feeId) || (!isObjectId(memberId) && !studentIdentifier)) {
     return res.status(400).json({
       success: false,
-      message: "A valid student selection and fee are required.",
+      message: "A valid roster member and fee are required.",
     });
   }
 
   try {
-    let studentQuery = null;
-
-    if (isObjectId(studentId)) {
-      studentQuery = { _id: studentId };
-    } else {
-      const member = await Member.findOne({
-        organization: req.user.organization,
-        $or: [
-          { idNumber: studentIdentifier },
-          { email: studentIdentifier.toLowerCase() },
-        ],
-      }).select("email");
-      if (!member) {
-        return res.status(404).json({
-          success: false,
-          message: "The selected student is not in your organization roster.",
-        });
-      }
-      studentQuery = { email: member.email.toLowerCase().trim() };
-    }
-
-    const student = await User.findOne({
-      ...studentQuery,
+    const memberLookup = isObjectId(memberId)
+      ? { _id: memberId }
+      : {
+          $or: [
+            { idNumber: studentIdentifier },
+            { email: studentIdentifier.toLowerCase() },
+          ],
+        };
+    const member = await Member.findOne({
+      ...memberLookup,
       organization: req.user.organization,
-      role: "student",
-      status: "Active",
-    }).select("name email");
-    if (!student) {
+      role: { $nin: ["Faculty Adviser", "Department Dean"] },
+    }).select("name email idNumber role");
+    if (!member) {
       return res.status(404).json({
         success: false,
-        message:
-          "The selected roster member does not have an active student account.",
+        message: "The selected member is not an eligible organization member.",
       });
     }
 
+    const student = await User.findOne({
+      organization: req.user.organization,
+      email: member.email.toLowerCase().trim(),
+      status: "Active",
+    }).select("name email");
+    const targetQueries = [
+      { "targetMembers.member": member._id },
+      { targetMembers: { $size: 0 } },
+    ];
+    if (student) {
+      targetQueries.push({ "targetMembers.student": student._id });
+    }
     const fee = await Fee.findOne({
       _id: feeId,
       org: req.user.organization,
       status: "active",
-      $or: [
-        { "targetMembers.student": student._id },
-        { targetMembers: { $size: 0 } },
-      ],
+      $or: targetQueries,
     }).select("org amount title targetMembers");
     if (!fee)
       return res.status(404).json({
         success: false,
         message:
-          "The selected active fee was not found or does not apply to this student.",
+          "The selected active fee was not found or does not apply to this member.",
       });
 
+    const identityQueries = [{ member: member._id }];
+    if (student) identityQueries.push({ student: student._id });
     const existing = await Payment.findOne({
-      student: student._id,
+      $or: identityQueries,
       fee: fee._id,
       status: { $in: ["PENDING_MANUAL_REVIEW", "VERIFIED"] },
     }).select(PAYMENT_PUBLIC_FIELDS);
@@ -563,12 +567,13 @@ const recordCashPayment = async (req, res) => {
         message:
           existing.status === "VERIFIED"
             ? "This fee is already paid."
-            : "This student already has an active payment for this fee.",
+            : "This member already has an active payment for this fee.",
         data: existing,
       });
 
     const payment = await Payment.create({
-      student: student._id,
+      student: student?._id || undefined,
+      member: member._id,
       organization: fee.org,
       fee: fee._id,
       claimedAmount: fee.amount,
@@ -582,6 +587,7 @@ const recordCashPayment = async (req, res) => {
       verifiedAt: new Date(),
     });
     await payment.populate("student", "name email");
+    await payment.populate("member", "name email idNumber role");
     await payment.populate("fee", "title dueDate academicYear semester");
 
     return res.status(201).json({

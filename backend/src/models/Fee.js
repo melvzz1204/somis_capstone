@@ -57,10 +57,15 @@ const feeSchema = new mongoose.Schema(
     targetMembers: [
       {
         _id: false,
+        member: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Member",
+          default: null,
+        },
         student: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
-          required: true,
+          default: null,
         },
         name: { type: String, required: true, trim: true },
         email: { type: String, required: true, trim: true, lowercase: true },
@@ -68,6 +73,7 @@ const feeSchema = new mongoose.Schema(
         yearLevel: { type: String, trim: true, default: "" },
         program: { type: String, trim: true, default: "" },
         section: { type: String, trim: true, default: "" },
+        role: { type: String, trim: true, default: "Member" },
       },
     ],
     targetMemberCount: {
@@ -114,6 +120,7 @@ const feeSchema = new mongoose.Schema(
 );
 
 feeSchema.index({ org: 1, status: 1, dueDate: 1 });
+feeSchema.index({ org: 1, "targetMembers.member": 1 });
 feeSchema.index({ org: 1, "targetMembers.student": 1 });
 
 module.exports = mongoose.model("Fee", feeSchema);

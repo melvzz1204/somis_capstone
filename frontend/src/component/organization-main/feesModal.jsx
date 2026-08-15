@@ -5,6 +5,11 @@ import {
   CLEARANCE_REQUIREMENTS,
   isCicssoOrganization,
 } from "../../util/clearanceStatus";
+import {
+  ACADEMIC_PERIOD_SEMESTERS,
+  getAcademicYearOptions,
+  getEffectiveAcademicPeriod,
+} from "../../util/academicPeriod";
 import { useToast } from "../../util/toastContext";
 
 // Inline Icon Components
@@ -48,7 +53,7 @@ const normalizeOptions = (options = []) =>
       : { value: String(opt), label: String(opt) },
   );
 
-const DEFAULT_SEMESTERS = ["1st Semester", "2nd Semester", "Summer"];
+const DEFAULT_SEMESTERS = ACADEMIC_PERIOD_SEMESTERS;
 const DEFAULT_TARGET_LEVELS = [
   { value: "All", label: "All Students" },
   { value: "1st Year", label: "1st Year Only" },
@@ -126,18 +131,16 @@ export default function FeeModal({
 
   // Calculate dynamic academic years if not explicitly provided. Keep the
   // clearance year selectable so missing historical dues can be encoded.
-  const currentYear = new Date().getFullYear();
+  const activePeriod = getEffectiveAcademicPeriod(org || user?.organization);
   const defaultAYs = useMemo(
     () =>
       Array.from(
         new Set([
-          `${currentYear - 1}-${currentYear}`,
-          `${currentYear}-${currentYear + 1}`,
-          `${currentYear + 1}-${currentYear + 2}`,
+          ...getAcademicYearOptions(activePeriod.academicYear),
           CLEARANCE_ACADEMIC_YEAR.replace(/\s+/g, ""),
         ]),
       ),
-    [currentYear],
+    [activePeriod.academicYear],
   );
   const academicYears = useMemo(
     () => normalizeOptions(rawAcademicYears || defaultAYs),
@@ -184,10 +187,11 @@ export default function FeeModal({
         baseCost: fee?.baseCost ?? "",
         academicYear:
           fee?.academicYear ||
-          academicYears[1]?.value ||
+          activePeriod.academicYear ||
           academicYears[0]?.value ||
           "",
-        semester: fee?.semester || semesters[0]?.value || "",
+        semester:
+          fee?.semester || activePeriod.semester || semesters[0]?.value || "",
         targetYearLevel:
           fee?.targetYearLevel || targetLevels[0]?.value || "All",
         dueDate: fee?.dueDate
@@ -199,7 +203,16 @@ export default function FeeModal({
     }, 0);
 
     return () => window.clearTimeout(resetRequest);
-  }, [isOpen, fee, categories, academicYears, semesters, targetLevels]);
+  }, [
+    isOpen,
+    fee,
+    categories,
+    academicYears,
+    semesters,
+    targetLevels,
+    activePeriod.academicYear,
+    activePeriod.semester,
+  ]);
 
   useEffect(() => {
     if (!isOpen || !formData.targetYearLevel) return undefined;
@@ -476,7 +489,11 @@ export default function FeeModal({
                   Margin per Student
                 </p>
                 <p className="mt-0.5 text-sm font-black text-emerald-900">
-                  ₱{marginPerMember.toFixed(2)}
+                  ₱
+                  {Number(marginPerMember || 0).toLocaleString("en-PH", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </p>
               </div>
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
@@ -490,11 +507,14 @@ export default function FeeModal({
             </div>
             {unitAmount > 0 && targetMembers.length > 0 && (
               <p className="mt-2 text-right text-[10px] font-bold text-slate-500">
-                Projected total margin: ₱{projectedMargin.toFixed(2)}
+                Projected total margin: ₱
+                {Number(projectedMargin || 0).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
             )}
           </div>
-
           <div>
             <label className="block font-bold text-slate-700 mb-1">
               Due Date <span className="text-rose-600">*</span>

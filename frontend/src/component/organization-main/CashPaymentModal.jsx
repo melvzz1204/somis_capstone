@@ -102,16 +102,88 @@ export default function CashPaymentModal({
         </div>
         <form onSubmit={submit} className="space-y-4">
           {error && (
-            <div className="border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
               {error}
             </div>
           )}
+
+          {/* 1. DUES COLLECTION DROPDOWN (TOP HIERARCHY) */}
+          <div>
+            <label
+              className="mb-1 block text-xs font-bold text-slate-700"
+              htmlFor="cash-fee"
+            >
+              Dues collection <span className="text-rose-600">*</span>
+            </label>
+            <div className="relative">
+              <select
+                id="cash-fee"
+                required
+                value={form.feeId}
+                onChange={(event) => {
+                  setForm((current) => ({
+                    ...current,
+                    feeId: event.target.value,
+                  }));
+                  setSelectedStudent(null);
+                  setStudentQuery("");
+                }}
+                className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-8 text-sm font-medium text-slate-800 outline-none transition-all focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+              >
+                <option value="">Select dues collection...</option>
+                {fees
+                  .filter((fee) => fee.status === "active")
+                  .map((fee) => (
+                    <option key={fee._id} value={fee._id}>
+                      {fee.title} — ₱
+                      {Number(fee.amount || 0).toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </option>
+                  ))}
+              </select>
+              {/* Custom dropdown arrow */}
+              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* FEE CONFIRMATION BADGE */}
+          {selectedFee && (
+            <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-bold text-amber-900 shadow-xs">
+              <span>Confirm cash amount:</span>
+              <span className="text-sm font-black text-[#4A0E17]">
+                ₱
+                {Number(selectedFee.amount || 0).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          )}
+
+          {/* 2. STUDENT SEARCH (SECOND IN HIERARCHY) */}
           <div className="relative">
             <label
               className="mb-1 block text-xs font-bold text-slate-700"
               htmlFor="cash-student-search"
             >
-              Student name or student ID
+              Student name or student ID{" "}
+              <span className="text-rose-600">*</span>
             </label>
             {selectedStudent ? (
               <div className="flex items-center justify-between rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm">
@@ -129,7 +201,7 @@ export default function CashPaymentModal({
                     setSelectedStudent(null);
                     setStudentQuery("");
                   }}
-                  className="text-xs font-bold text-emerald-800"
+                  className="text-xs font-bold text-emerald-800 hover:underline"
                 >
                   Change
                 </button>
@@ -140,9 +212,9 @@ export default function CashPaymentModal({
                   id="cash-student-search"
                   value={studentQuery}
                   onChange={(event) => setStudentQuery(event.target.value)}
-                  placeholder="Search name or student ID"
+                  placeholder="Search name or student ID..."
                   autoComplete="off"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#4A0E17]"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition-all focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                 />
                 {matches.length > 0 && (
                   <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
@@ -154,7 +226,7 @@ export default function CashPaymentModal({
                           setSelectedStudent(student);
                           setStudentQuery("");
                         }}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-rose-50"
+                        className="block w-full border-b border-slate-100 px-3 py-2 text-left transition-colors hover:bg-rose-50/50"
                       >
                         <p className="text-sm font-bold text-slate-800">
                           {student.name}
@@ -170,43 +242,8 @@ export default function CashPaymentModal({
               </>
             )}
           </div>
-          <div>
-            <label
-              className="mb-1 block text-xs font-bold text-slate-700"
-              htmlFor="cash-fee"
-            >
-              Dues collection
-            </label>
-            <select
-              id="cash-fee"
-              required
-              value={form.feeId}
-              onChange={(event) => {
-                setForm((current) => ({
-                  ...current,
-                  feeId: event.target.value,
-                }));
-                setSelectedStudent(null);
-                setStudentQuery("");
-              }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#4A0E17]"
-            >
-              <option value="">Select dues collection</option>
-              {fees
-                .filter((fee) => fee.status === "active")
-                .map((fee) => (
-                  <option key={fee._id} value={fee._id}>
-                    {fee.title} — ₱{Number(fee.amount || 0).toFixed(2)}
-                  </option>
-                ))}
-            </select>
-          </div>
-          {selectedFee && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
-              Confirm cash received: ₱
-              {Number(selectedFee.amount || 0).toFixed(2)}
-            </div>
-          )}
+
+          {/* RECEIPT NUMBER */}
           <div>
             <label
               className="mb-1 block text-xs font-bold text-slate-700"
@@ -224,9 +261,12 @@ export default function CashPaymentModal({
                 }))
               }
               maxLength={100}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#4A0E17]"
+              placeholder="e.g. OR-2026-00123"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition-all focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
             />
           </div>
+
+          {/* NOTES */}
           <div>
             <label
               className="mb-1 block text-xs font-bold text-slate-700"
@@ -245,22 +285,25 @@ export default function CashPaymentModal({
               }
               maxLength={500}
               rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#4A0E17]"
+              placeholder="Add any remarks or notes..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none transition-all focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
             />
           </div>
+
+          {/* ACTION BUTTONS */}
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !selectedFee || !selectedStudent}
-              className="rounded-lg bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              className="rounded-lg bg-[#4A0E17] hover:bg-[#601520] px-4 py-2 text-xs font-bold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? "Recording..." : "Confirm cash received"}
             </button>

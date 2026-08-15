@@ -131,3 +131,37 @@ test("unrelated and different-year payments cannot satisfy a requirement", () =>
   assert.equal(requirement.status, "Not encoded");
   assert.equal(requirement.isSatisfied, false);
 });
+
+test("annual clearance combines requirements from both semesters of the selected year", () => {
+  const academicYear = "2026-2027";
+  const firstSemesterFee = createFee("organization-fee", "organization_fee", {
+    academicYear,
+    semester: "1st Semester",
+  });
+  const secondSemesterFee = createFee("paf-fee", "paf", {
+    academicYear,
+    semester: "2nd Semester",
+  });
+  const nextYearFee = createFee("next-year-fee", "organization_week_fee", {
+    academicYear: "2027-2028",
+    semester: "1st Semester",
+  });
+  const payments = [
+    createPayment("first-semester-payment", firstSemesterFee._id),
+    createPayment("second-semester-payment", secondSemesterFee._id),
+    createPayment("next-year-payment", nextYearFee._id),
+  ];
+
+  const summary = getClearanceSummary(
+    organization,
+    [firstSemesterFee, secondSemesterFee, nextYearFee],
+    payments,
+    academicYear,
+  );
+
+  assert.equal(summary.academicYear, academicYear);
+  assert.equal(summary.satisfiedCount, 2);
+  assert.equal(summary.requirements[0].status, "Paid");
+  assert.equal(summary.requirements[1].status, "Paid");
+  assert.equal(summary.requirements[2].status, "Not encoded");
+});

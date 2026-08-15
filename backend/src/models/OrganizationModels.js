@@ -23,6 +23,30 @@ const organizationSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    academicPeriod: {
+      academicYear: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      semester: {
+        type: String,
+        enum: ["1st Semester", "2nd Semester", "Summer"],
+        default: "1st Semester",
+      },
+      mode: {
+        type: String,
+        enum: ["automatic", "manual"],
+        default: "automatic",
+      },
+      updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      updatedAt: {
+        type: Date,
+      },
+    },
     president: {
       type: String,
       default: "",

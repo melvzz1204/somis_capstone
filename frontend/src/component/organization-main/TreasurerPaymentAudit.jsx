@@ -36,6 +36,7 @@ const formatMethod = (method) => {
  */
 export default function TreasurerPaymentAudit() {
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [payments, setPayments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -71,13 +72,31 @@ export default function TreasurerPaymentAudit() {
     };
   }, [loadPayments]);
 
-  const filteredPayments = payments.filter(
-    (payment) => statusFilter === "ALL" || payment.status === statusFilter,
-  );
+  // Combined Search & Status Filter Logic
+  const filteredPayments = payments.filter((payment) => {
+    const matchesStatus =
+      statusFilter === "ALL" || payment.status === statusFilter;
+
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return matchesStatus;
+
+    const studentName = payment.student?.name?.toLowerCase() || "";
+    const studentEmail = payment.student?.email?.toLowerCase() || "";
+    const refNumber = payment.referenceNumber?.toLowerCase() || "";
+    const receiptNumber = payment.cashReceiptNumber?.toLowerCase() || "";
+
+    const matchesSearch =
+      studentName.includes(query) ||
+      studentEmail.includes(query) ||
+      refNumber.includes(query) ||
+      receiptNumber.includes(query);
+
+    return matchesStatus && matchesSearch;
+  });
 
   return (
     <section className="space-y-4" aria-labelledby="payment-audit-heading">
-      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h3
             id="payment-audit-heading"
@@ -89,25 +108,53 @@ export default function TreasurerPaymentAudit() {
             Verified GCash and over-the-counter cash payment records.
           </p>
         </div>
-        <div
-          className="inline-flex w-full border border-slate-200 bg-slate-50 p-1 sm:w-auto"
-          role="group"
-          aria-label="Payment status filter"
-        >
-          {FILTERS.map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              onClick={() => setStatusFilter(filter)}
-              className={`flex-1 px-3 py-1.5 text-[10px] font-bold uppercase transition-colors sm:flex-none ${
-                statusFilter === filter
-                  ? "bg-white text-[#4A0E17] shadow-sm"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* Search Input */}
+          <div className="relative">
+            <svg
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              {filter === "PENDING_MANUAL_REVIEW" ? "Pending" : filter}
-            </button>
-          ))}
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search student or ref #..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full sm:w-60 pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#4A0E17] focus:border-[#4A0E17] transition-all"
+            />
+          </div>
+
+          {/* Status Filter Toggle */}
+          <div
+            className="inline-flex w-full border border-slate-200 bg-slate-50 p-1 sm:w-auto"
+            role="group"
+            aria-label="Payment status filter"
+          >
+            {FILTERS.map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setStatusFilter(filter)}
+                className={`flex-1 px-3 py-1.5 text-[10px] font-bold uppercase transition-colors sm:flex-none ${
+                  statusFilter === filter
+                    ? "bg-white text-[#4A0E17] shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {filter === "PENDING_MANUAL_REVIEW" ? "Pending" : filter}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -120,9 +167,9 @@ export default function TreasurerPaymentAudit() {
         </div>
       )}
 
-      <div className="overflow-x-auto border border-slate-200">
+      <div className="max-h-[520px] overflow-auto border border-slate-200 rounded-xl relative">
         <table className="min-w-[760px] w-full text-left text-xs">
-          <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold uppercase text-slate-500 shadow-xs">
             <tr>
               <th className="px-4 py-3">Student</th>
               <th className="px-4 py-3">Payment details</th>
@@ -148,7 +195,9 @@ export default function TreasurerPaymentAudit() {
                   colSpan="6"
                   className="px-4 py-10 text-center font-medium text-slate-500"
                 >
-                  No payments match the selected status.
+                  {searchQuery
+                    ? `No payments match "${searchQuery}".`
+                    : "No payments match the selected status."}
                 </td>
               </tr>
             ) : (

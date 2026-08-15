@@ -8,6 +8,11 @@ import {
   AnnualReportIcon,
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
+import AcademicPeriodSettings from "../component/organization-main/AcademicPeriodSettings";
+import {
+  getEffectiveAcademicPeriod,
+  formatAcademicPeriod,
+} from "../util/academicPeriod";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
 import NavCountBadge from "../component/navCountBadge";
@@ -105,6 +110,9 @@ export default function AdminDashboard() {
   const [proposalActionId, setProposalActionId] = useState("");
   const [proposalNotice, setProposalNotice] = useState("");
   const [editingOrg, setEditingOrg] = useState(null);
+  const [academicPeriod, setAcademicPeriod] = useState(() =>
+    getEffectiveAcademicPeriod(null),
+  );
 
   // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
@@ -127,12 +135,17 @@ export default function AdminDashboard() {
 
     const fetchDashboardData = async () => {
       try {
-        const [organizationsData, collegesData, proposalResponse] =
-          await Promise.all([
-            API.get("/organizations"),
-            API.get("/colleges"),
-            API.get("/proposals"),
-          ]);
+        const [
+          organizationsData,
+          collegesData,
+          proposalResponse,
+          periodResponse,
+        ] = await Promise.all([
+          API.get("/organizations"),
+          API.get("/colleges"),
+          API.get("/proposals"),
+          API.get("/organizations/academic-period"),
+        ]);
         if (!mounted) return;
         setOrganizations(
           Array.isArray(organizationsData) ? organizationsData : [],
@@ -141,6 +154,7 @@ export default function AdminDashboard() {
         setProposals(
           Array.isArray(proposalResponse?.data) ? proposalResponse.data : [],
         );
+        setAcademicPeriod(periodResponse?.data || periodResponse);
       } catch (err) {
         if (!mounted) return;
         console.error("Failed to fetch admin dashboard data:", err);
@@ -420,7 +434,7 @@ export default function AdminDashboard() {
 
           <div className="flex items-center gap-4 text-xs ml-auto">
             <span className="px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] font-bold tracking-tight shadow-2xs">
-              AY 2025–2026
+              {formatAcademicPeriod(academicPeriod)}
             </span>
           </div>
         </header>
@@ -488,6 +502,10 @@ export default function AdminDashboard() {
             />
           ) : (
             <>
+              <AcademicPeriodSettings
+                organization={null}
+                onUpdated={setAcademicPeriod}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
                   <div>

@@ -190,8 +190,13 @@ export function isCicssoOrganization(organization) {
   );
 }
 
-export function getClearanceSummary(organization, fees = [], payments = []) {
-  const requirements = getClearanceRequirements(fees, payments);
+export function getClearanceSummary(
+  organization,
+  fees = [],
+  payments = [],
+  academicYear = CLEARANCE_ACADEMIC_YEAR,
+) {
+  const requirements = getClearanceRequirements(fees, payments, academicYear);
   const satisfiedCount = requirements.filter(
     (requirement) => requirement.isSatisfied,
   ).length;
@@ -201,6 +206,7 @@ export function getClearanceSummary(organization, fees = [], payments = []) {
     requirements,
     satisfiedCount,
     isCicsso,
+    academicYear,
     isCleared:
       isCicsso &&
       requirements.length === CLEARANCE_REQUIREMENTS.length &&

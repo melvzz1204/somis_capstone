@@ -82,7 +82,7 @@ function SignatureLine({ name, role }) {
   );
 }
 
-function DocumentHeader({ copyLabel, isCleared }) {
+function DocumentHeader({ copyLabel, isCleared, academicYear }) {
   return (
     <>
       <div className="grid grid-cols-[17mm_1fr_17mm] items-center gap-[3mm]">
@@ -118,10 +118,10 @@ function DocumentHeader({ copyLabel, isCleared }) {
           {copyLabel}
         </span>
         <h2 className="pr-[22mm] pl-[22mm] text-[19px] font-black leading-none text-slate-950">
-          CICSSO SEMESTRAL CLEARANCE
+          CICSSO ANNUAL CLEARANCE
         </h2>
         <p className="mt-1 text-[11px] font-bold leading-none text-[#4A0E17]">
-          S.Y. {CLEARANCE_ACADEMIC_YEAR}
+          S.Y. {academicYear}
         </p>
         {!isCleared && (
           <p className="mt-1 text-[7px] font-black uppercase text-rose-700">
@@ -241,10 +241,15 @@ function ClearanceCopy({
   profile,
   membership,
   signatories,
+  academicYear,
 }) {
   return (
     <section className="min-h-0 px-[3mm] py-[2mm]">
-      <DocumentHeader copyLabel={copyLabel} isCleared={isCleared} />
+      <DocumentHeader
+        copyLabel={copyLabel}
+        isCleared={isCleared}
+        academicYear={academicYear}
+      />
       <StudentInformation profile={profile} membership={membership} />
       <p
         className={`mt-[2mm] border-l-[3px] px-[2mm] py-[1mm] font-serif text-[8px] leading-snug ${
@@ -254,8 +259,8 @@ function ClearanceCopy({
         }`}
       >
         {isCleared
-          ? `This is to certify that the above-mentioned student has complied with the organization fees and fines for the academic year ${CLEARANCE_ACADEMIC_YEAR}.`
-          : `This preview is not a clearance certification. The student still has incomplete or unverified requirements for the academic year ${CLEARANCE_ACADEMIC_YEAR}.`}
+          ? `This is to certify that the above-mentioned student has complied with the organization fees and fines for the academic year ${academicYear}.`
+          : `This preview is not a clearance certification. The student still has incomplete or unverified requirements for the academic year ${academicYear}.`}
       </p>
       <RequirementList requirements={requirements} />
 
@@ -297,6 +302,7 @@ function ScreenStatus({
   onReviewFees,
   onDownload,
   isDownloading,
+  academicYear,
 }) {
   const pendingRequirements = requirements.filter(
     (requirement) => !requirement.isSatisfied,
@@ -320,11 +326,11 @@ function ScreenStatus({
   } else if (!isCicsso) {
     title = "CICSSO membership required";
     description =
-      "This semestral clearance is issued to registered CICSSO members.";
+      "This annual clearance is issued to registered CICSSO members.";
     tone = "border-rose-300 bg-rose-50 text-rose-950";
   } else if (isCleared) {
     icon = <CheckCircle2 className="h-5 w-5" aria-hidden="true" />;
-    title = `Cleared for S.Y. ${CLEARANCE_ACADEMIC_YEAR}`;
+    title = `Cleared for S.Y. ${academicYear}`;
     description = "All five CICSSO requirements are verified or exempted.";
     tone = "border-emerald-300 bg-emerald-50 text-emerald-950";
   }
@@ -417,6 +423,7 @@ export default function DigitalClearance({
   roster = [],
   fees = [],
   payments = [],
+  academicYear = CLEARANCE_ACADEMIC_YEAR,
   isLoading = false,
   feeError = "",
   paymentError = "",
@@ -428,7 +435,7 @@ export default function DigitalClearance({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   const { requirements, satisfiedCount, isCicsso, isCleared } =
-    getClearanceSummary(organization, fees, payments);
+    getClearanceSummary(organization, fees, payments, academicYear);
   const signatories = {
     treasurer: findOfficer(roster, "Treasurer"),
     president: organization?.president || findOfficer(roster, "President"),
@@ -495,10 +502,10 @@ export default function DigitalClearance({
       )
         .trim()
         .replace(/[^a-z0-9-]+/gi, "-");
-      const academicYear = CLEARANCE_ACADEMIC_YEAR.replace(/\s+/g, "");
+      const fileAcademicYear = academicYear.replace(/\s+/g, "");
       const documentType = isCleared ? "Clearance" : "Clearance-Progress";
       pdf.save(
-        `CICSSO-${documentType}-${studentId || "student"}-${academicYear}.pdf`,
+        `CICSSO-${documentType}-${studentId || "student"}-${fileAcademicYear}.pdf`,
       );
     } catch (error) {
       console.error("Unable to generate clearance PDF:", error);
@@ -515,6 +522,7 @@ export default function DigitalClearance({
     <div className="clearance-print-root space-y-4">
       <ScreenStatus
         isLoading={isLoading}
+        academicYear={academicYear}
         isCicsso={isCicsso}
         isCleared={isCleared}
         satisfiedCount={satisfiedCount}
@@ -545,7 +553,7 @@ export default function DigitalClearance({
               transform: `scale(${previewScale})`,
               "--clearance-preview-scale": previewScale,
             }}
-            aria-label="CICSSO semestral clearance document preview"
+            aria-label="CICSSO annual clearance document preview"
           >
             <div className="pointer-events-none absolute inset-0 opacity-[0.018] [background-image:radial-gradient(#4A0E17_0.5px,transparent_0.5px)] [background-size:4px_4px]" />
             <ClearanceCopy
@@ -556,6 +564,7 @@ export default function DigitalClearance({
               profile={studentProfile}
               membership={membership}
               signatories={signatories}
+              academicYear={academicYear}
             />
 
             <div
@@ -576,6 +585,7 @@ export default function DigitalClearance({
               profile={studentProfile}
               membership={membership}
               signatories={signatories}
+              academicYear={academicYear}
             />
           </article>
         </div>

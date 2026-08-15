@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 // Models & Utilities
 const Organization = require("../models/OrganizationModels");
+const AcademicPeriodSettings = require("../models/AcademicPeriodSettings");
 const User = require("../models/User");
 const Member = require("../models/MemberOrganization");
 const StudentProfile = require("../models/studentProfile");
@@ -17,6 +18,11 @@ const {
 } = require("../controllers/organizationDocumentController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 const sendOrgInviteEmail = require("../util/sendEmail");
+const {
+  SEMESTERS,
+  getEffectiveAcademicPeriod,
+  isValidAcademicYear,
+} = require("../util/academicPeriod");
 
 // =========================================================
 // GET /v1/organizations - Fetch all registered organizations
@@ -42,6 +48,101 @@ router.get("/", async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 });
+
+router.get("/academic-period", protect, async (req, res) => {
+  try {
+    const settings = await AcademicPeriodSettings.findOneAndUpdate(
+      { key: "global" },
+      { $setOnInsert: { key: "global", mode: "automatic" } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
+
+    return res.status(200).json({
+      ...getEffectiveAcademicPeriod({ academicPeriod: settings }),
+      configured: settings.mode === "manual",
+    });
+  } catch (error) {
+    console.error("Error fetching academic period:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch academic period." });
+  }
+});
+
+router.patch(
+  "/academic-period",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const mode = String(req.body.mode || "")
+        .trim()
+        .toLowerCase();
+      if (!["automatic", "manual"].includes(mode)) {
+        return res.status(400).json({
+          message: "Academic period mode must be automatic or manual.",
+        });
+      }
+
+      const updatedAt = new Date();
+      const update = {
+        key: "global",
+        mode,
+        updatedBy: req.user._id,
+        updatedAt,
+      };
+
+      if (mode === "manual") {
+        const academicYear = String(req.body.academicYear || "").trim();
+        const semester = String(req.body.semester || "").trim();
+        if (!isValidAcademicYear(academicYear)) {
+          return res.status(400).json({
+            message: "Academic year must use consecutive years (YYYY-YYYY).",
+          });
+        }
+        if (!SEMESTERS.includes(semester)) {
+          return res.status(400).json({ message: "Select a valid semester." });
+        }
+        update.academicYear = academicYear;
+        update.semester = semester;
+      }
+
+      const settings = await AcademicPeriodSettings.findOneAndUpdate(
+        { key: "global" },
+        { $set: update },
+        { new: true, upsert: true, setDefaultsOnInsert: true },
+      );
+      const effectivePeriod = getEffectiveAcademicPeriod({
+        academicPeriod: settings,
+      });
+
+      await Organization.updateMany(
+        {},
+        {
+          $set: {
+            academicPeriod: {
+              academicYear: effectivePeriod.academicYear,
+              semester: effectivePeriod.semester,
+              mode,
+              updatedBy: req.user._id,
+              updatedAt,
+            },
+          },
+        },
+      );
+
+      return res.status(200).json({
+        ...effectivePeriod,
+        configured: mode === "manual",
+      });
+    } catch (error) {
+      console.error("Error updating academic period:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to update academic period." });
+    }
+  },
+);
 
 // =========================================================
 // POST /v1/organizations - Register organization & send invite

@@ -11,7 +11,12 @@ import {
   AnnualReportIcon,
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
+import AcademicPeriodSettings from "../component/organization-main/AcademicPeriodSettings";
 import LogoutButton from "../component/logoutButton";
+import {
+  formatAcademicPeriod,
+  getEffectiveAcademicPeriod,
+} from "../util/academicPeriod";
 
 // --- SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
@@ -255,6 +260,7 @@ export default function OrgDashboard() {
     user?.organization && typeof user.organization === "object"
       ? user.organization
       : null;
+  const activePeriod = getEffectiveAcademicPeriod(organization);
 
   // Keep the page usable from cached account data while the API request runs.
   const org = {
@@ -267,6 +273,7 @@ export default function OrgDashboard() {
     president: organization?.president || user?.name || "Student Leader",
     email: organization?.email || user?.email || "org@marsu.edu.ph",
     status: organization?.status || "Active",
+    academicPeriod: organization?.academicPeriod,
   };
 
   const organizationNeeds = [
@@ -462,7 +469,7 @@ export default function OrgDashboard() {
               </div>
             </div>
             <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
-              AY 2025–2026
+              {formatAcademicPeriod(activePeriod)}
             </span>
           </div>
         </header>
@@ -565,6 +572,8 @@ export default function OrgDashboard() {
                   </p>
                 </div>
               </div>
+
+              <AcademicPeriodSettings organization={organization} readOnly />
 
               {/* Detail Profile Grid */}
               <div className="border border-slate-200/80 bg-white rounded-2xl shadow-xs overflow-hidden">

@@ -10,6 +10,10 @@ import OrganizationDocumentWorkspace from "../component/organization-main/organi
 import LogoutButton from "../component/logoutButton";
 import NavCountBadge from "../component/navCountBadge";
 import MobileTabBar from "../component/mobileTabBar";
+import {
+  formatAcademicPeriod,
+  getEffectiveAcademicPeriod,
+} from "../util/academicPeriod";
 
 const DashboardIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -141,6 +145,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
   const organization =
     typeof user.organization === "object" ? user.organization : null;
   const orgName = organization?.name || "Student Organization";
+  const activePeriod = getEffectiveAcademicPeriod(organization);
   const pendingCount = proposals.filter(
     (proposal) => proposal.status === pendingStatus,
   ).length;
@@ -271,7 +276,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
               </div>
             </div>
             <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
-              AY 2025–2026
+              {formatAcademicPeriod(activePeriod)}
             </span>
           </div>
         </header>

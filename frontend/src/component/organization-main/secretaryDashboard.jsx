@@ -15,6 +15,10 @@ import OrganizationDocumentWorkspace from "./organizationDocumentWorkspace";
 import SecretaryEvents from "./secretaryEvents";
 import LogoutButton from "../logoutButton";
 import NavCountBadge from "../navCountBadge";
+import {
+  formatAcademicPeriod,
+  getEffectiveAcademicPeriod,
+} from "../../util/academicPeriod";
 
 // --- INLINE SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
@@ -104,9 +108,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   const orgName = currentOrg?.name || "Student Organization";
   const userEmail = currentUser?.email || "No email provided";
 
-  // Compute Dynamic Academic Year
-  const currentYear = new Date().getFullYear();
-  const dynamicAcademicYear = `AY ${currentYear}–${currentYear + 1}`;
+  const activePeriod = getEffectiveAcademicPeriod(currentOrg);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
@@ -400,7 +402,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               </div>
             </div>
             <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
-              {dynamicAcademicYear}
+              {formatAcademicPeriod(activePeriod)}
             </span>
           </div>
         </header>

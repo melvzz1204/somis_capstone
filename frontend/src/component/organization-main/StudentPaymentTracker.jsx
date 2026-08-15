@@ -3,7 +3,6 @@ import API from "../../api/axios";
 import PaymentStatusBadge from "./PaymentStatusBadge";
 
 const POLL_INTERVAL_MS = 5000;
-
 const formatCurrency = (amount) =>
   new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -60,6 +59,7 @@ const STATUS_NOTICE = {
 export default function StudentPaymentTracker({ payment, onPaymentChange }) {
   const [currentPayment, setCurrentPayment] = useState(payment);
   const [pollError, setPollError] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (
@@ -109,9 +109,10 @@ export default function StudentPaymentTracker({ payment, onPaymentChange }) {
     currentPayment.amount;
 
   return (
-    <article className="border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+    <article className="border border-slate-200 bg-white p-5 shadow-sm transition-all">
+      {/* Header Bar - Always Visible */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase text-slate-400">
             Submitted payment
           </p>
@@ -119,69 +120,108 @@ export default function StudentPaymentTracker({ payment, onPaymentChange }) {
             {currentPayment.fee?.title || "Organization fee"}
           </h4>
         </div>
-        <PaymentStatusBadge status={currentPayment.status} />
+
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <PaymentStatusBadge status={currentPayment.status} />
+
+          {/* Up / Down Arrow Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            aria-expanded={isOpen}
+            aria-label={
+              isOpen ? "Collapse payment details" : "Expand payment details"
+            }
+          >
+            <svg
+              className={`h-5 w-5 transform transition-transform duration-200 ${
+                isOpen ? "rotate-180" : "rotate-0"
+              }`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <dl className="grid grid-cols-1 gap-4 py-4 text-xs sm:grid-cols-2">
-        <div>
-          <dt className="font-bold uppercase text-slate-400">Amount paid</dt>
-          <dd className="mt-1 text-base font-extrabold text-slate-900">
-            {formatCurrency(displayAmount)}
-          </dd>
-          <p className="mt-1 text-[11px] font-bold text-slate-500">
-            Amount due:{" "}
-            {formatCurrency(currentPayment.claimedAmount ?? displayAmount)}
-          </p>
-        </div>
-        <div>
-          <dt className="font-bold uppercase text-slate-400">
-            GCash reference
-          </dt>
-          <dd className="mt-1 break-all font-mono text-sm font-bold text-slate-800">
-            {currentPayment.referenceNumber}
-          </dd>
-        </div>
-        <div>
-          <dt className="font-bold uppercase text-slate-400">
-            Verification method
-          </dt>
-          <dd className="mt-1 font-bold text-slate-700">
-            {currentPayment.verificationMethod === "BULK_STATEMENT"
-              ? "GCash statement"
-              : currentPayment.status === "PENDING_MANUAL_REVIEW"
-                ? "Awaiting statement review"
-                : "Manual review"}
-          </dd>
-        </div>
-        <div>
-          <dt className="font-bold uppercase text-slate-400">Verified date</dt>
-          <dd className="mt-1 font-bold text-slate-700">
-            {formatDateTime(currentPayment.verifiedAt)}
-          </dd>
-        </div>
-      </dl>
+      {/* Collapsible Content Block */}
+      {isOpen && (
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <dl className="grid grid-cols-1 gap-4 text-xs sm:grid-cols-2">
+            <div>
+              <dt className="font-bold uppercase text-slate-400">
+                Amount paid
+              </dt>
+              <dd className="mt-1 text-base font-extrabold text-slate-900">
+                {formatCurrency(displayAmount)}
+              </dd>
+              <p className="mt-1 text-[11px] font-bold text-slate-500">
+                Amount due:{" "}
+                {formatCurrency(currentPayment.claimedAmount ?? displayAmount)}
+              </p>
+            </div>
+            <div>
+              <dt className="font-bold uppercase text-slate-400">
+                GCash reference
+              </dt>
+              <dd className="mt-1 break-all font-mono text-sm font-bold text-slate-800">
+                {currentPayment.referenceNumber}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-bold uppercase text-slate-400">
+                Verification method
+              </dt>
+              <dd className="mt-1 font-bold text-slate-700">
+                {currentPayment.verificationMethod === "BULK_STATEMENT"
+                  ? "GCash statement"
+                  : currentPayment.status === "PENDING_MANUAL_REVIEW"
+                    ? "Awaiting statement review"
+                    : "Manual review"}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-bold uppercase text-slate-400">
+                Verified date
+              </dt>
+              <dd className="mt-1 font-bold text-slate-700">
+                {formatDateTime(currentPayment.verifiedAt)}
+              </dd>
+            </div>
+          </dl>
 
-      {statusNotice && (
-        <div
-          className={`border px-3 py-2 text-xs font-medium ${statusNotice.className}`}
-          role="status"
-          aria-live="polite"
-        >
-          {statusNotice.message}
-          {currentPayment.status === "PENDING_MANUAL_REVIEW" &&
-            " Status refresh every 24 hours."}
-          {currentPayment.failureReason && (
-            <p className="mt-1 font-bold">
-              Reason: {currentPayment.failureReason}
+          {statusNotice && (
+            <div
+              className={`mt-4 border px-3 py-2 text-xs font-medium ${statusNotice.className}`}
+              role="status"
+              aria-live="polite"
+            >
+              {statusNotice.message}
+              {currentPayment.status === "PENDING_MANUAL_REVIEW" &&
+                " Status refresh every 24 hours."}
+              {currentPayment.failureReason && (
+                <p className="mt-1 font-bold">
+                  Reason: {currentPayment.failureReason}
+                </p>
+              )}
+            </div>
+          )}
+
+          {pollError && (
+            <p className="mt-3 text-xs font-medium text-rose-700" role="status">
+              {pollError}
             </p>
           )}
         </div>
-      )}
-
-      {pollError && (
-        <p className="mt-3 text-xs font-medium text-rose-700" role="status">
-          {pollError}
-        </p>
       )}
     </article>
   );

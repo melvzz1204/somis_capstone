@@ -127,6 +127,7 @@ const ShieldCheckIcon = ({ className = "w-3 h-3" }) => (
 );
 
 export default function OrganizationMembers({ user, org, view = "officers" }) {
+  const [searchQuery, setSearchQuery] = useState("");
   const { showToast } = useToast();
   const isMemberDirectory = view === "members";
 
@@ -166,6 +167,15 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
   const [accountModalError, setAccountModalError] = useState("");
   const [accountModalSuccess, setAccountModalSuccess] = useState("");
 
+  const filteredOfficers = officers.filter((officer) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      officer.name?.toLowerCase().includes(query) ||
+      officer.email?.toLowerCase().includes(query) ||
+      officer.role?.toLowerCase().includes(query) ||
+      officer.section?.toLowerCase().includes(query)
+    );
+  });
   const fetchMembers = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
@@ -515,6 +525,44 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
         )}
       </div>
 
+      {/* SEARCH INPUT BAR */}
+      <div className="relative">
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+        <input
+          type="text"
+          placeholder={
+            isMemberDirectory
+              ? "Search members by name, email, or section..."
+              : "Search officers by name, role, email..."
+          }
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] transition-all shadow-xs"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* ERROR MESSAGE */}
       {errorMessage && (
         <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
@@ -522,91 +570,95 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
         </div>
       )}
 
-      {/* ROSTER TABLE / LIST */}
-      <div className="border border-slate-200/80 rounded-2xl divide-y divide-slate-100 text-xs bg-white shadow-sm overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 text-center text-slate-400 font-medium">
-            Loading roster...
-          </div>
-        ) : officers.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 font-medium">
-            {isMemberDirectory
-              ? "No regular organization members registered yet."
-              : "No organization officers registered yet."}
-          </div>
-        ) : (
-          officers.map((officer) => {
-            const avatarUrl = getAvatarSrc(officer.avatar);
+      {/* ROSTER TABLE / LIST (Clipped at ~10 items & Scrollable) */}
+      <div className="border border-slate-200/80 rounded-2xl bg-white shadow-sm overflow-hidden">
+        <div className="max-h-[580px] overflow-y-auto divide-y divide-slate-100 text-xs scrollbar-thin scrollbar-thumb-slate-200">
+          {isLoading ? (
+            <div className="p-8 text-center text-slate-400 font-medium">
+              Loading roster...
+            </div>
+          ) : filteredOfficers.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 font-medium">
+              {searchQuery
+                ? "No results found matching your search."
+                : isMemberDirectory
+                  ? "No regular organization members registered yet."
+                  : "No organization officers registered yet."}
+            </div>
+          ) : (
+            filteredOfficers.map((officer) => {
+              const avatarUrl = getAvatarSrc(officer.avatar);
 
-            return (
-              <div
-                key={officer._id || officer.id}
-                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
-              >
-                <div className="flex items-center gap-3.5">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt={officer.name}
-                      className="w-14 h-16 rounded-xl object-cover border border-slate-200/90 shadow-xs shrink-0"
-                    />
-                  ) : (
-                    <div className="w-14 h-16 rounded-xl bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border border-[#4A0E17]/20 uppercase shrink-0 shadow-xs">
-                      {officer.name.charAt(0)}
-                    </div>
-                  )}
+              return (
+                <div
+                  key={officer._id || officer.id}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                >
+                  <div className="flex items-center gap-3.5">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={officer.name}
+                        className="w-14 h-16 rounded-xl object-cover border border-slate-200/90 shadow-xs shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-16 rounded-xl bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border border-[#4A0E17]/20 uppercase shrink-0 shadow-xs">
+                        {officer.name?.charAt(0)}
+                      </div>
+                    )}
 
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold text-slate-900 text-sm">
-                        {officer.name}
-                      </p>
-                      {!isMemberDirectory && officer.hasAccount && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
-                          <ShieldCheckIcon className="w-3 h-3" />
-                          Account Active
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-bold text-slate-900 text-sm">
+                          {officer.name}
+                        </p>
+                        {!isMemberDirectory && officer.hasAccount && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-md">
+                            <ShieldCheckIcon className="w-3 h-3" />
+                            Account Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-500 font-medium mt-0.5">
+                        <span className="text-[#4A0E17] font-semibold">
+                          {officer.role}
                         </span>
-                      )}
+                        {officer.section ? ` • ${officer.section}` : ""}
+                      </p>
                     </div>
-                    <p className="text-slate-500 font-medium mt-0.5">
-                      <span className="text-[#4A0E17] font-semibold">
-                        {officer.role}
-                      </span>
-                      {officer.section ? ` • ${officer.section}` : ""}
-                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-4">
+                    <span className="text-slate-500 font-medium text-right">
+                      {officer.email}
+                    </span>
+
+                    {!isMemberDirectory && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => handleOpenEditModal(officer)}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                        >
+                          <EditIcon />
+                          Edit
+                        </button>
+                        {officer.role !== "President" && (
+                          <button
+                            onClick={() => handleDeleteOfficer(officer._id)}
+                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                          >
+                            <TrashIcon />
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between sm:justify-end gap-4">
-                  <span className="text-slate-500 font-medium text-right">
-                    {officer.email}
-                  </span>
-
-                  {!isMemberDirectory && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => handleOpenEditModal(officer)}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                      >
-                        <EditIcon />
-                        Edit
-                      </button>
-                      {officer.role !== "President" && (
-                        <button
-                          onClick={() => handleDeleteOfficer(officer._id)}
-                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                        >
-                          <TrashIcon />
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* MODAL 1: ADD / EDIT OFFICER */}

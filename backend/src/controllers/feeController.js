@@ -497,18 +497,15 @@ const updateFee = async (req, res) => {
       });
     }
 
-    const existingPayments = await Payment.countDocuments({ fee: fee._id });
-    const targetChanged = fee.targetYearLevel !== feeFields.targetYearLevel;
-    const amountChanged = Number(fee.amount) !== Number(feeFields.amount);
-    const baseCostChanged = Number(fee.baseCost || 0) !== feeFields.baseCost;
-    if (
-      existingPayments > 0 &&
-      (targetChanged || amountChanged || baseCostChanged)
-    ) {
+    const existingPayments = await Payment.countDocuments({
+      fee: fee._id,
+      status: "VERIFIED",
+    });
+    if (existingPayments > 0) {
       return res.status(409).json({
         success: false,
         message:
-          "Pricing and target group cannot be changed after a payment has been submitted.",
+          "This fee collection cannot be edited because a student or member has already paid.",
       });
     }
 

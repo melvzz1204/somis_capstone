@@ -198,7 +198,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const userEmail = currentUser?.email || "No email provided";
   const orgName = currentOrg?.name || "Student Organization";
 
-  const activePeriod = getEffectiveAcademicPeriod(currentOrg);
+  const [activePeriod, setActivePeriod] = useState(() =>
+    getEffectiveAcademicPeriod(currentOrg),
+  );
 
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
@@ -234,11 +236,29 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     reference: "",
   });
 
-  // Fetch all treasury data on mount or organization switch.
+  // Load the server-resolved academic period first so the portal does not use
+  // stale organization props after OVPSAS changes the global period.
+  useEffect(() => {
+    let isActive = true;
+    API.get("/organizations/academic-period")
+      .then((response) => {
+        if (isActive) setActivePeriod(response);
+      })
+      .catch((error) =>
+        console.error("Failed to load academic period:", error),
+      );
+    return () => {
+      isActive = false;
+    };
+  }, [orgId]);
+
+  // Fetch all treasury data on mount or organization/period switch.
   useEffect(() => {
     let isActive = true;
 
     const fetchTreasuryData = async () => {
+      setTransactions([]);
+      setFeeDrives([]);
       const [transactionsResult, feesResult, rosterResult] =
         await Promise.allSettled([
           API.get(orgId ? `/transactions?org=${orgId}` : "/transactions"),
@@ -283,7 +303,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     return () => {
       isActive = false;
     };
-  }, [orgId]);
+  }, [orgId, activePeriod.academicYear, activePeriod.semester]);
 
   const handleFeeCreated = (newFeeData) => {
     setFeeDrives((previous) => [newFeeData, ...previous]);
@@ -1750,7 +1770,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   </button>
                 </div>
               </div>
-              <TreasurerPaymentAudit key={paymentAuditKey} />
+              <TreasurerPaymentAudit
+                key={paymentAuditKey}
+                academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
+              />
             </div>
           )}
 
@@ -1830,11 +1853,17 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           )}
 
           {activeTab === "annual-report" && (
-            <OrganizationDocumentWorkspace documentType="Annual Report" />
+            <OrganizationDocumentWorkspace
+              documentType="Annual Report"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
+            />
           )}
 
           {activeTab === "activity-plan" && (
-            <OrganizationDocumentWorkspace documentType="Activity Plan" />
+            <OrganizationDocumentWorkspace
+              documentType="Activity Plan"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
+            />
           )}
         </main>
       </div>
@@ -1885,7 +1914,11 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           }
         }}
         fee={editingFee}
-        org={currentOrg}
+        org={
+          currentOrg && typeof currentOrg === "object"
+            ? { ...currentOrg, academicPeriod: activePeriod }
+            : { _id: orgId, academicPeriod: activePeriod }
+        }
         user={currentUser}
         roster={organizationRoster}
       />

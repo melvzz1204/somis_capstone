@@ -6,6 +6,10 @@ const Payment = require("../models/Payment");
 const User = require("../models/User");
 const Member = require("../models/MemberOrganization");
 const {
+  getCurrentAcademicPeriod,
+  getAcademicPeriodFilter,
+} = require("../util/academicPeriod");
+const {
   PAYMENT_STATUSES,
   normalizeReferenceNumber,
 } = require("../models/Payment");
@@ -54,6 +58,7 @@ const createPayment = async (req, res) => {
     const fee = await Fee.findOne({
       _id: feeId,
       org: req.user.organization,
+      ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
       status: "active",
       $or: [
         { "targetMembers.student": req.user._id },
@@ -304,9 +309,18 @@ const verifyBatchPdf = async (req, res) => {
     }
 
     const verifiedAt = new Date();
+    const period = await getCurrentAcademicPeriod();
+    const periodFees = await Fee.find({
+      org: req.user.organization,
+      ...getAcademicPeriodFilter(period),
+    })
+      .select("_id")
+      .lean();
+    const periodFeeIds = periodFees.map((fee) => fee._id);
     const updateResult = await Payment.updateMany(
       {
         organization: req.user.organization,
+        fee: { $in: periodFeeIds },
         status: "PENDING_MANUAL_REVIEW",
         referenceNumber: { $in: references },
       },
@@ -325,6 +339,7 @@ const verifyBatchPdf = async (req, res) => {
       updateResult.modifiedCount ?? updateResult.nModified ?? 0;
     const alreadyVerifiedCount = await Payment.countDocuments({
       organization: req.user.organization,
+      fee: { $in: periodFeeIds },
       status: "VERIFIED",
       referenceNumber: { $in: references },
     });
@@ -380,7 +395,17 @@ const verifyBatchPdf = async (req, res) => {
  */
 const listMyPayments = async (req, res) => {
   try {
-    const payments = await Payment.find({ student: req.user._id })
+    const period = await getCurrentAcademicPeriod();
+    const periodFees = await Fee.find({
+      org: req.user.organization,
+      ...getAcademicPeriodFilter(period),
+    })
+      .select("_id")
+      .lean();
+    const payments = await Payment.find({
+      student: req.user._id,
+      fee: { $in: periodFees.map((fee) => fee._id) },
+    })
       .select(PAYMENT_PUBLIC_FIELDS)
       .populate("fee", "title dueDate academicYear semester")
       .sort({ createdAt: -1 })
@@ -461,7 +486,17 @@ const listPaymentAudit = async (req, res) => {
   }
 
   try {
-    const query = { organization: req.user.organization };
+    const period = await getCurrentAcademicPeriod();
+    const periodFees = await Fee.find({
+      org: req.user.organization,
+      ...getAcademicPeriodFilter(period),
+    })
+      .select("_id")
+      .lean();
+    const query = {
+      organization: req.user.organization,
+      fee: { $in: periodFees.map((fee) => fee._id) },
+    };
     if (requestedStatus !== "ALL") query.status = requestedStatus;
 
     const payments = await Payment.find(query)
@@ -541,9 +576,11 @@ const recordCashPayment = async (req, res) => {
     if (student) {
       targetQueries.push({ "targetMembers.student": student._id });
     }
+    const period = await getCurrentAcademicPeriod();
     const fee = await Fee.findOne({
       _id: feeId,
       org: req.user.organization,
+      ...getAcademicPeriodFilter(period),
       status: "active",
       $or: targetQueries,
     }).select("org amount title targetMembers");

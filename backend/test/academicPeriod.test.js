@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const {
   getAutomaticAcademicPeriod,
   getEffectiveAcademicPeriod,
+  getAcademicPeriodFilter,
+  getAcademicPeriodDateRange,
   isValidAcademicYear,
 } = require("../src/util/academicPeriod");
 
@@ -64,4 +66,38 @@ test("academic years must contain consecutive years", () => {
   assert.equal(isValidAcademicYear("2025-2026"), true);
   assert.equal(isValidAcademicYear("2025-2027"), false);
   assert.equal(isValidAcademicYear("2025/2026"), false);
+});
+
+test("academic period filter preserves the selected year and semester", () => {
+  assert.deepEqual(
+    getAcademicPeriodFilter({
+      academicYear: "2029-2030",
+      semester: "1st Semester",
+      mode: "manual",
+    }),
+    { academicYear: "2029-2030", semester: "1st Semester" },
+  );
+});
+
+test("legacy transaction date ranges are isolated by academic term", () => {
+  assert.deepEqual(
+    getAcademicPeriodDateRange({
+      academicYear: "2029-2030",
+      semester: "1st Semester",
+    }),
+    {
+      start: new Date("2029-08-01T00:00:00.000Z"),
+      end: new Date("2030-01-01T00:00:00.000Z"),
+    },
+  );
+  assert.deepEqual(
+    getAcademicPeriodDateRange({
+      academicYear: "2029-2030",
+      semester: "2nd Semester",
+    }),
+    {
+      start: new Date("2030-01-01T00:00:00.000Z"),
+      end: new Date("2030-06-01T00:00:00.000Z"),
+    },
+  );
 });

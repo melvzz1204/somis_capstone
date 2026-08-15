@@ -374,6 +374,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             <OrganizationDocumentWorkspace
               documentType="Annual Report"
               reviewRole="adviser"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
             />
           )}
 
@@ -381,6 +382,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             <OrganizationDocumentWorkspace
               documentType="Activity Plan"
               reviewRole="adviser"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
             />
           )}
         </main>

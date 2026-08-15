@@ -79,6 +79,7 @@ const formatFileSize = (bytes) => {
 export default function OrganizationDocumentWorkspace({
   documentType,
   reviewRole = null,
+  academicPeriodKey = "",
 }) {
   const { showToast } = useToast();
   const [documents, setDocuments] = useState([]);
@@ -97,13 +98,14 @@ export default function OrganizationDocumentWorkspace({
   const statusOptions = isReviewer
     ? ["All", config.expectedStatus, "Approved", "Rejected"]
     : submitterStatusOptions;
+  const [activeSchoolYear, activeSemester] = academicPeriodKey.split(":");
 
   const loadDocuments = useCallback(async () => {
     setIsLoading(true);
     setLoadError("");
     try {
       const response = await API.get("/organization-documents", {
-        params: { documentType },
+        params: { documentType, academicPeriodKey },
       });
       setDocuments(Array.isArray(response.data) ? response.data : []);
     } catch (requestError) {
@@ -114,7 +116,7 @@ export default function OrganizationDocumentWorkspace({
     } finally {
       setIsLoading(false);
     }
-  }, [displayDocumentType, documentType]);
+  }, [academicPeriodKey, displayDocumentType, documentType]);
 
   useEffect(() => {
     const requestId = window.setTimeout(() => {
@@ -561,6 +563,10 @@ export default function OrganizationDocumentWorkspace({
           documentType={documentType}
           documentLabel={displayDocumentType}
           document={editingDocument}
+          activePeriod={{
+            academicYear: activeSchoolYear,
+            semester: activeSemester,
+          }}
           onClose={() => {
             setIsModalOpen(false);
             setEditingDocument(undefined);

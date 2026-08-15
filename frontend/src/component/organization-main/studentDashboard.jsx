@@ -176,6 +176,9 @@ export default function StudentDashboard({ user: propsUser }) {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [organization, setOrganization] = useState(null);
+  const [activeAcademicPeriod, setActiveAcademicPeriod] = useState(() =>
+    getEffectiveAcademicPeriod(null),
+  );
   const [membership, setMembership] = useState(null);
   const [roster, setRoster] = useState([]);
   const [studentProfile, setStudentProfile] = useState(null);
@@ -240,9 +243,20 @@ export default function StudentDashboard({ user: propsUser }) {
     const request = window.setTimeout(async () => {
       setIsLoading(true);
       setLoadError("");
+      setFees([]);
+      setClearanceFees([]);
+      setPayments([]);
+      setStudentFeeArchive([]);
+      setUpcomingEvents([]);
+      setAttendance([]);
+      setAnnouncements([]);
 
       try {
-        const data = await API.get("/orgmembers/mine");
+        const [data, period] = await Promise.all([
+          API.get("/orgmembers/mine"),
+          API.get("/organizations/academic-period"),
+        ]);
+        setActiveAcademicPeriod(period || getEffectiveAcademicPeriod(null));
         setOrganization(data.organization || null);
         setMembership(data.membership || null);
         setRoster(data.roster || []);
@@ -744,7 +758,6 @@ export default function StudentDashboard({ user: propsUser }) {
     (member) => member.role?.trim().toLowerCase() !== "member",
   );
   const activeMembershipsCount = organization ? 1 : 0;
-  const activeAcademicPeriod = getEffectiveAcademicPeriod(organization);
   const clearanceSummary = getClearanceSummary(
     organization,
     clearanceFees,

@@ -721,11 +721,17 @@ export default function OrgDashboard() {
           )}
 
           {activeTab === "annual-report" && (
-            <OrganizationDocumentWorkspace documentType="Annual Report" />
+            <OrganizationDocumentWorkspace
+              documentType="Annual Report"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
+            />
           )}
 
           {activeTab === "activity-plan" && (
-            <OrganizationDocumentWorkspace documentType="Activity Plan" />
+            <OrganizationDocumentWorkspace
+              documentType="Activity Plan"
+              academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
+            />
           )}
 
           {/* TAB CONTENT: CLEARANCE */}

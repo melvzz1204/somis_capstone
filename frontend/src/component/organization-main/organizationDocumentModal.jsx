@@ -49,22 +49,28 @@ const formatFileSize = (bytes) => {
   return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const initialForm = (document) => ({
+const initialForm = (document, activePeriod) => ({
   title: document?.title || "",
-  schoolYear: document?.schoolYear || getDefaultSchoolYear(),
-  semester: document?.semester || "1st Semester",
+  schoolYear:
+    activePeriod?.academicYear ||
+    document?.schoolYear ||
+    getDefaultSchoolYear(),
+  semester: activePeriod?.semester || document?.semester || "1st Semester",
 });
 
 export default function OrganizationDocumentModal({
   documentType,
   documentLabel = documentType,
   document: existingDocument = null,
+  activePeriod = null,
   onClose,
   onSaved,
 }) {
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
-  const [form, setForm] = useState(() => initialForm(existingDocument));
+  const [form, setForm] = useState(() =>
+    initialForm(existingDocument, activePeriod),
+  );
   const [newFiles, setNewFiles] = useState([]);
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState(new Set());
   const [error, setError] = useState("");
@@ -300,12 +306,9 @@ export default function OrganizationDocumentModal({
                   id="organization-document-school-year"
                   name="schoolYear"
                   value={form.schoolYear}
-                  onChange={handleFieldChange}
-                  placeholder="2026-2027"
-                  inputMode="numeric"
-                  maxLength={9}
+                  readOnly
                   required
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
+                  className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2.5 text-sm font-semibold text-slate-700"
                 />
               </div>
               <div>
@@ -319,9 +322,9 @@ export default function OrganizationDocumentModal({
                   id="organization-document-semester"
                   name="semester"
                   value={form.semester}
-                  onChange={handleFieldChange}
+                  disabled
                   required
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
+                  className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2.5 text-sm font-semibold text-slate-700"
                 >
                   {SEMESTERS.map((semester) => (
                     <option key={semester} value={semester}>

@@ -6,6 +6,7 @@ const {
   REVIEW_RULES,
   normalizeDocumentType,
   isValidSchoolYear,
+  getDocumentPeriodFilter,
   validateFields,
 } = require("../src/controllers/organizationDocumentController");
 const {
@@ -29,6 +30,19 @@ test("isValidSchoolYear accepts only consecutive YYYY-YYYY years", () => {
   assert.equal(isValidSchoolYear("26-27"), false);
   assert.equal(isValidSchoolYear("2026/2027"), false);
   assert.equal(isValidSchoolYear(""), false);
+});
+
+test("document period filter maps the active academic year to school year", () => {
+  assert.deepEqual(
+    getDocumentPeriodFilter({
+      academicYear: "2029-2030",
+      semester: "2nd Semester",
+    }),
+    {
+      schoolYear: "2029-2030",
+      semester: "2nd Semester",
+    },
+  );
 });
 
 test("validateFields trims and canonicalizes a valid submission", () => {

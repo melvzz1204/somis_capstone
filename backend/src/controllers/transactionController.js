@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/Transaction");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
+const {
+  getCurrentAcademicPeriod,
+  getAcademicPeriodFilter,
+  getAcademicPeriodDateRange,
+} = require("../util/academicPeriod");
 
 const normalizeTransaction = (body = {}) => {
   const title = String(body.title || "").trim();
@@ -46,8 +51,22 @@ const normalizeTransaction = (body = {}) => {
 
 const listTransactions = async (req, res) => {
   try {
+    const period = await getCurrentAcademicPeriod();
+    const legacyRange = getAcademicPeriodDateRange(period);
+    const periodFilter = getAcademicPeriodFilter(period);
     const transactions = await Transaction.find({
       organization: req.user.organization,
+      $or: [
+        periodFilter,
+        ...(legacyRange
+          ? [
+              {
+                academicYear: { $exists: false },
+                date: { $gte: legacyRange.start, $lt: legacyRange.end },
+              },
+            ]
+          : []),
+      ],
     })
       .populate("fee", "title amount baseCost marginPerMember status")
       .sort({ date: -1, createdAt: -1 });
@@ -77,12 +96,14 @@ const createTransaction = async (req, res) => {
   }
 
   try {
+    const period = await getCurrentAcademicPeriod();
     let collectionFields = {};
 
     if (fields.type === "income") {
       const fee = await Fee.findOne({
         _id: fields.feeId,
         org: req.user.organization,
+        ...getAcademicPeriodFilter(period),
         status: "active",
       }).select("title amount baseCost marginPerMember");
 
@@ -109,6 +130,7 @@ const createTransaction = async (req, res) => {
             $match: {
               organization: req.user.organization,
               fee: fee._id,
+              ...getAcademicPeriodFilter(period),
               type: "income",
               status: "Approved",
             },
@@ -144,6 +166,7 @@ const createTransaction = async (req, res) => {
     const transaction = await Transaction.create({
       ...transactionFields,
       ...collectionFields,
+      ...getAcademicPeriodFilter(period),
       organization: req.user.organization,
       createdBy: req.user._id,
     });

@@ -4,6 +4,10 @@ const Payment = require("../models/Payment");
 const Transaction = require("../models/Transaction");
 const StudentFeeArchive = require("../models/StudentFeeArchive");
 const StudentProfile = require("../models/studentProfile");
+const {
+  getCurrentAcademicPeriod,
+  getAcademicPeriodFilter,
+} = require("../util/academicPeriod");
 const User = require("../models/User");
 
 const TARGET_LEVELS = [
@@ -19,6 +23,12 @@ const normalizeEmail = (value) =>
   String(value || "")
     .trim()
     .toLowerCase();
+
+const getActiveStudentFeeQuery = async (req, extra = {}) => ({
+  ...extra,
+  org: req.user.organization,
+  ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
+});
 
 const resolveTargetMembers = async (orgId, targetYearLevel) => {
   const rosterQuery = {
@@ -343,6 +353,11 @@ const getFees = async (req, res) => {
 
     await archiveExpiredFees(orgId);
     const query = { org: orgId };
+    const activePeriod = await getCurrentAcademicPeriod();
+
+    if (req.user.role === "treasurer" || req.user.role === "student") {
+      Object.assign(query, getAcademicPeriodFilter(activePeriod));
+    }
 
     if (req.user.role === "treasurer" && req.query.includeArchived !== "true") {
       query.treasurerArchived = { $ne: true };
@@ -420,7 +435,10 @@ const getClearanceFees = async (req, res) => {
     const studentIdNumber = String(
       studentProfile?.studentIdNumber || "",
     ).trim();
-    const fees = await Fee.find({ org: orgId })
+    const fees = await Fee.find({
+      org: orgId,
+      ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
+    })
       .select(
         "title category amount academicYear semester status targetYearLevel targetMembers",
       )
@@ -625,11 +643,12 @@ const deleteFee = async (req, res) => {
 };
 
 const archiveStudentFee = async (req, res) => {
-  const fee = await Fee.findOne({
-    _id: req.params.id,
-    org: req.user.organization,
-    status: { $in: ["active", "archived"] },
-  });
+  const fee = await Fee.findOne(
+    await getActiveStudentFeeQuery(req, {
+      _id: req.params.id,
+      status: { $in: ["active", "archived"] },
+    }),
+  );
   if (!fee)
     return res.status(404).json({
       success: false,
@@ -655,10 +674,18 @@ const archiveStudentFee = async (req, res) => {
 };
 
 const restoreStudentFee = async (req, res) => {
+  const activeFee = await Fee.findOne(
+    await getActiveStudentFeeQuery(req, { _id: req.params.id }),
+  ).select("_id");
+  if (!activeFee)
+    return res.status(404).json({
+      success: false,
+      message: "Student fee archive not found.",
+    });
   const archive = await StudentFeeArchive.findOneAndUpdate(
     {
       student: req.user._id,
-      fee: req.params.id,
+      fee: activeFee._id,
       state: "archived",
     },
     { $set: { state: "archived" } },
@@ -676,8 +703,16 @@ const restoreStudentFee = async (req, res) => {
 };
 
 const deleteStudentFee = async (req, res) => {
+  const activeFee = await Fee.findOne(
+    await getActiveStudentFeeQuery(req, { _id: req.params.id }),
+  ).select("_id");
+  if (!activeFee)
+    return res.status(404).json({
+      success: false,
+      message: "Applicable fee collection not found.",
+    });
   const archive = await StudentFeeArchive.findOneAndUpdate(
-    { student: req.user._id, fee: req.params.id },
+    { student: req.user._id, fee: activeFee._id },
     { organization: req.user.organization, state: "deleted" },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
@@ -689,9 +724,13 @@ const deleteStudentFee = async (req, res) => {
 };
 
 const listStudentFeeArchive = async (req, res) => {
+  const activeFees = await Fee.find(await getActiveStudentFeeQuery(req)).select(
+    "_id",
+  );
   const archives = await StudentFeeArchive.find({
     student: req.user._id,
     organization: req.user.organization,
+    fee: { $in: activeFees.map((fee) => fee._id) },
     state: "archived",
   })
     .populate(

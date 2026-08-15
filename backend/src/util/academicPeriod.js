@@ -59,9 +59,53 @@ function getEffectiveAcademicPeriod(organization, date = new Date()) {
   };
 }
 
+async function getCurrentAcademicPeriod() {
+  // Require lazily so the pure date helpers remain usable without initializing
+  // Mongoose (for example, in unit tests).
+  const AcademicPeriodSettings = require("../models/AcademicPeriodSettings");
+  const settings = await AcademicPeriodSettings.findOne({
+    key: "global",
+  }).lean();
+  return getEffectiveAcademicPeriod({ academicPeriod: settings });
+}
+
+function getAcademicPeriodFilter(period) {
+  return {
+    academicYear: period.academicYear,
+    semester: period.semester,
+  };
+}
+
+function getAcademicPeriodDateRange(period) {
+  const startYear = Number(String(period?.academicYear || "").slice(0, 4));
+  if (!Number.isInteger(startYear) || !SEMESTERS.includes(period?.semester)) {
+    return null;
+  }
+
+  if (period.semester === "1st Semester") {
+    return {
+      start: new Date(Date.UTC(startYear, 7, 1)),
+      end: new Date(Date.UTC(startYear + 1, 0, 1)),
+    };
+  }
+  if (period.semester === "2nd Semester") {
+    return {
+      start: new Date(Date.UTC(startYear + 1, 0, 1)),
+      end: new Date(Date.UTC(startYear + 1, 5, 1)),
+    };
+  }
+  return {
+    start: new Date(Date.UTC(startYear + 1, 5, 1)),
+    end: new Date(Date.UTC(startYear + 1, 7, 1)),
+  };
+}
+
 module.exports = {
   SEMESTERS,
   getAutomaticAcademicPeriod,
   getEffectiveAcademicPeriod,
+  getCurrentAcademicPeriod,
+  getAcademicPeriodFilter,
+  getAcademicPeriodDateRange,
   isValidAcademicYear,
 };

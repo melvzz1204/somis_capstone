@@ -3,6 +3,7 @@ const path = require("path");
 const mongoose = require("mongoose");
 const OrganizationDocument = require("../models/OrganizationDocument");
 const { DOCUMENT_TYPES, SEMESTERS } = require("../models/OrganizationDocument");
+const { getCurrentAcademicPeriod } = require("../util/academicPeriod");
 const {
   MAX_DOCUMENT_FILES,
 } = require("../middleware/organizationDocumentUpload");
@@ -25,7 +26,12 @@ const REVIEW_RULES = {
   },
 };
 
-const editableFields = ["title", "schoolYear", "semester"];
+const editableFields = ["title"];
+
+const getDocumentPeriodFilter = (period) => ({
+  schoolYear: period.academicYear,
+  semester: period.semester,
+});
 
 const normalizeDocumentType = (value) => {
   const normalized = String(value || "")
@@ -167,7 +173,12 @@ const createOrganizationDocument = async (req, res) => {
       return undefined;
     }
 
-    const validation = validateFields(req.body);
+    const activePeriod = await getCurrentAcademicPeriod();
+    const validation = validateFields({
+      ...req.body,
+      schoolYear: activePeriod.academicYear,
+      semester: activePeriod.semester,
+    });
     if (validation.error) {
       removeFiles(newAttachments);
       return res
@@ -184,6 +195,7 @@ const createOrganizationDocument = async (req, res) => {
 
     const document = await OrganizationDocument.create({
       ...validation.data,
+      ...getDocumentPeriodFilter(activePeriod),
       org: req.user.organization,
       createdBy: req.user._id,
       attachments: newAttachments,
@@ -212,7 +224,11 @@ const getOrganizationDocuments = async (req, res) => {
     const isOvpsas = req.user.role === "admin";
     if (!isOvpsas && !ensureOrganizationContext(req, res)) return undefined;
 
-    const query = isOvpsas ? {} : { org: req.user.organization };
+    const activePeriod = await getCurrentAcademicPeriod();
+    const query = {
+      ...(isOvpsas ? {} : { org: req.user.organization }),
+      ...getDocumentPeriodFilter(activePeriod),
+    };
     const documentType = normalizeDocumentType(req.query.documentType);
     if (req.query.documentType && !documentType) {
       return res.status(400).json({
@@ -275,11 +291,12 @@ const updateOrganizationDocument = async (req, res) => {
       });
     }
 
+    const activePeriod = await getCurrentAcademicPeriod();
     const candidate = {
       documentType: document.documentType,
       title: document.title,
-      schoolYear: document.schoolYear,
-      semester: document.semester,
+      schoolYear: activePeriod.academicYear,
+      semester: activePeriod.semester,
     };
     editableFields.forEach((field) => {
       if (Object.prototype.hasOwnProperty.call(req.body, field)) {
@@ -324,7 +341,11 @@ const updateOrganizationDocument = async (req, res) => {
     );
 
     const isResubmission = document.status === "Rejected";
-    Object.assign(document, validation.data);
+    Object.assign(
+      document,
+      validation.data,
+      getDocumentPeriodFilter(activePeriod),
+    );
     document.attachments = [...retainedAttachments, ...newAttachments];
     if (isResubmission) {
       document.status = "Pending Adviser Review";
@@ -499,6 +520,7 @@ module.exports = {
   REVIEW_RULES,
   normalizeDocumentType,
   isValidSchoolYear,
+  getDocumentPeriodFilter,
   validateFields,
   removeFiles,
   removeOrganizationDocumentFiles,

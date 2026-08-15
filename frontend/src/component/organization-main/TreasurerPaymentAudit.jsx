@@ -34,25 +34,28 @@ const formatMethod = (method) => {
 /**
  * Organization-scoped payment verification audit for Treasurer accounts.
  */
-export default function TreasurerPaymentAudit() {
+export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [payments, setPayments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadPayments = useCallback(async (signal) => {
-    try {
-      const response = await API.get("/payments/audit", { signal });
-      setPayments(Array.isArray(response.data) ? response.data : []);
-      setError("");
-    } catch (requestError) {
-      if (requestError.originalError?.code === "ERR_CANCELED") return;
-      setError(requestError.message || "Unable to load the payment audit.");
-    } finally {
-      if (!signal?.aborted) setIsLoading(false);
-    }
-  }, []);
+  const loadPayments = useCallback(
+    async (signal) => {
+      try {
+        const response = await API.get("/payments/audit", { signal });
+        setPayments(Array.isArray(response.data) ? response.data : []);
+        setError("");
+      } catch (requestError) {
+        if (requestError.originalError?.code === "ERR_CANCELED") return;
+        setError(requestError.message || "Unable to load the payment audit.");
+      } finally {
+        if (!signal?.aborted) setIsLoading(false);
+      }
+    },
+    [academicPeriodKey],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,7 +73,7 @@ export default function TreasurerPaymentAudit() {
       window.clearTimeout(initialRequestId);
       window.clearInterval(intervalId);
     };
-  }, [loadPayments]);
+  }, [loadPayments, academicPeriodKey]);
 
   // Combined Search & Status Filter Logic
   const filteredPayments = payments.filter((payment) => {

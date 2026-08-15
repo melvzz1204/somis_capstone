@@ -22,6 +22,18 @@ const transactionSchema = new mongoose.Schema(
     baseCostSnapshot: { type: Number, min: 0, default: 0 },
     estimatedCost: { type: Number, min: 0, default: 0 },
     netIncome: { type: Number, default: 0 },
+    academicYear: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
+    semester: {
+      type: String,
+      enum: ["1st Semester", "2nd Semester", "Summer"],
+      required: true,
+      index: true,
+    },
     date: { type: Date, required: true },
     reference: { type: String, trim: true, maxlength: 100, default: "" },
     status: {
@@ -38,7 +50,13 @@ const transactionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-transactionSchema.index({ organization: 1, date: -1, createdAt: -1 });
+transactionSchema.index({
+  organization: 1,
+  academicYear: 1,
+  semester: 1,
+  date: -1,
+  createdAt: -1,
+});
 transactionSchema.index({ organization: 1, fee: 1, type: 1 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

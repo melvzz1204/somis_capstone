@@ -494,11 +494,13 @@ export default function AdminDashboard() {
             <OrganizationDocumentWorkspace
               documentType="Annual Report"
               reviewRole="admin"
+              academicPeriodKey={`${academicPeriod.academicYear}:${academicPeriod.semester}`}
             />
           ) : activeTab === "activity-plan" ? (
             <OrganizationDocumentWorkspace
               documentType="Activity Plan"
               reviewRole="admin"
+              academicPeriodKey={`${academicPeriod.academicYear}:${academicPeriod.semester}`}
             />
           ) : (
             <>

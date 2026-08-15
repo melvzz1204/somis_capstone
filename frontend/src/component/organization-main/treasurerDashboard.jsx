@@ -177,10 +177,236 @@ const BUDGET_LIMITS = {
   "Events & Logistics": 15000,
   "Operational Supplies": 5000,
 };
+function FeeCard({
+  fee,
+  idx,
+  isSelected,
+  isExpanded,
+  toggleFeeDetails,
+  toggleArchivedFeeSelection,
+  setSelectedFee,
+  openEditFeeModal,
+  handleArchiveFee,
+  handleRestoreFee,
+  handleDeleteFee,
+}) {
+  const feeId = String(fee._id || fee.id || idx);
+
+  return (
+    <div
+      key={feeId}
+      onClick={() => {
+        if (fee.treasurerArchived) toggleArchivedFeeSelection(feeId);
+      }}
+      className={`p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
+        fee.treasurerArchived
+          ? `cursor-pointer select-none ${
+              isSelected
+                ? "border-[#4A0E17] bg-white ring-2 ring-[#4A0E17]/20 shadow-xs"
+                : "border-slate-200 bg-slate-100/70 hover:border-slate-300"
+            }`
+          : "bg-slate-50/60 border-slate-200/80 hover:border-[#D4AF37]"
+      }`}
+    >
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-2">
+            {fee.treasurerArchived && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => {}}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#4A0E17] cursor-pointer"
+                aria-label={`Select ${fee.title || "archived collection"}`}
+              />
+            )}
+            <h4 className="font-bold text-[#4A0E17] text-sm">{fee.title}</h4>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg">
+              ₱
+              {Number(fee.amount || 0).toLocaleString("en-PH", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+            <span
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                fee.treasurerArchived
+                  ? "bg-slate-200 text-slate-600 border-slate-300"
+                  : fee.status === "active"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-rose-50 text-rose-700 border-rose-200"
+              }`}
+            >
+              {fee.treasurerArchived
+                ? "Archived"
+                : fee.status === "active"
+                  ? "Active"
+                  : "Expired"}
+            </span>
+          </div>
+        </div>
+
+        {fee.description && (
+          <p className="text-xs text-slate-600 line-clamp-2">
+            {fee.description}
+          </p>
+        )}
+      </div>
+
+      <div className="pt-3 border-t border-slate-200/80 space-y-2 text-[11px] text-slate-500">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-white p-2 border border-slate-200">
+            <p className="text-[9px] font-bold uppercase text-slate-400">
+              Target
+            </p>
+            <p className="font-black text-slate-800">
+              ₱{Number(fee.expectedCollection || 0).toLocaleString("en-PH")}
+            </p>
+          </div>
+          <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200">
+            <p className="text-[9px] font-bold uppercase text-emerald-600">
+              Received
+            </p>
+            <p className="font-black text-emerald-800">
+              ₱{Number(fee.collectedAmount || 0).toLocaleString("en-PH")}
+            </p>
+          </div>
+          <div className="rounded-lg bg-amber-50 p-2 border border-amber-200">
+            <p className="text-[9px] font-bold uppercase text-amber-600">
+              Balance
+            </p>
+            <p className="font-black text-amber-900">
+              ₱{Number(fee.remainingAmount || 0).toLocaleString("en-PH")}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between font-bold">
+            <span>
+              {fee.paidMemberCount || 0} of {fee.targetMemberCount || 0} paid
+            </span>
+            <span>{fee.collectionPercentage || 0}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-emerald-600 transition-all"
+              style={{ width: `${fee.collectionPercentage || 0}%` }}
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFeeDetails(feeId);
+          }}
+          aria-expanded={isExpanded}
+          className="flex items-center justify-between w-full pt-1 font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+        >
+          <span>{isExpanded ? "Hide details" : "Show details"}</span>
+          <svg
+            className={`w-4 h-4 transition-transform duration-200 ${
+              isExpanded ? "rotate-180" : ""
+            }`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+
+        {isExpanded && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="space-y-2 pt-2 border-t border-slate-200/60"
+          >
+            <div className="flex items-center justify-between">
+              <span>Applies To:</span>
+              <span className="font-bold text-slate-700">
+                {fee.targetYearLevel === "All"
+                  ? "All Students"
+                  : fee.targetYearLevel}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Academic Term:</span>
+              <span className="font-bold text-slate-700">
+                {fee.academicYear} {fee.semester ? `(${fee.semester})` : ""}
+              </span>
+            </div>
+            {fee.dueDate && (
+              <div className="flex items-center justify-between text-amber-700 font-bold">
+                <span>Due Date:</span>
+                <span>{formatDate(fee.dueDate)}</span>
+              </div>
+            )}
+            <div className="pt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedFee(fee)}
+                className="px-2.5 py-1.5 rounded-lg bg-[#4A0E17] text-white hover:bg-[#601520] font-bold text-xs"
+              >
+                View students
+              </button>
+              <div className="flex items-center gap-2">
+                {!fee.treasurerArchived ? (
+                  <>
+                    {Number(fee.paidMemberCount || 0) === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openEditFeeModal(fee)}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold text-xs"
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleArchiveFee(fee)}
+                      className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold text-xs"
+                    >
+                      Archive
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreFee(fee)}
+                      className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold text-xs"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFee(fee)}
+                      className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-800 hover:bg-rose-50 font-bold text-xs"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const { showToast } = useToast();
-  const [expandedFeeId, setExpandedFeeId] = useState(null); // 1. Resolve User from props OR fallback to localStorage
   const currentUser =
     propsUser || JSON.parse(localStorage.getItem("user") || "null");
 
@@ -221,6 +447,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [transactions, setTransactions] = useState([]);
   const [feeDrives, setFeeDrives] = useState([]);
   const [selectedArchivedFeeIds, setSelectedArchivedFeeIds] = useState([]);
+  const [expandedFeeIds, setExpandedFeeIds] = useState(() => new Set());
   const [feeView, setFeeView] = useState("active");
   const [organizationRoster, setOrganizationRoster] = useState([]);
   const [filterType, setFilterType] = useState("income");
@@ -457,6 +684,15 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         ? current.filter((id) => id !== feeId)
         : [...current, feeId],
     );
+  };
+
+  const toggleFeeDetails = (feeId) => {
+    setExpandedFeeIds((current) => {
+      const next = new Set(current);
+      if (next.has(feeId)) next.delete(feeId);
+      else next.add(feeId);
+      return next;
+    });
   };
 
   const toggleAllArchivedFees = () => {
@@ -1488,247 +1724,26 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 </div>
               ) : (
                 /* Collection Cards Grid */
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
                   {visibleFeeDrives.map((fee, idx) => {
-                    const feeId = String(fee._id || fee.id || idx);
+                    const feeId = String(
+                      fee._id ?? fee.id ?? `${feeView}-${idx}`,
+                    );
                     const isSelected = selectedArchivedFeeIds.includes(feeId);
-                    const isExpanded = expandedFeeId === feeId;
-
                     return (
-                      <div
+                      <FeeCard
                         key={feeId}
-                        onClick={() => {
-                          if (fee.treasurerArchived)
-                            toggleArchivedFeeSelection(feeId);
-                        }}
-                        className={`p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
-                          fee.treasurerArchived
-                            ? `cursor-pointer select-none ${
-                                isSelected
-                                  ? "border-[#4A0E17] bg-white ring-2 ring-[#4A0E17]/20 shadow-xs"
-                                  : "border-slate-200 bg-slate-100/70 hover:border-slate-300"
-                              }`
-                            : "bg-slate-50/60 border-slate-200/80 hover:border-[#D4AF37]"
-                        }`}
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex min-w-0 items-start gap-2">
-                              {fee.treasurerArchived && (
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => {}} // Handled by outer card click
-                                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#4A0E17] cursor-pointer"
-                                  aria-label={`Select ${fee.title || "archived collection"}`}
-                                />
-                              )}
-                              <h4 className="font-bold text-[#4A0E17] text-sm">
-                                {fee.title}
-                              </h4>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg">
-                                ₱
-                                {Number(fee.amount || 0).toLocaleString(
-                                  "en-PH",
-                                  {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  },
-                                )}
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
-                                  fee.treasurerArchived
-                                    ? "bg-slate-200 text-slate-600 border-slate-300"
-                                    : fee.status === "active"
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                      : "bg-rose-50 text-rose-700 border-rose-200"
-                                }`}
-                              >
-                                {fee.treasurerArchived
-                                  ? "Archived"
-                                  : fee.status === "active"
-                                    ? "Active"
-                                    : "Expired"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {fee.description && (
-                            <p className="text-xs text-slate-600 line-clamp-2">
-                              {fee.description}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="pt-3 border-t border-slate-200/80 space-y-2 text-[11px] text-slate-500">
-                          {/* Metrics Summary */}
-                          <div className="grid grid-cols-3 gap-2 text-center">
-                            <div className="rounded-lg bg-white p-2 border border-slate-200">
-                              <p className="text-[9px] font-bold uppercase text-slate-400">
-                                Target
-                              </p>
-                              <p className="font-black text-slate-800">
-                                ₱
-                                {Number(
-                                  fee.expectedCollection || 0,
-                                ).toLocaleString("en-PH")}
-                              </p>
-                            </div>
-                            <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200">
-                              <p className="text-[9px] font-bold uppercase text-emerald-600">
-                                Received
-                              </p>
-                              <p className="font-black text-emerald-800">
-                                ₱
-                                {Number(
-                                  fee.collectedAmount || 0,
-                                ).toLocaleString("en-PH")}
-                              </p>
-                            </div>
-                            <div className="rounded-lg bg-amber-50 p-2 border border-amber-200">
-                              <p className="text-[9px] font-bold uppercase text-amber-600">
-                                Balance
-                              </p>
-                              <p className="font-black text-amber-900">
-                                ₱
-                                {Number(
-                                  fee.remainingAmount || 0,
-                                ).toLocaleString("en-PH")}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Progress Bar */}
-                          <div>
-                            <div className="mb-1 flex items-center justify-between font-bold">
-                              <span>
-                                {fee.paidMemberCount || 0} of{" "}
-                                {fee.targetMemberCount || 0} paid
-                              </span>
-                              <span>{fee.collectionPercentage || 0}%</span>
-                            </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                              <div
-                                className="h-full rounded-full bg-emerald-600 transition-all"
-                                style={{
-                                  width: `${fee.collectionPercentage || 0}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Toggle Accordion Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation(); // Stop card checkbox toggle when expanding
-                              setExpandedFeeId(isExpanded ? null : feeId);
-                            }}
-                            className="flex items-center justify-between w-full pt-1 font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-                          >
-                            <span>
-                              {isExpanded ? "Hide details" : "Show details"}
-                            </span>
-                            <svg
-                              className={`w-4 h-4 transition-transform duration-200 ${
-                                isExpanded ? "rotate-180" : ""
-                              }`}
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 9l-7 7-7-7"
-                              />
-                            </svg>
-                          </button>
-
-                          {/* Collapsible Section */}
-                          {isExpanded && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="space-y-2 pt-2 border-t border-slate-200/60"
-                            >
-                              <div className="flex items-center justify-between">
-                                <span>Applies To:</span>
-                                <span className="font-bold text-slate-700">
-                                  {fee.targetYearLevel === "All"
-                                    ? "All Students"
-                                    : fee.targetYearLevel}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span>Academic Term:</span>
-                                <span className="font-bold text-slate-700">
-                                  {fee.academicYear}{" "}
-                                  {fee.semester ? `(${fee.semester})` : ""}
-                                </span>
-                              </div>
-                              {fee.dueDate && (
-                                <div className="flex items-center justify-between text-amber-700 font-bold">
-                                  <span>Due Date:</span>
-                                  <span>{formatDate(fee.dueDate)}</span>
-                                </div>
-                              )}
-                              <div className="pt-2 flex items-center justify-between gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedFee(fee)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-[#4A0E17] text-white hover:bg-[#601520] font-bold text-xs"
-                                >
-                                  View students
-                                </button>
-                                <div className="flex items-center gap-2">
-                                  {!fee.treasurerArchived ? (
-                                    <>
-                                      {Number(fee.paidMemberCount || 0) ===
-                                        0 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => openEditFeeModal(fee)}
-                                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold text-xs"
-                                        >
-                                          Edit
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleArchiveFee(fee)}
-                                        className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold text-xs"
-                                      >
-                                        Archive
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRestoreFee(fee)}
-                                        className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold text-xs"
-                                      >
-                                        Restore
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteFee(fee)}
-                                        className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-800 hover:bg-rose-50 font-bold text-xs"
-                                      >
-                                        Delete
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                        fee={fee}
+                        isSelected={isSelected}
+                        isExpanded={expandedFeeIds.has(feeId)}
+                        toggleFeeDetails={toggleFeeDetails}
+                        toggleArchivedFeeSelection={toggleArchivedFeeSelection}
+                        setSelectedFee={setSelectedFee}
+                        openEditFeeModal={openEditFeeModal}
+                        handleArchiveFee={handleArchiveFee}
+                        handleRestoreFee={handleRestoreFee}
+                        handleDeleteFee={handleDeleteFee}
+                      />
                     );
                   })}
                 </div>

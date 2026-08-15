@@ -15,6 +15,7 @@ import {
 import API from "../../api/axios";
 import LogoutButton from "../logoutButton";
 import MobileTabBar from "../mobileTabBar";
+import NavCountBadge from "../navCountBadge";
 
 const EMPTY_FORM = {
   title: "",
@@ -215,12 +216,16 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
     }
   };
 
+  const activeAnnouncementCount = announcements.filter(
+    (item) => item.status !== "Archived",
+  ).length;
   const navItems = [
     { id: "overview", label: "Overview", icon: <LayoutDashboard size={16} /> },
     {
       id: "announcements",
       label: "Announcement Library",
       icon: <Bell size={16} />,
+      count: activeAnnouncementCount,
     },
   ];
 
@@ -249,7 +254,10 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-xs font-bold ${activeTab === item.id ? "bg-[#601520] text-[#D4AF37]" : "text-rose-100/75 hover:bg-[#601520] hover:text-white"}`}
               >
                 {item.icon}
-                {item.label}
+                <span>{item.label}</span>
+                {item.count !== undefined && (
+                  <NavCountBadge count={item.count} />
+                )}
               </button>
             ))}
           </nav>

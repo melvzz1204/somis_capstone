@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 import LogoutButton from "../logoutButton";
+import NavCountBadge from "../navCountBadge";
 import MobileTabBar from "../mobileTabBar";
 import FeeModal from "./feesModal";
 import StatementUploadModal from "./StatementUploadModal";
@@ -239,7 +240,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       const [transactionsResult, feesResult, rosterResult] =
         await Promise.allSettled([
           API.get(orgId ? `/transactions?org=${orgId}` : "/transactions"),
-          API.get("/fees"),
+          API.get("/fees", { params: { includeArchived: "true" } }),
           API.get("/orgmembers"),
         ]);
 
@@ -301,7 +302,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   };
 
   const handleArchiveFee = async (fee) => {
-    if (fee.status !== "active") return;
+    if (fee.treasurerArchived) return;
     try {
       const response = await API.patch(`/fees/${fee._id}/archive`);
       const archivedFee = response.data?.data || response.data;
@@ -313,16 +314,50 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       setFeeView("archived");
       showToast("Dues Collection moved to Archive.", "success");
     } catch (error) {
-      const message =
-        error.response?.data?.message || "Failed to archive Dues Collection.";
-      showToast(message, "error");
+      showToast(error.message || "Failed to archive Dues Collection.", "error");
     }
   };
 
-  const activeFeeDrives = feeDrives.filter((fee) => fee.status === "active");
-  const archivedFeeDrives = feeDrives.filter(
-    (fee) => fee.status === "archived" || fee.status === "closed",
-  );
+  const handleRestoreFee = async (fee) => {
+    try {
+      const response = await API.patch(`/fees/${fee._id}/restore`);
+      const restoredFee = response.data?.data || response.data;
+      setFeeDrives((previous) =>
+        previous.map((current) =>
+          current._id === fee._id ? restoredFee : current,
+        ),
+      );
+      setFeeView("active");
+      showToast("Dues Collection restored.", "success");
+    } catch (error) {
+      showToast(error.message || "Failed to restore Dues Collection.", "error");
+    }
+  };
+
+  const handleDeleteFee = async (fee) => {
+    if (
+      !window.confirm(
+        "Permanently delete this archived collection and its linked payment records?",
+      )
+    )
+      return;
+    try {
+      await API.delete(`/fees/${fee._id}`);
+      setFeeDrives((previous) =>
+        previous.filter((current) => current._id !== fee._id),
+      );
+      setSelectedFee((current) => (current?._id === fee._id ? null : current));
+      showToast("Archived collection permanently deleted.", "success");
+    } catch (error) {
+      showToast(
+        error.message || "Failed to delete archived collection.",
+        "error",
+      );
+    }
+  };
+
+  const activeFeeDrives = feeDrives.filter((fee) => !fee.treasurerArchived);
+  const archivedFeeDrives = feeDrives.filter((fee) => fee.treasurerArchived);
   const visibleFeeDrives =
     feeView === "archived" ? archivedFeeDrives : activeFeeDrives;
   const selectedIncomeFee = activeFeeDrives.find(
@@ -387,7 +422,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
     try {
       const [feesResponse, transactionsResponse] = await Promise.all([
-        API.get("/fees"),
+        API.get("/fees", { params: { includeArchived: "true" } }),
         syncIncomeEntry
           ? API.get(orgId ? `/transactions?org=${orgId}` : "/transactions")
           : Promise.resolve(null),
@@ -600,7 +635,8 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               <WalletIcon
                 className={`w-4 h-4 ${activeTab === "treasury" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Financial Ledger ({transactions.length})</span>
+              <span>Financial Ledger</span>
+              <NavCountBadge count={pendingCount} />
             </button>
 
             <button
@@ -614,7 +650,8 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               <WalletIcon
                 className={`w-4 h-4 ${activeTab === "fees" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Dues Collection ({feeDrives.length})</span>
+              <span>Dues Collection</span>
+              <NavCountBadge count={activeFeeDrives.length} />
             </button>
 
             <button
@@ -629,6 +666,13 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 className={`w-4 h-4 ${activeTab === "payments" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Payment Verification</span>
+              <NavCountBadge
+                count={
+                  transactions.filter(
+                    (transaction) => transaction.status === "Pending",
+                  ).length
+                }
+              />
             </button>
 
             <button
@@ -738,13 +782,20 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               label: "Ledger",
               shortLabel: "Ledger",
               icon: <WalletIcon />,
+              count: pendingCount,
             },
-            { id: "fees", label: "Dues", icon: <WalletIcon /> },
+            {
+              id: "fees",
+              label: "Dues",
+              icon: <WalletIcon />,
+              count: activeFeeDrives.length,
+            },
             {
               id: "payments",
               label: "Payments",
               shortLabel: "Verify",
               icon: <ShieldCheckIcon className="w-4 h-4" />,
+              count: pendingCount,
             },
             { id: "budgets", label: "Budgets", icon: <PieChartIcon /> },
             {
@@ -1182,7 +1233,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                     <div
                       key={fee._id || fee.id || idx}
                       className={`bg-slate-50/60 p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
-                        fee.status === "archived"
+                        fee.treasurerArchived
                           ? "border-slate-200 bg-slate-100/70"
                           : "border-slate-200/80 hover:border-[#D4AF37]"
                       }`}
@@ -1198,14 +1249,16 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             </span>
                             <span
                               className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
-                                fee.status === "archived"
+                                fee.treasurerArchived
                                   ? "bg-slate-200 text-slate-600 border-slate-300"
                                   : "bg-emerald-50 text-emerald-700 border-emerald-200"
                               }`}
                             >
-                              {fee.status === "archived"
+                              {fee.treasurerArchived
                                 ? "Archived"
-                                : "Active"}
+                                : fee.status === "active"
+                                  ? "Active"
+                                  : "Expired"}
                             </span>
                           </div>
                         </div>
@@ -1298,7 +1351,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             View students
                           </button>
                           <div className="flex items-center gap-2">
-                            {fee.status === "active" && (
+                            {!fee.treasurerArchived && (
                               <>
                                 <button
                                   type="button"
@@ -1313,6 +1366,24 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                                   className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold"
                                 >
                                   Archive
+                                </button>
+                              </>
+                            )}
+                            {fee.treasurerArchived && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreFee(fee)}
+                                  className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold"
+                                >
+                                  Restore
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteFee(fee)}
+                                  className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-800 hover:bg-rose-50 font-bold"
+                                >
+                                  Delete
                                 </button>
                               </>
                             )}

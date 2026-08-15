@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
+import NavCountBadge from "../component/navCountBadge";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
 import {
@@ -331,7 +332,8 @@ export default function OrgDashboard() {
               <UserPlusIcon
                 className={`w-4 h-4 ${activeTab === "officers" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Manage Officers ({officerCount})</span>
+              <span>Manage Officers</span>
+              <NavCountBadge count={officerCount} />
             </button>
 
             <button
@@ -345,7 +347,8 @@ export default function OrgDashboard() {
               <UserGroupIcon
                 className={`w-4 h-4 ${activeTab === "members" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Organization Members ({memberCount})</span>
+              <span>Organization Members</span>
+              <NavCountBadge count={memberCount} />
             </button>
 
             <button
@@ -359,7 +362,15 @@ export default function OrgDashboard() {
               <CalendarEventIcon
                 className={`w-4 h-4 ${activeTab === "activities" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Activity Proposals ({proposals.length})</span>
+              <span>Activity Proposals</span>
+              <NavCountBadge
+                count={
+                  proposals.filter(
+                    (proposal) =>
+                      !["Approved", "Rejected"].includes(proposal.status),
+                  ).length
+                }
+              />
             </button>
 
             <button
@@ -401,7 +412,8 @@ export default function OrgDashboard() {
               <FileCheckIcon
                 className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Annual Clearance ({organizationNeeds.length})</span>
+              <span>Annual Clearance</span>
+              <NavCountBadge count={organizationNeeds.length} />
             </button>
           </nav>
         </div>
@@ -471,6 +483,10 @@ export default function OrgDashboard() {
               label: "Activities",
               shortLabel: "Events",
               icon: <CalendarEventIcon />,
+              count: proposals.filter(
+                (proposal) =>
+                  !["Approved", "Rejected"].includes(proposal.status),
+              ).length,
             },
             {
               id: "annual-report",
@@ -489,6 +505,7 @@ export default function OrgDashboard() {
               label: "Clearance",
               shortLabel: "Clear",
               icon: <FileCheckIcon />,
+              count: organizationNeeds.length,
             },
           ]}
         />

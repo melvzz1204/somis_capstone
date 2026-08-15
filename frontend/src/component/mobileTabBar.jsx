@@ -1,4 +1,5 @@
 import LogoutButton from "./logoutButton";
+import NavCountBadge from "./navCountBadge";
 
 export default function MobileTabBar({
   items,
@@ -19,6 +20,7 @@ export default function MobileTabBar({
         >
           {item.icon}
           <span>{item.shortLabel || item.label}</span>
+          {item.count !== undefined && <NavCountBadge count={item.count} />}
         </button>
       ))}
       <LogoutButton variant="mobile" showConfirmModal={true} />

@@ -10,6 +10,7 @@ import {
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
+import NavCountBadge from "../component/navCountBadge";
 
 // --- SVG ICON COMPONENTS ---
 const BuildingIcon = ({ className = "w-5 h-5" }) => (
@@ -117,6 +118,9 @@ export default function AdminDashboard() {
   const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
   const adminName = storedUser.name || "Administrator";
   const adminEmail = storedUser.email || "admin@marsu.edu.ph";
+  const pendingProposalCount = proposals.filter(
+    (proposal) => proposal.status === "Pending OVPSAS Review",
+  ).length;
 
   useEffect(() => {
     let mounted = true;
@@ -355,6 +359,7 @@ export default function AdminDashboard() {
                 className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Proposal Review</span>
+              <NavCountBadge count={pendingProposalCount} />
             </button>
             <button
               onClick={() => setActiveTab("annual-report")}
@@ -436,6 +441,7 @@ export default function AdminDashboard() {
               label: "Proposal Review",
               shortLabel: "Proposals",
               icon: <FileCheckIcon />,
+              count: pendingProposalCount,
             },
             {
               id: "annual-report",

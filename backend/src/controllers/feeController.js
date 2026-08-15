@@ -1,6 +1,8 @@
 const Fee = require("../models/Fee");
 const Member = require("../models/MemberOrganization");
 const Payment = require("../models/Payment");
+const Transaction = require("../models/Transaction");
+const StudentFeeArchive = require("../models/StudentFeeArchive");
 const StudentProfile = require("../models/studentProfile");
 const User = require("../models/User");
 
@@ -342,12 +344,26 @@ const getFees = async (req, res) => {
     await archiveExpiredFees(orgId);
     const query = { org: orgId };
 
+    if (req.user.role === "treasurer" && req.query.includeArchived !== "true") {
+      query.treasurerArchived = { $ne: true };
+    }
+
     if (req.user.role === "student") {
       const studentProfile = await StudentProfile.findOne({
         user: req.user._id,
       }).select("yearLevel");
 
-      query.status = "active";
+      const hiddenArchives = await StudentFeeArchive.find({
+        student: req.user._id,
+        organization: orgId,
+        state: { $in: ["archived", "deleted"] },
+      })
+        .select("fee")
+        .lean();
+      const hiddenFeeIds = hiddenArchives.map((archive) => archive.fee);
+
+      query.status = { $in: ["active", "archived"] };
+      if (hiddenFeeIds.length) query._id = { $nin: hiddenFeeIds };
       query.$or = [
         { "targetMembers.student": req.user._id },
         {
@@ -541,31 +557,152 @@ const updateFee = async (req, res) => {
 const archiveFee = async (req, res) => {
   try {
     const fee = await Fee.findOneAndUpdate(
-      { _id: req.params.id, org: req.user.organization, status: "active" },
-      { $set: { status: "archived" } },
+      {
+        _id: req.params.id,
+        org: req.user.organization,
+        treasurerArchived: { $ne: true },
+      },
+      { $set: { treasurerArchived: true } },
       { new: true },
     );
 
     if (!fee) {
       return res.status(404).json({
         success: false,
-        message: "Active fee collection not found.",
+        message: "Fee collection not found or already archived.",
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Fee collection archived successfully.",
+      message: "Fee collection archived for the treasurer.",
       data: fee,
     });
   } catch (error) {
     console.error("Error archiving fee record:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server Error: Could not archive fee record.",
       error: error.message,
     });
   }
+};
+
+const restoreFee = async (req, res) => {
+  const fee = await Fee.findOneAndUpdate(
+    { _id: req.params.id, org: req.user.organization, treasurerArchived: true },
+    { $set: { treasurerArchived: false } },
+    { new: true },
+  );
+  if (!fee)
+    return res
+      .status(404)
+      .json({ success: false, message: "Archived fee collection not found." });
+  return res.json({
+    success: true,
+    message: "Fee collection restored.",
+    data: fee,
+  });
+};
+
+const deleteFee = async (req, res) => {
+  const fee = await Fee.findOne({
+    _id: req.params.id,
+    org: req.user.organization,
+    treasurerArchived: true,
+  });
+  if (!fee)
+    return res
+      .status(404)
+      .json({ success: false, message: "Archived fee collection not found." });
+  await Promise.all([
+    Payment.deleteMany({ fee: fee._id }),
+    Transaction.deleteMany({ fee: fee._id, organization: fee.org }),
+    StudentFeeArchive.deleteMany({ fee: fee._id }),
+    Fee.deleteOne({ _id: fee._id }),
+  ]);
+  return res.json({
+    success: true,
+    message: "Fee collection permanently deleted.",
+  });
+};
+
+const archiveStudentFee = async (req, res) => {
+  const fee = await Fee.findOne({
+    _id: req.params.id,
+    org: req.user.organization,
+    status: { $in: ["active", "archived"] },
+  });
+  if (!fee)
+    return res.status(404).json({
+      success: false,
+      message: "Applicable fee collection not found.",
+    });
+  const target = fee.targetMembers.find(
+    (member) => String(member.student || "") === String(req.user._id),
+  );
+  if (!target && fee.targetMembers.length)
+    return res
+      .status(403)
+      .json({ success: false, message: "This fee is not applicable to you." });
+  const archive = await StudentFeeArchive.findOneAndUpdate(
+    { student: req.user._id, fee: fee._id },
+    { organization: fee.org, state: "archived" },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+  return res.json({
+    success: true,
+    message: "Fee moved to your archive.",
+    data: archive,
+  });
+};
+
+const restoreStudentFee = async (req, res) => {
+  const archive = await StudentFeeArchive.findOneAndUpdate(
+    {
+      student: req.user._id,
+      fee: req.params.id,
+      state: "archived",
+    },
+    { $set: { state: "archived" } },
+    { new: true },
+  );
+  if (!archive)
+    return res
+      .status(404)
+      .json({ success: false, message: "Student fee archive not found." });
+  await StudentFeeArchive.deleteOne({ _id: archive._id });
+  return res.json({
+    success: true,
+    message: "Fee restored to your active list.",
+  });
+};
+
+const deleteStudentFee = async (req, res) => {
+  const archive = await StudentFeeArchive.findOneAndUpdate(
+    { student: req.user._id, fee: req.params.id },
+    { organization: req.user.organization, state: "deleted" },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+  return res.json({
+    success: true,
+    message: "Fee permanently removed from your archive.",
+    data: archive,
+  });
+};
+
+const listStudentFeeArchive = async (req, res) => {
+  const archives = await StudentFeeArchive.find({
+    student: req.user._id,
+    organization: req.user.organization,
+    state: "archived",
+  })
+    .populate(
+      "fee",
+      "title category amount academicYear semester dueDate status treasurerArchived",
+    )
+    .sort({ updatedAt: -1 });
+  return res.json({ success: true, count: archives.length, data: archives });
 };
 
 module.exports = {
@@ -575,4 +712,10 @@ module.exports = {
   getClearanceFees,
   updateFee,
   archiveFee,
+  restoreFee,
+  deleteFee,
+  archiveStudentFee,
+  restoreStudentFee,
+  deleteStudentFee,
+  listStudentFeeArchive,
 };

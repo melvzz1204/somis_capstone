@@ -113,6 +113,12 @@ const feeSchema = new mongoose.Schema(
       enum: ["active", "archived", "closed"],
       default: "active",
     },
+    // Treasurer-only organization view state. This must not hide the fee from students.
+    treasurerArchived: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,

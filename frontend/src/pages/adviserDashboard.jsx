@@ -8,6 +8,7 @@ import {
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import LogoutButton from "../component/logoutButton";
+import NavCountBadge from "../component/navCountBadge";
 import MobileTabBar from "../component/mobileTabBar";
 
 const DashboardIcon = ({ className = "w-4 h-4" }) => (
@@ -157,18 +158,21 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
       label: "Proposal Review",
       shortLabel: "Proposals",
       icon: <FileCheckIcon />,
+      count: pendingCount,
     },
     ...(!isDean
       ? [
           {
             id: "annual-report",
             label: "Accomplishment Report",
+            count: 0,
             shortLabel: "Accomp. Report",
             icon: <AnnualReportIcon />,
           },
           {
             id: "activity-plan",
             label: "Organization Plan",
+            count: 0,
             shortLabel: "Org Plan",
             icon: <ActivityPlanIcon />,
           },
@@ -220,7 +224,9 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                 </span>
                 <span>
                   {item.label}
-                  {item.id === "proposals" ? ` (${pendingCount})` : ""}
+                  {item.id === "proposals" && (
+                    <NavCountBadge count={pendingCount} />
+                  )}
                 </span>
               </button>
             ))}

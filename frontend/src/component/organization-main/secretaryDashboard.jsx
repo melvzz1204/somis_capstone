@@ -14,6 +14,7 @@ import {
 import OrganizationDocumentWorkspace from "./organizationDocumentWorkspace";
 import SecretaryEvents from "./secretaryEvents";
 import LogoutButton from "../logoutButton";
+import NavCountBadge from "../navCountBadge";
 
 // --- INLINE SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
@@ -288,7 +289,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               <CalendarIcon
                 className={`w-4 h-4 ${activeTab === "proposals" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Proposals ({proposals.length})</span>
+              <span>Proposals</span>
+              <NavCountBadge
+                count={
+                  proposals.filter(
+                    (proposal) =>
+                      !["Approved", "Rejected"].includes(proposal.status),
+                  ).length
+                }
+              />
             </button>
 
             <button
@@ -405,7 +414,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               label: "Overview",
               icon: <LayoutDashboardIcon />,
             },
-            { id: "proposals", label: "Proposals", icon: <CalendarIcon /> },
+            {
+              id: "proposals",
+              label: "Proposals",
+              icon: <CalendarIcon />,
+              count: proposals.filter(
+                (proposal) =>
+                  !["Approved", "Rejected"].includes(proposal.status),
+              ).length,
+            },
             {
               id: "annual-report",
               label: "Accomplishment Report",
@@ -418,8 +435,13 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               shortLabel: "Org Plan",
               icon: <ActivityPlanIcon />,
             },
-            { id: "events", label: "Events", icon: <CalendarIcon /> },
-            { id: "roster", label: "Roster", icon: <UsersIcon /> },
+            {
+              id: "events",
+              label: "Events",
+              icon: <CalendarIcon />,
+              count: 0,
+            },
+            { id: "roster", label: "Roster", icon: <UsersIcon />, count: 0 },
           ]}
         />
 

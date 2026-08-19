@@ -85,47 +85,65 @@ function SignatureLine({ name, role }) {
 function DocumentHeader({ copyLabel, isCleared, academicYear }) {
   return (
     <>
-      <div className="grid grid-cols-[17mm_1fr_17mm] items-center gap-[3mm]">
-        <img
-          src="/marsu.png"
-          alt="Marinduque State University seal"
-          className="h-[17mm] w-[17mm] object-contain"
-        />
+      {/* Header Grid: Left Logos | Center Info | Right Logo */}
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+        {/* Left Logos (University & College) */}
+        <div className="flex items-center gap-2 shrink-0">
+          <img
+            src="/marsu.png"
+            alt="Marinduque State University seal"
+            className="h-[16mm] w-[16mm] object-contain"
+          />
+          <img
+            src="/cics.png"
+            alt="College of Information and Computing Sciences logo"
+            className="h-[16mm] w-[16mm] object-contain"
+          />
+        </div>
+
+        {/* Center Text Information */}
         <div className="min-w-0 text-center font-serif text-slate-950">
-          <p className="text-[12px] font-black leading-[1.05]">
-            MARINDUQUE STATE UNIVERSITY
+          <p className="text-[12px] font-black leading-tight tracking-tight uppercase">
+            Marinduque State University
           </p>
-          <p className="mt-0.5 text-[11px] font-black leading-[1.05]">
-            COLLEGE OF INFORMATION AND COMPUTING SCIENCES
+          <p className="mt-0.5 text-[10.5px] font-black leading-tight tracking-tight uppercase">
+            College of Information and Computing Sciences
           </p>
-          <p className="mt-0.5 text-[8px] font-semibold leading-tight">
+          <p className="mt-0.5 text-[8px] font-semibold leading-tight text-slate-700">
             Panfilo M. Manguerra Sr. Rd., Tanza, Boac, Marinduque
           </p>
-          <p className="mt-0.5 text-[7px] font-bold leading-tight">
-            COLLEGE OF INFORMATION AND COMPUTING SCIENCES STUDENT ORGANIZATION -
-            BOAC (CICSSO)
+          <p className="mt-0.5 text-[7.5px] font-bold leading-tight text-slate-900 uppercase">
+            College of Information and Computing Sciences Student Organization -
+            Boac (CICSSO)
           </p>
         </div>
-        <img
-          src="/cicsso.png"
-          alt="CICSSO seal"
-          className="h-[17mm] w-[17mm] object-contain"
-        />
+
+        {/* Right Logo (Student Org) */}
+        <div className="flex items-center justify-end shrink-0">
+          <img
+            src="/cicsso.png"
+            alt="CICSSO seal"
+            className="h-[16mm] w-[16mm] object-contain"
+          />
+        </div>
       </div>
 
-      <div className="relative mt-[2mm] border-y-2 border-[#4A0E17] py-[1.5mm] text-center font-serif">
-        <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[7px] font-bold uppercase text-slate-500">
-          {copyLabel}
-        </span>
-        <h2 className="pr-[22mm] pl-[22mm] text-[19px] font-black leading-none text-slate-950">
-          CICSSO ANNUAL CLEARANCE
+      {/* Title Banner */}
+      <div className="relative mt-3 border-y-2 border-[#4A0E17] py-2 text-center font-serif">
+        {copyLabel && (
+          <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[7px] font-bold uppercase text-slate-500 pr-1">
+            {copyLabel}
+          </span>
+        )}
+        <h2 className="px-12 text-[18px] font-black leading-none tracking-wide text-slate-950 uppercase">
+          CICSSO Annual Clearance
         </h2>
         <p className="mt-1 text-[11px] font-bold leading-none text-[#4A0E17]">
           S.Y. {academicYear}
         </p>
         {!isCleared && (
-          <p className="mt-1 text-[7px] font-black uppercase text-rose-700">
-            Preview - requirements incomplete
+          <p className="mt-1 text-[7px] font-black uppercase tracking-wider text-rose-700">
+            Preview - Requirements Incomplete
           </p>
         )}
       </div>

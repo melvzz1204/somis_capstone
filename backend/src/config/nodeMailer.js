@@ -11,6 +11,7 @@ const transporter = nodemailer.createTransport({
   host: emailHost,
   port: emailPort,
   secure: emailSecure,
+  family: 4,
   auth: {
     user: emailUser,
     pass: emailPassword,

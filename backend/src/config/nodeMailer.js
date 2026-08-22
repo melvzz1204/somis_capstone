@@ -1,26 +1,36 @@
 const nodemailer = require("nodemailer");
 
+const emailUser = String(process.env.EMAIL_USER || "").trim();
+const emailPassword = String(process.env.EMAIL_PASS || "").replace(/\s+/g, "");
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER, // Your Gmail address
-    pass: process.env.EMAIL_PASS, // Your 16-character Google App Password
+    user: emailUser,
+    pass: emailPassword,
   },
+  connectionTimeout: 10_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 15_000,
 });
 
-// Verify connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Email service error:", error.message);
-  } else {
-    console.log("🚀 Email service ready (Gmail SMTP)");
-  }
-});
+if (emailUser && emailPassword) {
+  transporter.verify((error) => {
+    if (error) {
+      console.error("Email service error:", error.message);
+    } else {
+      console.log("Email service ready (Gmail SMTP)");
+    }
+  });
+} else {
+  console.warn(
+    "Email service is disabled: EMAIL_USER or EMAIL_PASS is missing.",
+  );
+}
 
-// Wrapper function that handles sending mail via transporter
 const sendEmail = async ({ to, subject, html }) => {
-  return await transporter.sendMail({
-    from: `"MarSU SOMIS" <${process.env.EMAIL_USER}>`,
+  return transporter.sendMail({
+    from: `\"MarSU SOMIS\" <${emailUser}>`,
     to,
     subject,
     html,

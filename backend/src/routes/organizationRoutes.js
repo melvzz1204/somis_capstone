@@ -210,20 +210,23 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
       hasAccount: true,
     });
 
-    // 6. Send the email via Gmail SMTP
-    let setupUrl = "";
-    try {
-      setupUrl = await sendOrgInviteEmail(email, name, setupToken);
-      console.log(`✉️ Invite email sent successfully to ${email}`);
-    } catch (emailErr) {
-      console.error("⚠️ Email failed to send:", emailErr.message);
-      // Organization is saved even if email fails
-    }
+    // 6. Generate the recovery link before starting SMTP work. SMTP must not
+    // hold the admin registration request open when the provider is unavailable.
+    const { createSetupUrl } = require("../config/frontendUrl");
+    const setupUrl = createSetupUrl(setupToken);
 
-    // 7. Return saved organization + demo URL backup
+    void sendOrgInviteEmail(email, name, setupToken)
+      .then(() => {
+        console.log(`Invite email sent successfully to ${email}`);
+      })
+      .catch((emailErr) => {
+        console.error(`Invite email failed for ${email}:`, emailErr.message);
+      });
+
+    // 7. Return saved organization + recovery URL immediately.
     return res.status(201).json({
       ...savedOrg.toObject(),
-      demoSetupLink: setupUrl, // Backup setup link for presentation/testing
+      demoSetupLink: setupUrl,
     });
   } catch (error) {
     console.error("Error creating organization:", error);

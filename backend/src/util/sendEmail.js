@@ -1,22 +1,10 @@
-// backend/utils/sendEmail.js
-const nodemailer = require("nodemailer");
+const { sendEmail } = require("../config/nodeMailer");
 const { createSetupUrl } = require("../config/frontendUrl");
 
-// 1. Configure the Gmail Transporter
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-// 2. Export a reusable email function
 const sendOrgInviteEmail = async (toEmail, orgName, setupToken) => {
   const setupUrl = createSetupUrl(setupToken);
 
-  const mailOptions = {
-    from: `"MarSU OVPSAS Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `[SOMIS] Set Up Account Credentials - ${orgName}`,
     html: `
@@ -30,10 +18,9 @@ const sendOrgInviteEmail = async (toEmail, orgName, setupToken) => {
         <p style="font-size: 12px; color: #64748b;">If the button doesn't work, copy and paste this link:<br>${setupUrl}</p>
       </div>
     `,
-  };
+  });
 
-  await transporter.sendMail(mailOptions);
-  return setupUrl; // Returns link as backup for live defense!
+  return setupUrl;
 };
 
 module.exports = sendOrgInviteEmail;

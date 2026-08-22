@@ -2,9 +2,15 @@ const nodemailer = require("nodemailer");
 
 const emailUser = String(process.env.EMAIL_USER || "").trim();
 const emailPassword = String(process.env.EMAIL_PASS || "").replace(/\s+/g, "");
+const emailHost = String(process.env.EMAIL_HOST || "smtp.gmail.com").trim();
+const emailPort = Number(process.env.EMAIL_PORT || 465);
+const emailSecure =
+  String(process.env.EMAIL_SECURE || "true").toLowerCase() === "true";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: emailHost,
+  port: emailPort,
+  secure: emailSecure,
   auth: {
     user: emailUser,
     pass: emailPassword,
@@ -29,6 +35,10 @@ if (emailUser && emailPassword) {
 }
 
 const sendEmail = async ({ to, subject, html }) => {
+  if (!emailUser || !emailPassword) {
+    throw new Error("EMAIL_USER and EMAIL_PASS are not configured.");
+  }
+
   return transporter.sendMail({
     from: `\"MarSU SOMIS\" <${emailUser}>`,
     to,

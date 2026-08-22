@@ -18,6 +18,7 @@ const {
 } = require("../controllers/organizationDocumentController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 const sendOrgInviteEmail = require("../util/sendEmail");
+const { createSetupUrl } = require("../config/frontendUrl");
 const {
   SEMESTERS,
   getEffectiveAcademicPeriod,
@@ -210,23 +211,23 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
       hasAccount: true,
     });
 
-    // 6. Generate the recovery link before starting SMTP work. SMTP must not
-    // hold the admin registration request open when the provider is unavailable.
-    const { createSetupUrl } = require("../config/frontendUrl");
+    // 6. Attempt delivery with bounded SMTP timeouts. Awaiting this prevents
+    // serverless runtimes from terminating the request before the email sends.
     const setupUrl = createSetupUrl(setupToken);
+    let emailStatus = "sent";
+    try {
+      await sendOrgInviteEmail(email, name, setupToken);
+      console.log(`Invite email sent successfully to ${email}`);
+    } catch (emailErr) {
+      emailStatus = "failed";
+      console.error(`Invite email failed for ${email}:`, emailErr.message);
+    }
 
-    void sendOrgInviteEmail(email, name, setupToken)
-      .then(() => {
-        console.log(`Invite email sent successfully to ${email}`);
-      })
-      .catch((emailErr) => {
-        console.error(`Invite email failed for ${email}:`, emailErr.message);
-      });
-
-    // 7. Return saved organization + recovery URL immediately.
+    // 7. Return the recovery link even when SMTP credentials/provider fail.
     return res.status(201).json({
       ...savedOrg.toObject(),
       demoSetupLink: setupUrl,
+      emailStatus,
     });
   } catch (error) {
     console.error("Error creating organization:", error);

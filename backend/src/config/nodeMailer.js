@@ -1,93 +1,50 @@
-const nodemailer = require("nodemailer");
-const dns = require("dns");
-const net = require("net");
+const RESEND_API_URL = "https://api.resend.com/emails";
+const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 
-const emailUser = String(process.env.EMAIL_USER || "").trim();
-const emailPassword = String(process.env.EMAIL_PASS || "").replace(/\s+/g, "");
-const emailHost = String(process.env.EMAIL_HOST || "smtp.gmail.com").trim();
-const emailPort = Number(process.env.EMAIL_PORT || 587);
-const emailSecure =
-  String(process.env.EMAIL_SECURE || "false").toLowerCase() === "true";
-
-// Nodemailer 9 resolves hostnames with resolve4 and resolve6 internally. Give
-// it a literal IPv4 endpoint so it cannot select Render's unreachable IPv6 path.
-const resolveSmtpEndpoint = async () => {
-  if (net.isIP(emailHost)) {
-    return { host: emailHost, servername: undefined };
-  }
-
-  try {
-    const [ipv4Address] = await dns.promises.resolve4(emailHost);
-    if (ipv4Address) {
-      return { host: ipv4Address, servername: emailHost };
-    }
-  } catch (error) {
-    throw new Error(`Could not resolve ${emailHost} to IPv4: ${error.message}`);
-  }
-
-  throw new Error(`Could not resolve ${emailHost} to IPv4.`);
-};
-
-let transporter;
-const transporterReady = resolveSmtpEndpoint().then((smtpEndpoint) => {
-  console.log(
-    `Email SMTP endpoint: ${smtpEndpoint.host}:${emailPort}${
-      smtpEndpoint.servername ? ` (SNI ${smtpEndpoint.servername})` : ""
-    }`,
-  );
-
-  transporter = nodemailer.createTransport({
-    host: smtpEndpoint.host,
-    port: emailPort,
-    secure: emailSecure,
-    ...(smtpEndpoint.servername
-      ? { tls: { servername: smtpEndpoint.servername } }
-      : {}),
-    auth: {
-      user: emailUser,
-      pass: emailPassword,
-    },
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 15_000,
-  });
-
-  return transporter;
-});
-
-if (emailUser && emailPassword) {
-  transporterReady
-    .then((readyTransporter) => {
-      readyTransporter.verify((error) => {
-        if (error) {
-          console.error("Email service error:", error.message);
-        } else {
-          console.log("Email service ready (Gmail SMTP)");
-        }
-      });
-    })
-    .catch((error) => {
-      console.error("Email service error:", error.message);
-    });
-} else {
+if (!resendApiKey || !resendFromEmail) {
   console.warn(
-    "Email service is disabled: EMAIL_USER or EMAIL_PASS is missing.",
+    "Email service is disabled: RESEND_API_KEY or RESEND_FROM_EMAIL is missing.",
   );
+} else {
+  console.log(`Email service configured with Resend sender ${resendFromEmail}`);
 }
 
 const sendEmail = async ({ to, subject, html }) => {
-  if (!emailUser || !emailPassword) {
-    throw new Error("EMAIL_USER and EMAIL_PASS are not configured.");
+  if (!resendApiKey || !resendFromEmail) {
+    throw new Error("RESEND_API_KEY and RESEND_FROM_EMAIL are not configured.");
   }
 
-  const readyTransporter = await transporterReady;
-
-  return readyTransporter.sendMail({
-    from: `\"MarSU SOMIS\" <${emailUser}>`,
-    to,
-    subject,
-    html,
+  const response = await fetch(RESEND_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [to],
+      subject,
+      html,
+    }),
+    signal: AbortSignal.timeout(10_000),
   });
+
+  const responseBody = await response.text();
+  let result;
+  try {
+    result = responseBody ? JSON.parse(responseBody) : {};
+  } catch {
+    result = { message: responseBody };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Resend API ${response.status}: ${result.message || "email request failed"}`,
+    );
+  }
+
+  return result;
 };
 
-module.exports = { sendEmail, transporterReady };
+module.exports = { sendEmail };

@@ -1,6 +1,10 @@
 const nodemailer = require("nodemailer");
 const dns = require("dns");
 
+const lookupIpv4 = (hostname, options, callback) => {
+  dns.lookup(hostname, { ...options, family: 4, all: false }, callback);
+};
+
 // Render may prefer Gmail's IPv6 address even when IPv6 routing is unavailable.
 // Prefer IPv4 for all DNS lookups used by Nodemailer.
 if (typeof dns.setDefaultResultOrder === "function") {
@@ -19,6 +23,7 @@ const transporter = nodemailer.createTransport({
   port: emailPort,
   secure: emailSecure,
   family: 4,
+  lookup: lookupIpv4,
   auth: {
     user: emailUser,
     pass: emailPassword,

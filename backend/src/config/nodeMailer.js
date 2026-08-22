@@ -1,11 +1,18 @@
 const nodemailer = require("nodemailer");
+const dns = require("dns");
+
+// Render may prefer Gmail's IPv6 address even when IPv6 routing is unavailable.
+// Prefer IPv4 for all DNS lookups used by Nodemailer.
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 const emailUser = String(process.env.EMAIL_USER || "").trim();
 const emailPassword = String(process.env.EMAIL_PASS || "").replace(/\s+/g, "");
 const emailHost = String(process.env.EMAIL_HOST || "smtp.gmail.com").trim();
-const emailPort = Number(process.env.EMAIL_PORT || 465);
+const emailPort = Number(process.env.EMAIL_PORT || 587);
 const emailSecure =
-  String(process.env.EMAIL_SECURE || "true").toLowerCase() === "true";
+  String(process.env.EMAIL_SECURE || "false").toLowerCase() === "true";
 
 const transporter = nodemailer.createTransport({
   host: emailHost,

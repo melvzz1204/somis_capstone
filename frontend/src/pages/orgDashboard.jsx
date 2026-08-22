@@ -408,7 +408,7 @@ export default function OrgDashboard() {
               <span>Organization Plan</span>
             </button>
 
-            <button
+            {/*    <button
               onClick={() => setActiveTab("clearance")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "clearance"
@@ -421,7 +421,7 @@ export default function OrgDashboard() {
               />
               <span>Annual Clearance</span>
               <NavCountBadge count={organizationNeeds.length} />
-            </button>
+            </button> */}
           </nav>
         </div>
 

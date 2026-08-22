@@ -1,4 +1,5 @@
 const { sendEmail } = require("../config/nodeMailer.js");
+const { createSetupUrl } = require("../config/frontendUrl");
 const crypto = require("crypto");
 const Member = require("../models/MemberOrganization.js");
 const User = require("../models/User");
@@ -551,8 +552,8 @@ exports.sendMemberInvite = async (req, res) => {
 
     await user.save();
 
-    // 4. Construct activation link
-    const setupUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/setup-account?token=${setupToken}`;
+    // 4. Construct activation link using the configured production frontend URL.
+    const setupUrl = createSetupUrl(setupToken);
 
     await sendEmail({
       to: member.email,

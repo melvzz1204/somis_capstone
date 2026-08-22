@@ -400,14 +400,19 @@ export default function StudentDashboard({ user: propsUser }) {
       const response = await API.post("/events/attendance/scan", { code });
       const record = response.data;
       if (record) {
-        setAttendance((current) => [
-          record,
-          ...current.filter(
-            (item) =>
-              (item.event?._id || item.event) !==
-              (record.event?._id || record.event),
-          ),
-        ]);
+        setAttendance((current) => {
+          const eventId = record.event?._id || record.event;
+          const existing = current.find(
+            (item) => (item.event?._id || item.event) === eventId,
+          );
+          return existing
+            ? current.map((item) =>
+                (item.event?._id || item.event) === eventId
+                  ? { ...item, ...record }
+                  : item,
+              )
+            : [record, ...current];
+        });
       }
       setScanMessage(response.message || "Attendance updated successfully.");
     } catch (error) {
@@ -501,6 +506,14 @@ export default function StudentDashboard({ user: propsUser }) {
       (record) => (record.event?._id || record.event) === eventId,
     );
 
+  const attendanceCheckpointCount = (record) =>
+    [
+      record?.morningInAt,
+      record?.lunchOutAt,
+      record?.afternoonInAt,
+      record?.afternoonOutAt,
+    ].filter(Boolean).length;
+
   const joinEvent = async (event) => {
     setJoiningEventId(event._id);
     setEventError("");
@@ -508,12 +521,18 @@ export default function StudentDashboard({ user: propsUser }) {
       const response = await API.post(`/events/${event._id}/join`);
       const record = response.data;
       if (record) {
-        setAttendance((current) => [
-          record,
-          ...current.filter(
-            (item) => (item.event?._id || item.event) !== event._id,
-          ),
-        ]);
+        setAttendance((current) => {
+          const existing = current.find(
+            (item) => (item.event?._id || item.event) === event._id,
+          );
+          return existing
+            ? current.map((item) =>
+                (item.event?._id || item.event) === event._id
+                  ? { ...item, ...record }
+                  : item,
+              )
+            : [record, ...current];
+        });
       }
     } catch (error) {
       setEventError(
@@ -1645,9 +1664,12 @@ export default function StudentDashboard({ user: propsUser }) {
                           </span>
                           {attendanceForEvent(evt._id) && (
                             <span
-                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceForEvent(evt._id).status === "Present" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceCheckpointCount(attendanceForEvent(evt._id)) === 4 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
                             >
-                              {attendanceForEvent(evt._id).status}
+                              {attendanceCheckpointCount(
+                                attendanceForEvent(evt._id),
+                              )}
+                              /4 checkpoints
                             </span>
                           )}
                         </div>
@@ -1688,13 +1710,17 @@ export default function StudentDashboard({ user: propsUser }) {
                             </button>
                           )}
                         {evt.lifecycle.status === "Ongoing" &&
-                          attendanceForEvent(evt._id)?.status === "Pending" && (
+                          attendanceForEvent(evt._id) &&
+                          attendanceCheckpointCount(
+                            attendanceForEvent(evt._id),
+                          ) < 4 && (
                             <button
                               type="button"
                               onClick={openScanner}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 font-bold text-white hover:bg-emerald-800"
                             >
-                              <QrCode className="h-3.5 w-3.5" /> Scan On-site
+                              <QrCode className="h-3.5 w-3.5" /> Scan checkpoint
+                              QR
                             </button>
                           )}
                         <button
@@ -1739,7 +1765,7 @@ export default function StudentDashboard({ user: propsUser }) {
                     Event attendance
                   </p>
                   <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
-                    Scan attendance QR
+                    Scan checkpoint QR
                   </h3>
                 </div>
                 <button
@@ -1767,7 +1793,7 @@ export default function StudentDashboard({ user: propsUser }) {
               {scanning && (
                 <p className="mt-3 flex items-center justify-center gap-2 text-xs font-semibold text-slate-600">
                   <LoaderCircle className="h-4 w-4 animate-spin" />
-                  Verifying attendance...
+                  Verifying checkpoint...
                 </p>
               )}
             </div>

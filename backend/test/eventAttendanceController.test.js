@@ -5,7 +5,7 @@ const {
   parseAttendanceCode,
 } = require("../src/controllers/eventController");
 
-const validCode = (phase = "advance") =>
+const validCode = (phase = "invalid") =>
   JSON.stringify({
     type: "somis-event-attendance",
     version: 1,
@@ -14,8 +14,15 @@ const validCode = (phase = "advance") =>
     token: "random-secret-token",
   });
 
-test("parseAttendanceCode accepts an on-site SOMIS payload", () => {
-  assert.equal(parseAttendanceCode(validCode("onsite")).phase, "onsite");
+test("parseAttendanceCode accepts each attendance checkpoint", () => {
+  for (const phase of [
+    "morning_in",
+    "lunch_out",
+    "afternoon_in",
+    "afternoon_out",
+  ]) {
+    assert.equal(parseAttendanceCode(validCode(phase)).phase, phase);
+  }
 });
 
 test("parseAttendanceCode rejects malformed and unsupported payloads", () => {
@@ -33,6 +40,7 @@ test("parseAttendanceCode rejects malformed and unsupported payloads", () => {
     ),
     null,
   );
+  assert.equal(parseAttendanceCode(validCode("onsite")), null);
   assert.equal(parseAttendanceCode(validCode("advance")), null);
   assert.equal(parseAttendanceCode(validCode("final")), null);
 });

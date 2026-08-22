@@ -7,6 +7,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { sendEmail } = require("../config/nodeMailer");
+const { createSetupUrl } = require("../config/frontendUrl");
 
 // ==========================================
 // 1. REGISTER STUDENT FUNCTION
@@ -162,9 +163,8 @@ exports.registerStudent = async (req, res) => {
       { new: true, upsert: true, runValidators: true },
     );
 
-    // 9. Send setup email using your existing sendEmail helper
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-    const setupLink = `${clientUrl}/setup-account?token=${rawToken}`;
+    // 9. Send setup email using the configured production frontend URL.
+    const setupLink = createSetupUrl(rawToken);
 
     await sendEmail({
       to: normalizedEmail,

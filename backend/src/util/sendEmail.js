@@ -1,5 +1,6 @@
 // backend/utils/sendEmail.js
 const nodemailer = require("nodemailer");
+const { createSetupUrl } = require("../config/frontendUrl");
 
 // 1. Configure the Gmail Transporter
 const transporter = nodemailer.createTransport({
@@ -12,8 +13,7 @@ const transporter = nodemailer.createTransport({
 
 // 2. Export a reusable email function
 const sendOrgInviteEmail = async (toEmail, orgName, setupToken) => {
-  const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-  const setupUrl = `${clientUrl}/setup-account?token=${setupToken}`;
+  const setupUrl = createSetupUrl(setupToken);
 
   const mailOptions = {
     from: `"MarSU OVPSAS Admin" <${process.env.EMAIL_USER}>`,

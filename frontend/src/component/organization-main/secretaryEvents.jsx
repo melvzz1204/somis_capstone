@@ -36,7 +36,7 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
   const [qrDialog, setQrDialog] = useState(null);
-  const [qrImage, setQrImage] = useState("");
+  const [qrImages, setQrImages] = useState([]);
   const [qrLoading, setQrLoading] = useState(false);
   const [attendanceDialog, setAttendanceDialog] = useState(null);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -137,29 +137,41 @@ export default function SecretaryEvents({ proposals = [] }) {
     }
   };
 
+  const attendancePhases = [
+    { key: "morning_in", label: "Morning time in" },
+    { key: "lunch_out", label: "Lunch break time out" },
+    { key: "afternoon_in", label: "Afternoon time in" },
+    { key: "afternoon_out", label: "Afternoon time out" },
+  ];
+
   const generateQr = async (event) => {
-    const phase = "onsite";
     setQrLoading(true);
     setError("");
     try {
-      const response = await API.post(`/events/${event._id}/attendance/qr`, {
-        phase,
-      });
-      const payload = response.code || response.data?.code;
-      if (!payload) throw new Error("The server did not return a QR payload.");
-      const image = await QRCode.toDataURL(payload, {
-        width: 360,
-        margin: 2,
-        errorCorrectionLevel: "M",
-      });
-      setQrImage(image);
-      setQrDialog({ event, phase, payload });
-      showToast("On-site attendance QR generated.", "success");
+      const generated = await Promise.all(
+        attendancePhases.map(async ({ key: phase, label }) => {
+          const response = await API.post(
+            `/events/${event._id}/attendance/qr`,
+            { phase },
+          );
+          const payload = response.code || response.data?.code;
+          if (!payload) throw new Error(`The server did not return ${label}.`);
+          const image = await QRCode.toDataURL(payload, {
+            width: 360,
+            margin: 2,
+            errorCorrectionLevel: "M",
+          });
+          return { phase, label, payload, image };
+        }),
+      );
+      setQrImages(generated);
+      setQrDialog({ event });
+      showToast("Four attendance QR codes generated.", "success");
     } catch (requestError) {
       const message =
         requestError.response?.data?.message ||
         requestError.message ||
-        "Unable to generate the attendance QR.";
+        "Unable to generate the attendance QR codes.";
       setError(message);
       showToast(message, "error");
     } finally {
@@ -189,11 +201,11 @@ export default function SecretaryEvents({ proposals = [] }) {
     }
   };
 
-  const downloadQr = () => {
-    if (!qrImage || !qrDialog) return;
+  const downloadQr = (qr) => {
+    if (!qr || !qrDialog) return;
     const link = document.createElement("a");
-    link.href = qrImage;
-    link.download = `${qrDialog.event.title}-${qrDialog.phase}-attendance.png`;
+    link.href = qr.image;
+    link.download = `${qrDialog.event.title}-${qr.phase}-attendance.png`;
     link.click();
   };
 
@@ -356,7 +368,7 @@ export default function SecretaryEvents({ proposals = [] }) {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Generate On-site QR
+                  Generate 4 Attendance QR Codes
                 </button>
                 <button
                   type="button"
@@ -378,7 +390,7 @@ export default function SecretaryEvents({ proposals = [] }) {
             <div className="flex items-start justify-between gap-3 text-left">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
-                  On-site confirmation
+                  Four attendance checkpoints
                 </p>
                 <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
                   {qrDialog.event.title}
@@ -394,28 +406,34 @@ export default function SecretaryEvents({ proposals = [] }) {
               </button>
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Display this newly generated code at the venue. Students who
-              joined the event can scan it to confirm Present attendance.
+              Display each code only during its checkpoint. Students who joined
+              the event can scan all four codes to complete attendance.
             </p>
-            <div className="mx-auto my-5 w-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-              {qrImage ? (
-                <img
-                  src={qrImage}
-                  alt={`${qrDialog.phase} attendance QR`}
-                  className="h-64 w-64"
-                />
-              ) : (
-                "Generating..."
-              )}
+            <div className="my-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {qrImages.map((qr) => (
+                <div
+                  key={qr.phase}
+                  className="rounded-xl border border-slate-200 bg-white p-3"
+                >
+                  <p className="text-xs font-extrabold text-[#4A0E17]">
+                    {qr.label}
+                  </p>
+                  <img
+                    src={qr.image}
+                    alt={`${qr.label} attendance QR`}
+                    className="mx-auto mt-2 h-40 w-40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => downloadQr(qr)}
+                    className="btn-secondary mt-2 inline-flex items-center gap-2 text-[11px]"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download
+                  </button>
+                </div>
+              ))}
             </div>
-            <div className="flex justify-center gap-2">
-              <button
-                type="button"
-                onClick={downloadQr}
-                className="btn-secondary inline-flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" /> Download QR
-              </button>
+            <div className="flex justify-center">
               <button
                 type="button"
                 onClick={() => setQrDialog(null)}

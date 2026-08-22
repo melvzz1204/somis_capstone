@@ -31,7 +31,34 @@ const eventSchema = new mongoose.Schema(
       required: true,
     },
     attendanceQr: {
-      onsite: {
+      morning_in: {
+        tokenHash: { type: String, select: false, default: null },
+        generatedAt: { type: Date, default: null },
+        generatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+      },
+      lunch_out: {
+        tokenHash: { type: String, select: false, default: null },
+        generatedAt: { type: Date, default: null },
+        generatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+      },
+      afternoon_in: {
+        tokenHash: { type: String, select: false, default: null },
+        generatedAt: { type: Date, default: null },
+        generatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+      },
+      afternoon_out: {
         tokenHash: { type: String, select: false, default: null },
         generatedAt: { type: Date, default: null },
         generatedBy: {

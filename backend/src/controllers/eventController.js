@@ -4,7 +4,26 @@ const EventAttendance = require("../models/EventAttendance");
 const Member = require("../models/MemberOrganization");
 const Proposal = require("../models/Proposal");
 
-const ATTENDANCE_PHASES = new Set(["onsite"]);
+const ATTENDANCE_PHASES = new Set([
+  "morning_in",
+  "lunch_out",
+  "afternoon_in",
+  "afternoon_out",
+]);
+
+const ATTENDANCE_PHASE_LABELS = {
+  morning_in: "Morning time in",
+  lunch_out: "Lunch break time out",
+  afternoon_in: "Afternoon time in",
+  afternoon_out: "Afternoon time out",
+};
+
+const ATTENDANCE_PHASE_FIELDS = {
+  morning_in: "morningInAt",
+  lunch_out: "lunchOutAt",
+  afternoon_in: "afternoonInAt",
+  afternoon_out: "afternoonOutAt",
+};
 
 const hashAttendanceToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
@@ -143,14 +162,16 @@ const generateAttendanceQr = async (req, res) => {
     if (!ATTENDANCE_PHASES.has(phase)) {
       return res.status(400).json({
         success: false,
-        message: "Only on-site attendance QR codes can be generated.",
+        message: "Choose one of the four attendance QR checkpoints.",
       });
     }
 
     const event = await Event.findOne({
       _id: req.params.id,
       org: req.user.organization,
-    }).select("+attendanceQr.onsite.tokenHash");
+    }).select(
+      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash",
+    );
     if (!event) {
       return res.status(404).json({
         success: false,
@@ -168,7 +189,8 @@ const generateAttendanceQr = async (req, res) => {
     if (now < event.startDateTime) {
       return res.status(400).json({
         success: false,
-        message: "The on-site QR can only be generated when the event starts.",
+        message:
+          "Attendance QR codes can only be generated when the event starts.",
       });
     }
 
@@ -190,7 +212,7 @@ const generateAttendanceQr = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "On-site attendance QR generated.",
+      message: `${ATTENDANCE_PHASE_LABELS[phase]} QR generated.`,
       data: { eventId: event._id, phase, code, generatedAt: now },
     });
   } catch (error) {
@@ -297,7 +319,7 @@ const scanAttendanceQr = async (req, res) => {
     }
 
     const event = await Event.findById(payload.eventId).select(
-      "+attendanceQr.onsite.tokenHash",
+      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash",
     );
     if (!event || String(event.org) !== String(req.user.organization || "")) {
       return res.status(404).json({
@@ -349,22 +371,32 @@ const scanAttendanceQr = async (req, res) => {
     if (now < event.startDateTime) {
       return res.status(400).json({
         success: false,
-        message: "On-site attendance opens when the event starts.",
+        message: "Attendance opens when the event starts.",
       });
     }
     if (!attendance) {
       return res.status(409).json({
         success: false,
-        message: "Join this event before scanning the on-site QR code.",
+        message: "Join this event before scanning an attendance QR code.",
       });
     }
+    const checkpointField = ATTENDANCE_PHASE_FIELDS[payload.phase];
+    if (attendance[checkpointField]) {
+      return res.json({
+        success: true,
+        message: `${ATTENDANCE_PHASE_LABELS[payload.phase]} was already recorded.`,
+        data: attendance,
+      });
+    }
+
+    attendance[checkpointField] = now;
     attendance.status = "Present";
     attendance.presentAt = attendance.presentAt || now;
     await attendance.save();
 
     return res.json({
       success: true,
-      message: "Attendance confirmed. You are marked present.",
+      message: `${ATTENDANCE_PHASE_LABELS[payload.phase]} recorded successfully.`,
       data: attendance,
     });
   } catch (error) {
@@ -387,7 +419,9 @@ const getMyAttendance = async (req, res) => {
   try {
     const records = await EventAttendance.find({
       student: req.user._id,
-    }).select("event status joinedAt presentAt updatedAt");
+    }).select(
+      "event status joinedAt morningInAt lunchOutAt afternoonInAt afternoonOutAt presentAt updatedAt",
+    );
     return res.json({ success: true, data: records });
   } catch (error) {
     console.error("Error fetching student attendance:", error);

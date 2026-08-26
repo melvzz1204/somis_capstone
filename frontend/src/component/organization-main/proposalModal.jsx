@@ -50,6 +50,11 @@ const toLocalDateTime = (value) => {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 };
 
+// datetime-local has no timezone. Convert the user's local selection to an ISO
+// timestamp before it crosses the API boundary so the stored instant is stable.
+const toApiDateTime = (value) =>
+  value ? new Date(value).toISOString() : value;
+
 const getSecretaryName = (secretary) => {
   if (secretary?.name?.trim()) return secretary.name.trim();
   if (!secretary?.surname || !secretary?.firstName) return "";
@@ -217,7 +222,13 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
     }
 
     const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) => payload.append(key, value));
+    Object.entries(form).forEach(([key, value]) => {
+      const apiValue =
+        key === "requestedStartDateTime" || key === "requestedEndDateTime"
+          ? toApiDateTime(value)
+          : value;
+      payload.append(key, apiValue);
+    });
     payload.append(
       "retainedAttachmentIds",
       JSON.stringify(retainedAttachments.map((item) => item._id)),

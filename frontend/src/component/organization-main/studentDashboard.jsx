@@ -506,13 +506,30 @@ export default function StudentDashboard({ user: propsUser }) {
       (record) => (record.event?._id || record.event) === eventId,
     );
 
-  const attendanceCheckpointCount = (record) =>
-    [
+  const attendanceCheckpointCount = (record) => {
+    if (record?.days?.length) {
+      return record.days.reduce(
+        (total, day) =>
+          total +
+          [
+            day.morningInAt,
+            day.lunchOutAt,
+            day.afternoonInAt,
+            day.afternoonOutAt,
+          ].filter(Boolean).length,
+        0,
+      );
+    }
+    return [
       record?.morningInAt,
       record?.lunchOutAt,
       record?.afternoonInAt,
       record?.afternoonOutAt,
     ].filter(Boolean).length;
+  };
+
+  const attendanceCheckpointTotal = (event) =>
+    Math.max(1, event?.attendanceDays?.length || 1) * 4;
 
   const joinEvent = async (event) => {
     setJoiningEventId(event._id);
@@ -1662,14 +1679,21 @@ export default function StudentDashboard({ user: propsUser }) {
                           >
                             {evt.lifecycle.status}
                           </span>
+                          {evt.lifecycle.status === "Ongoing" && (
+                            <span className="rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                              {new Date().toLocaleDateString("en-PH", {
+                                dateStyle: "medium",
+                              })}
+                            </span>
+                          )}
                           {attendanceForEvent(evt._id) && (
                             <span
-                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceCheckpointCount(attendanceForEvent(evt._id)) === 4 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceCheckpointCount(attendanceForEvent(evt._id)) === attendanceCheckpointTotal(evt) ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
                             >
                               {attendanceCheckpointCount(
                                 attendanceForEvent(evt._id),
                               )}
-                              /4 checkpoints
+                              /{attendanceCheckpointTotal(evt)} checkpoints
                             </span>
                           )}
                         </div>
@@ -1713,7 +1737,7 @@ export default function StudentDashboard({ user: propsUser }) {
                           attendanceForEvent(evt._id) &&
                           attendanceCheckpointCount(
                             attendanceForEvent(evt._id),
-                          ) < 4 && (
+                          ) < attendanceCheckpointTotal(evt) && (
                             <button
                               type="button"
                               onClick={openScanner}

@@ -1,5 +1,18 @@
 const mongoose = require("mongoose");
 
+const dailyAttendanceSchema = new mongoose.Schema(
+  {
+    day: { type: Number, required: true, min: 1 },
+    date: { type: Date, required: true },
+    morningInAt: { type: Date, default: null },
+    lunchOutAt: { type: Date, default: null },
+    afternoonInAt: { type: Date, default: null },
+    afternoonOutAt: { type: Date, default: null },
+    presentAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const eventAttendanceSchema = new mongoose.Schema(
   {
     event: {
@@ -32,6 +45,7 @@ const eventAttendanceSchema = new mongoose.Schema(
       default: "Pending",
     },
     joinedAt: { type: Date, default: null },
+    days: { type: [dailyAttendanceSchema], default: [] },
     morningInAt: { type: Date, default: null },
     lunchOutAt: { type: Date, default: null },
     afternoonInAt: { type: Date, default: null },

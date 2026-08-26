@@ -28,12 +28,134 @@ const ATTENDANCE_PHASE_FIELDS = {
 const hashAttendanceToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 
+const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const SCHEDULE_FIELDS = [
+  "morningIn",
+  "morningOut",
+  "afternoonIn",
+  "afternoonOut",
+];
+
+const normalizeAttendanceSchedule = (
+  schedule = {},
+  { allowPartial = false } = {},
+) => {
+  const values = Object.fromEntries(
+    SCHEDULE_FIELDS.map((field) => [
+      field,
+      String(schedule[field] || "").trim(),
+    ]),
+  );
+  const fieldsToValidate = allowPartial
+    ? SCHEDULE_FIELDS.filter((field) => values[field])
+    : SCHEDULE_FIELDS;
+  if (
+    !fieldsToValidate.length ||
+    fieldsToValidate.some((field) => !TIME_PATTERN.test(values[field]))
+  ) {
+    return null;
+  }
+  const minutes = fieldsToValidate.map((field) => {
+    const [hours, mins] = values[field].split(":").map(Number);
+    return hours * 60 + mins;
+  });
+  if (minutes.some((value, index) => index > 0 && value <= minutes[index - 1]))
+    return null;
+  return allowPartial
+    ? values
+    : Object.fromEntries(
+        SCHEDULE_FIELDS.map((field) => [field, values[field]]),
+      );
+};
+
+const EVENT_TIME_ZONE_OFFSET_MINUTES = 8 * 60;
+const DEFAULT_ATTENDANCE_SCHEDULE = {
+  morningIn: "08:00",
+  morningOut: "12:00",
+  afternoonIn: "13:00",
+  afternoonOut: "17:00",
+};
+const PHASE_SCHEDULE_FIELDS = {
+  morning_in: "morningIn",
+  lunch_out: "morningOut",
+  afternoon_in: "afternoonIn",
+  afternoon_out: "afternoonOut",
+};
+const NEXT_PHASE_SCHEDULE_FIELDS = {
+  morning_in: "morningOut",
+  lunch_out: "afternoonIn",
+  afternoon_in: "afternoonOut",
+};
+
+const toEventDateKey = (value) =>
+  new Date(new Date(value).getTime() + EVENT_TIME_ZONE_OFFSET_MINUTES * 60_000)
+    .toISOString()
+    .slice(0, 10);
+
+const addDaysToDateKey = (dateKey, amount) => {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+};
+
+const eventDateTime = (dateKey, time = "00:00") => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(
+    Date.UTC(year, month - 1, day, hours, minutes) -
+      EVENT_TIME_ZONE_OFFSET_MINUTES * 60_000,
+  );
+};
+
+const buildAttendanceDays = (event) => {
+  const startKey = toEventDateKey(event.startDateTime);
+  const endKey = toEventDateKey(event.endDateTime);
+  const existingDays = new Map(
+    (event.attendanceDays || []).map((entry) => [
+      toEventDateKey(entry.date),
+      entry,
+    ]),
+  );
+  const days = [];
+  for (
+    let dateKey = startKey;
+    dateKey <= endKey;
+    dateKey = addDaysToDateKey(dateKey, 1)
+  ) {
+    const existing = existingDays.get(dateKey);
+    days.push(
+      existing || {
+        day: days.length + 1,
+        date: new Date(`${dateKey}T00:00:00.000Z`),
+        schedule: { ...DEFAULT_ATTENDANCE_SCHEDULE },
+      },
+    );
+  }
+  days.forEach((entry, index) => {
+    entry.day = index + 1;
+  });
+  return days;
+};
+
+const ensureAttendanceDays = (event) => {
+  const days = buildAttendanceDays(event);
+  event.attendanceDays = days;
+  return days;
+};
+
 const parseAttendanceCode = (code) => {
   try {
     const payload = JSON.parse(String(code || ""));
+    const validVersion = payload?.version === 1 || payload?.version === 2;
+    const validDay =
+      payload?.version === 1 ||
+      (Number.isInteger(Number(payload?.day)) &&
+        Number(payload.day) > 0 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(String(payload?.date || "")));
     if (
       payload?.type !== "somis-event-attendance" ||
-      payload?.version !== 1 ||
+      !validVersion ||
+      !validDay ||
       !payload.eventId ||
       !ATTENDANCE_PHASES.has(payload.phase) ||
       !payload.token
@@ -119,6 +241,11 @@ const createEvent = async (req, res) => {
 
     const startDateTime = new Date(proposal.requestedStartDateTime);
     const endDateTime = new Date(proposal.requestedEndDateTime);
+    const attendanceDays = buildAttendanceDays({
+      startDateTime,
+      endDateTime,
+      attendanceDays: [],
+    });
     const event = await Event.create({
       org: req.user.organization,
       proposal: proposal._id,
@@ -133,6 +260,7 @@ const createEvent = async (req, res) => {
       projectLeadPerson: proposal.projectLeadPerson,
       projectLeadContact: proposal.projectLeadContact,
       createdBy: req.user._id,
+      attendanceDays,
     });
 
     await event.populate([
@@ -156,21 +284,111 @@ const createEvent = async (req, res) => {
   }
 };
 
+const configureAttendanceSchedule = async (req, res) => {
+  try {
+    const dayNumber = Number(req.body?.day);
+    const schedule = normalizeAttendanceSchedule(req.body?.schedule, {
+      allowPartial: true,
+    });
+    if (!Number.isInteger(dayNumber) || dayNumber < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid event day.",
+      });
+    }
+    if (!schedule) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Set at least one valid checkpoint time. Selected times must be chronological.",
+      });
+    }
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    if (event.status === "Cancelled" || new Date() >= event.endDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "Attendance settings cannot be changed for a closed event.",
+      });
+    }
+
+    const attendanceDays = ensureAttendanceDays(event);
+    const attendanceDay = attendanceDays.find(
+      (entry) => entry.day === dayNumber,
+    );
+    if (!attendanceDay) {
+      return res.status(400).json({
+        success: false,
+        message: "The selected day is outside this event's date range.",
+      });
+    }
+    const mergedSchedule = {
+      ...DEFAULT_ATTENDANCE_SCHEDULE,
+      ...(attendanceDay.schedule?.toObject?.() || attendanceDay.schedule || {}),
+      ...Object.fromEntries(
+        SCHEDULE_FIELDS.filter((field) => schedule[field]).map((field) => [
+          field,
+          schedule[field],
+        ]),
+      ),
+    };
+    attendanceDay.schedule = mergedSchedule;
+    event.attendanceSchedule = {
+      ...mergedSchedule,
+      configuredAt: new Date(),
+      configuredBy: req.user._id,
+    };
+    await event.save();
+    return res.json({
+      success: true,
+      message: `Day ${dayNumber} attendance schedule saved.`,
+      data: {
+        day: dayNumber,
+        date: attendanceDay.date,
+        schedule: attendanceDay.schedule,
+      },
+    });
+  } catch (error) {
+    console.error("Error configuring attendance schedule:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not save the attendance schedule.",
+    });
+  }
+};
+
 const generateAttendanceQr = async (req, res) => {
   try {
     const phase = String(req.body?.phase || "").toLowerCase();
+    const requestedDay = req.body?.day == null ? null : Number(req.body.day);
     if (!ATTENDANCE_PHASES.has(phase)) {
       return res.status(400).json({
         success: false,
         message: "Choose one of the four attendance QR checkpoints.",
       });
     }
+    if (
+      requestedDay !== null &&
+      (!Number.isInteger(requestedDay) || requestedDay < 1)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Choose a valid event day." });
+    }
 
     const event = await Event.findOne({
       _id: req.params.id,
       org: req.user.organization,
     }).select(
-      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash",
+      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash +attendanceDays.attendanceQr.morning_in.tokenHash +attendanceDays.attendanceQr.lunch_out.tokenHash +attendanceDays.attendanceQr.afternoon_in.tokenHash +attendanceDays.attendanceQr.afternoon_out.tokenHash",
     );
     if (!event) {
       return res.status(404).json({
@@ -186,40 +404,159 @@ const generateAttendanceQr = async (req, res) => {
         message: "Attendance QR codes cannot be generated for a closed event.",
       });
     }
-    if (now < event.startDateTime) {
+
+    const attendanceDays = ensureAttendanceDays(event);
+    const day = requestedDay || 1;
+    const attendanceDay = attendanceDays.find((entry) => entry.day === day);
+    if (!attendanceDay) {
       return res.status(400).json({
         success: false,
-        message:
-          "Attendance QR codes can only be generated when the event starts.",
+        message: "The selected day is outside this event's date range.",
       });
     }
-
     const token = crypto.randomBytes(32).toString("base64url");
-    event.attendanceQr[phase] = {
-      tokenHash: hashAttendanceToken(token),
-      generatedAt: now,
-      generatedBy: req.user._id,
-    };
-    await event.save();
-
+    const date = toEventDateKey(attendanceDay.date);
     const code = JSON.stringify({
       type: "somis-event-attendance",
-      version: 1,
+      version: requestedDay === null ? 1 : 2,
       eventId: String(event._id),
+      ...(requestedDay === null ? {} : { day, date }),
       phase,
       token,
     });
+    if (requestedDay === null) {
+      event.attendanceQr[phase] = {
+        tokenHash: hashAttendanceToken(token),
+        code,
+        generatedAt: now,
+        generatedBy: req.user._id,
+      };
+    } else {
+      attendanceDay.attendanceQr[phase] = {
+        tokenHash: hashAttendanceToken(token),
+        code,
+        generatedAt: now,
+        generatedBy: req.user._id,
+      };
+    }
+    await event.save();
 
     return res.json({
       success: true,
-      message: `${ATTENDANCE_PHASE_LABELS[phase]} QR generated.`,
-      data: { eventId: event._id, phase, code, generatedAt: now },
+      message: `${ATTENDANCE_PHASE_LABELS[phase]} QR generated for Day ${day}.`,
+      data: { eventId: event._id, day, date, phase, code, generatedAt: now },
     });
   } catch (error) {
     console.error("Error generating attendance QR:", error);
     return res.status(500).json({
       success: false,
       message: "Could not generate the attendance QR code.",
+    });
+  }
+};
+
+const getCreatedAttendanceQrs = async (req, res) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    }).select(
+      "+attendanceDays.attendanceQr.morning_in.code +attendanceDays.attendanceQr.lunch_out.code +attendanceDays.attendanceQr.afternoon_in.code +attendanceDays.attendanceQr.afternoon_out.code",
+    );
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+
+    const records = [];
+    for (const attendanceDay of event.attendanceDays || []) {
+      for (const phase of ATTENDANCE_PHASES) {
+        const qr = attendanceDay.attendanceQr?.[phase];
+        if (!qr?.code) continue;
+        records.push({
+          day: attendanceDay.day,
+          date: toEventDateKey(attendanceDay.date),
+          phase,
+          label: ATTENDANCE_PHASE_LABELS[phase],
+          code: qr.code,
+          generatedAt: qr.generatedAt,
+        });
+      }
+    }
+    return res.json({ success: true, data: records });
+  } catch (error) {
+    console.error("Error fetching created attendance QRs:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not fetch created attendance QR codes.",
+    });
+  }
+};
+
+const revokeAttendanceQr = async (req, res) => {
+  try {
+    const day = Number(req.body?.day);
+    const phase = String(req.body?.phase || "").toLowerCase();
+    if (!Number.isInteger(day) || day < 1 || !ATTENDANCE_PHASES.has(phase)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid event date and attendance checkpoint.",
+      });
+    }
+
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    }).select(
+      "+attendanceDays.attendanceQr.morning_in.tokenHash +attendanceDays.attendanceQr.morning_in.code +attendanceDays.attendanceQr.lunch_out.tokenHash +attendanceDays.attendanceQr.lunch_out.code +attendanceDays.attendanceQr.afternoon_in.tokenHash +attendanceDays.attendanceQr.afternoon_in.code +attendanceDays.attendanceQr.afternoon_out.tokenHash +attendanceDays.attendanceQr.afternoon_out.code",
+    );
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    if (event.status === "Cancelled" || new Date() >= event.endDateTime) {
+      return res.status(400).json({
+        success: false,
+        message: "QR codes cannot be changed for a closed event.",
+      });
+    }
+
+    const attendanceDay = (event.attendanceDays || []).find(
+      (entry) => entry.day === day,
+    );
+    if (!attendanceDay) {
+      return res.status(400).json({
+        success: false,
+        message: "The selected date is outside this event's date range.",
+      });
+    }
+    const qr = attendanceDay.attendanceQr?.[phase];
+    if (!qr?.tokenHash && !qr?.code) {
+      return res.status(404).json({
+        success: false,
+        message: "No QR code exists for the selected date and checkpoint.",
+      });
+    }
+
+    qr.tokenHash = null;
+    qr.code = null;
+    qr.generatedAt = null;
+    qr.generatedBy = null;
+    await event.save();
+    return res.json({
+      success: true,
+      message: `Day ${day} ${ATTENDANCE_PHASE_LABELS[phase]} QR revoked.`,
+      data: { day, phase },
+    });
+  } catch (error) {
+    console.error("Error revoking attendance QR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not revoke the attendance QR code.",
     });
   }
 };
@@ -319,7 +656,7 @@ const scanAttendanceQr = async (req, res) => {
     }
 
     const event = await Event.findById(payload.eventId).select(
-      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash",
+      "+attendanceQr.morning_in.tokenHash +attendanceQr.lunch_out.tokenHash +attendanceQr.afternoon_in.tokenHash +attendanceQr.afternoon_out.tokenHash +attendanceDays.attendanceQr.morning_in.tokenHash +attendanceDays.attendanceQr.lunch_out.tokenHash +attendanceDays.attendanceQr.afternoon_in.tokenHash +attendanceDays.attendanceQr.afternoon_out.tokenHash",
     );
     if (!event || String(event.org) !== String(req.user.organization || "")) {
       return res.status(404).json({
@@ -339,7 +676,13 @@ const scanAttendanceQr = async (req, res) => {
       });
     }
 
-    const storedHash = event.attendanceQr?.[payload.phase]?.tokenHash;
+    const attendanceDays = ensureAttendanceDays(event);
+    const day = payload.version === 2 ? Number(payload.day) : 1;
+    const attendanceDay = attendanceDays.find((entry) => entry.day === day);
+    const storedHash =
+      payload.version === 2
+        ? attendanceDay?.attendanceQr?.[payload.phase]?.tokenHash
+        : event.attendanceQr?.[payload.phase]?.tokenHash;
     const suppliedHash = hashAttendanceToken(payload.token);
     if (
       !storedHash ||
@@ -356,10 +699,30 @@ const scanAttendanceQr = async (req, res) => {
     }
 
     const now = new Date();
-    if (event.status === "Cancelled" || now >= event.endDateTime) {
+    if (
+      event.status === "Cancelled" ||
+      now >= event.endDateTime ||
+      !attendanceDay
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Attendance for this event is closed.",
+        message:
+          "Attendance for this event is closed or the QR day is invalid.",
+      });
+    }
+    if (
+      payload.version === 2 &&
+      payload.date !== toEventDateKey(attendanceDay.date)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "This QR code does not match its configured event day.",
+      });
+    }
+    if (payload.version === 2 && toEventDateKey(now) !== payload.date) {
+      return res.status(400).json({
+        success: false,
+        message: "This QR code is only valid on its configured event date.",
       });
     }
 
@@ -368,10 +731,28 @@ const scanAttendanceQr = async (req, res) => {
       student: req.user._id,
     });
 
-    if (now < event.startDateTime) {
+    const schedule =
+      payload.version === 2
+        ? attendanceDay.schedule || DEFAULT_ATTENDANCE_SCHEDULE
+        : event.attendanceSchedule || DEFAULT_ATTENDANCE_SCHEDULE;
+    const checkpointTime = schedule[PHASE_SCHEDULE_FIELDS[payload.phase]];
+    const eventDateKey =
+      payload.version === 2
+        ? toEventDateKey(attendanceDay.date)
+        : toEventDateKey(event.startDateTime);
+    const checkpointStart = eventDateTime(eventDateKey, checkpointTime);
+    const nextTime = NEXT_PHASE_SCHEDULE_FIELDS[payload.phase]
+      ? schedule[NEXT_PHASE_SCHEDULE_FIELDS[payload.phase]]
+      : null;
+    const checkpointEnd = nextTime
+      ? eventDateTime(eventDateKey, nextTime)
+      : payload.version === 2 && day < attendanceDays.length
+        ? eventDateTime(toEventDateKey(attendanceDays[day].date), "00:00")
+        : event.endDateTime;
+    if (now < checkpointStart || now >= checkpointEnd) {
       return res.status(400).json({
         success: false,
-        message: "Attendance opens when the event starts.",
+        message: `This QR code is only valid from ${checkpointTime} until ${nextTime || "the event ends"}.`,
       });
     }
     if (!attendance) {
@@ -381,17 +762,33 @@ const scanAttendanceQr = async (req, res) => {
       });
     }
     const checkpointField = ATTENDANCE_PHASE_FIELDS[payload.phase];
-    if (attendance[checkpointField]) {
-      return res.json({
-        success: true,
-        message: `${ATTENDANCE_PHASE_LABELS[payload.phase]} was already recorded.`,
-        data: attendance,
-      });
+    if (payload.version === 2) {
+      let dailyRecord = attendance.days.find((entry) => entry.day === day);
+      if (!dailyRecord) {
+        attendance.days.push({ day, date: attendanceDay.date });
+        dailyRecord = attendance.days[attendance.days.length - 1];
+      }
+      if (dailyRecord[checkpointField]) {
+        return res.json({
+          success: true,
+          message: `${ATTENDANCE_PHASE_LABELS[payload.phase]} was already recorded.`,
+          data: attendance,
+        });
+      }
+      dailyRecord[checkpointField] = now;
+      dailyRecord.presentAt = dailyRecord.presentAt || now;
+    } else {
+      if (attendance[checkpointField]) {
+        return res.json({
+          success: true,
+          message: `${ATTENDANCE_PHASE_LABELS[payload.phase]} was already recorded.`,
+          data: attendance,
+        });
+      }
+      attendance[checkpointField] = now;
+      attendance.presentAt = attendance.presentAt || now;
     }
-
-    attendance[checkpointField] = now;
     attendance.status = "Present";
-    attendance.presentAt = attendance.presentAt || now;
     await attendance.save();
 
     return res.json({
@@ -420,7 +817,7 @@ const getMyAttendance = async (req, res) => {
     const records = await EventAttendance.find({
       student: req.user._id,
     }).select(
-      "event status joinedAt morningInAt lunchOutAt afternoonInAt afternoonOutAt presentAt updatedAt",
+      "event status joinedAt days morningInAt lunchOutAt afternoonInAt afternoonOutAt presentAt updatedAt",
     );
     return res.json({ success: true, data: records });
   } catch (error) {
@@ -478,6 +875,9 @@ module.exports = {
   createEvent,
   getLifecycle,
   generateAttendanceQr,
+  getCreatedAttendanceQrs,
+  revokeAttendanceQr,
+  configureAttendanceSchedule,
   joinEvent,
   scanAttendanceQr,
   getMyAttendance,

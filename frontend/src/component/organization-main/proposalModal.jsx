@@ -24,12 +24,7 @@ const audiences = [
   "Faculty & Staff",
   "Open to External Public",
 ];
-const fundSources = [
-  "Organization Fund",
-  "Participant Registration / Ticket Fee",
-  "Sponsorship / Solicitation",
-  "Department / School Grant",
-];
+const formatCollectionSource = (fee) => `Dues Collection: ${fee.title}`;
 const acceptedExtensions = ["pdf", "docx", "xlsx", "png", "jpg", "jpeg"];
 
 const emptyForm = {
@@ -43,7 +38,7 @@ const emptyForm = {
   expectedAttendees: "",
   targetAudience: "Org Members Only",
   totalBudgetAllocation: "0",
-  sourceOfFunds: "Organization Fund",
+  sourceOfFunds: "",
   projectLeadPerson: "",
   projectLeadContact: "",
 };
@@ -89,10 +84,29 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
   const [newFiles, setNewFiles] = useState([]);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [duesCollections, setDuesCollections] = useState([]);
   const [memberCount, setMemberCount] = useState(null);
   const [leadAutoFillStatus, setLeadAutoFillStatus] = useState(
     proposal ? "not-needed" : "loading",
   );
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    API.get("/fees")
+      .then((response) => {
+        if (!isCurrent) return;
+        const fees = Array.isArray(response) ? response : response?.data || [];
+        setDuesCollections(Array.isArray(fees) ? fees : []);
+      })
+      .catch(() => {
+        if (isCurrent) setDuesCollections([]);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (proposal) return undefined;
@@ -446,10 +460,19 @@ export default function ProposalModal({ proposal, onClose, onSaved }) {
                     onChange={updateField}
                     required
                   >
-                    {fundSources.map((item) => (
-                      <option key={item}>{item}</option>
+                    <option value="">Choose a dues collection</option>
+                    {duesCollections.map((fee) => (
+                      <option key={fee._id} value={formatCollectionSource(fee)}>
+                        {formatCollectionSource(fee)}
+                      </option>
                     ))}
                   </select>
+                  {duesCollections.length === 0 && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      No dues collections have been created by the treasurer
+                      yet.
+                    </span>
+                  )}
                 </label>
                 <label className={labelClass}>
                   Project Lead Person <span className="text-rose-600">*</span>

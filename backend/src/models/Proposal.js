@@ -52,12 +52,8 @@ const proposalSchema = new mongoose.Schema(
     sourceOfFunds: {
       type: String,
       required: true,
-      enum: [
-        "Organization Fund",
-        "Participant Registration / Ticket Fee",
-        "Sponsorship / Solicitation",
-        "Department / School Grant",
-      ],
+      trim: true,
+      maxlength: 200,
     },
     projectLeadPerson: { type: String, required: true, trim: true },
     projectLeadContact: { type: String, required: true, trim: true },

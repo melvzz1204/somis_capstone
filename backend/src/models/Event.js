@@ -30,9 +30,76 @@ const eventSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    attendanceSchedule: {
+      morningIn: { type: String, trim: true, default: "08:00" },
+      morningOut: { type: String, trim: true, default: "12:00" },
+      afternoonIn: { type: String, trim: true, default: "13:00" },
+      afternoonOut: { type: String, trim: true, default: "17:00" },
+      configuredAt: { type: Date, default: null },
+      configuredBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
+    attendanceDays: [
+      {
+        day: { type: Number, required: true, min: 1 },
+        date: { type: Date, required: true },
+        schedule: {
+          morningIn: { type: String, trim: true, default: "08:00" },
+          morningOut: { type: String, trim: true, default: "12:00" },
+          afternoonIn: { type: String, trim: true, default: "13:00" },
+          afternoonOut: { type: String, trim: true, default: "17:00" },
+        },
+        attendanceQr: {
+          morning_in: {
+            tokenHash: { type: String, select: false, default: null },
+            code: { type: String, select: false, default: null },
+            generatedAt: Date,
+            generatedBy: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              default: null,
+            },
+          },
+          lunch_out: {
+            tokenHash: { type: String, select: false, default: null },
+            code: { type: String, select: false, default: null },
+            generatedAt: Date,
+            generatedBy: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              default: null,
+            },
+          },
+          afternoon_in: {
+            tokenHash: { type: String, select: false, default: null },
+            code: { type: String, select: false, default: null },
+            generatedAt: Date,
+            generatedBy: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              default: null,
+            },
+          },
+          afternoon_out: {
+            tokenHash: { type: String, select: false, default: null },
+            code: { type: String, select: false, default: null },
+            generatedAt: Date,
+            generatedBy: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              default: null,
+            },
+          },
+        },
+      },
+    ],
     attendanceQr: {
       morning_in: {
         tokenHash: { type: String, select: false, default: null },
+        code: { type: String, select: false, default: null },
         generatedAt: { type: Date, default: null },
         generatedBy: {
           type: mongoose.Schema.Types.ObjectId,
@@ -42,6 +109,7 @@ const eventSchema = new mongoose.Schema(
       },
       lunch_out: {
         tokenHash: { type: String, select: false, default: null },
+        code: { type: String, select: false, default: null },
         generatedAt: { type: Date, default: null },
         generatedBy: {
           type: mongoose.Schema.Types.ObjectId,
@@ -51,6 +119,7 @@ const eventSchema = new mongoose.Schema(
       },
       afternoon_in: {
         tokenHash: { type: String, select: false, default: null },
+        code: { type: String, select: false, default: null },
         generatedAt: { type: Date, default: null },
         generatedBy: {
           type: mongoose.Schema.Types.ObjectId,
@@ -60,6 +129,7 @@ const eventSchema = new mongoose.Schema(
       },
       afternoon_out: {
         tokenHash: { type: String, select: false, default: null },
+        code: { type: String, select: false, default: null },
         generatedAt: { type: Date, default: null },
         generatedBy: {
           type: mongoose.Schema.Types.ObjectId,

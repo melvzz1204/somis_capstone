@@ -156,6 +156,7 @@ const createProposal = async (req, res) => {
       result[field] = req.body[field];
       return result;
     }, {});
+    data.sourceOfFunds = String(data.sourceOfFunds || "").trim();
     data.expectedAttendees = normalizeExpectedAttendees(data.expectedAttendees);
 
     const proposal = await Proposal.create({
@@ -294,6 +295,9 @@ const updateProposal = async (req, res) => {
       if (Object.prototype.hasOwnProperty.call(req.body, field))
         proposal[field] = req.body[field];
     });
+    if (Object.prototype.hasOwnProperty.call(req.body, "sourceOfFunds")) {
+      proposal.sourceOfFunds = String(req.body.sourceOfFunds || "").trim();
+    }
     if (Object.prototype.hasOwnProperty.call(req.body, "expectedAttendees")) {
       proposal.expectedAttendees = normalizeExpectedAttendees(
         req.body.expectedAttendees,

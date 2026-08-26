@@ -5,7 +5,7 @@ import {
   Clock3,
   Download,
   MapPin,
-  RefreshCw,
+  QrCode,
   Users,
   X,
 } from "lucide-react";
@@ -27,6 +27,38 @@ const formatDateTime = (value) =>
       })
     : "N/A";
 
+const formatEventDay = (value) =>
+  value
+    ? new Date(value).toLocaleDateString("en-PH", { dateStyle: "medium" })
+    : "N/A";
+
+const restorePersistedQrs = async (eventId) => {
+  const response = await API.get(`/events/${eventId}/attendance/qr`);
+  const records = Array.isArray(response?.data) ? response.data : [];
+  const grouped = {};
+
+  await Promise.all(
+    records.map(async (record) => {
+      if (!record?.code) return;
+      const day = Number(record.day) || 1;
+      const image = await QRCode.toDataURL(record.code, {
+        width: 360,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      });
+      if (!grouped[day]) grouped[day] = [];
+      grouped[day].push({
+        ...record,
+        day,
+        payload: record.code,
+        image,
+      });
+    }),
+  );
+
+  return grouped;
+};
+
 export default function SecretaryEvents({ proposals = [] }) {
   const { showToast } = useToast();
   const [events, setEvents] = useState([]);
@@ -35,8 +67,21 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
-  const [qrDialog, setQrDialog] = useState(null);
-  const [qrImages, setQrImages] = useState([]);
+  const [qrConfigDialog, setQrConfigDialog] = useState(null);
+  const [selectedQrDay, setSelectedQrDay] = useState(1);
+  const [selectedQrPhases, setSelectedQrPhases] = useState([
+    "morning_in",
+    "lunch_out",
+    "afternoon_in",
+    "afternoon_out",
+  ]);
+  const [qrSchedule, setQrSchedule] = useState({
+    morningIn: "08:00",
+    morningOut: "12:00",
+    afternoonIn: "13:00",
+    afternoonOut: "17:00",
+  });
+  const [qrImagesByEvent, setQrImagesByEvent] = useState({});
   const [qrLoading, setQrLoading] = useState(false);
   const [attendanceDialog, setAttendanceDialog] = useState(null);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -54,17 +99,40 @@ export default function SecretaryEvents({ proposals = [] }) {
 
   useEffect(() => {
     let active = true;
-    API.get("/events")
-      .then((response) => {
+
+    const loadEventsAndQrs = async () => {
+      try {
+        const response = await API.get("/events");
+        const loadedEvents = Array.isArray(response?.data) ? response.data : [];
         if (!active) return;
-        setEvents(response.data?.data || response.data || []);
-      })
-      .catch((requestError) => {
-        if (active) setError(requestError.message || "Unable to load events.");
-      })
-      .finally(() => {
+        setEvents(loadedEvents);
+
+        const restoredResults = await Promise.allSettled(
+          loadedEvents.map(async (event) => ({
+            eventId: event._id,
+            groups: await restorePersistedQrs(event._id),
+          })),
+        );
+        if (!active) return;
+
+        const restoredByEvent = {};
+        restoredResults.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          if (Object.keys(result.value.groups).length > 0) {
+            restoredByEvent[result.value.eventId] = result.value.groups;
+          }
+        });
+        setQrImagesByEvent(restoredByEvent);
+      } catch (requestError) {
+        if (active) {
+          setError(requestError.message || "Unable to load events.");
+        }
+      } finally {
         if (active) setLoading(false);
-      });
+      }
+    };
+
+    loadEventsAndQrs();
     return () => {
       active = false;
     };
@@ -144,29 +212,151 @@ export default function SecretaryEvents({ proposals = [] }) {
     { key: "afternoon_out", label: "Afternoon time out" },
   ];
 
+  const getEventDays = (event) => {
+    if (event.attendanceDays?.length) return event.attendanceDays;
+
+    const start = new Date(event.startDateTime);
+    const end = new Date(event.endDateTime);
+    const firstDate = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate(),
+    );
+    const lastDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    const days = [];
+
+    for (
+      const date = new Date(firstDate);
+      date <= lastDate;
+      date.setDate(date.getDate() + 1)
+    ) {
+      days.push({
+        day: days.length + 1,
+        date: new Date(date),
+        schedule: event.attendanceSchedule,
+      });
+    }
+
+    return days.length
+      ? days
+      : [
+          {
+            day: 1,
+            date: event.startDateTime,
+            schedule: event.attendanceSchedule,
+          },
+        ];
+  };
+
+  const openQrConfiguration = (event) => {
+    const day = getEventDays(event)[0];
+    setSelectedQrDay(day.day);
+    setSelectedQrPhases([
+      "morning_in",
+      "lunch_out",
+      "afternoon_in",
+      "afternoon_out",
+    ]);
+    setQrSchedule({
+      morningIn: day.schedule?.morningIn || "08:00",
+      morningOut: day.schedule?.morningOut || "12:00",
+      afternoonIn: day.schedule?.afternoonIn || "13:00",
+      afternoonOut: day.schedule?.afternoonOut || "17:00",
+    });
+    setQrConfigDialog(event);
+  };
+
+  const selectQrDay = (event, dayNumber) => {
+    const day = getEventDays(event).find(
+      (item) => item.day === Number(dayNumber),
+    );
+    setSelectedQrDay(Number(dayNumber));
+    setQrSchedule({
+      morningIn: day?.schedule?.morningIn || "08:00",
+      morningOut: day?.schedule?.morningOut || "12:00",
+      afternoonIn: day?.schedule?.afternoonIn || "13:00",
+      afternoonOut: day?.schedule?.afternoonOut || "17:00",
+    });
+  };
+
   const generateQr = async (event) => {
     setQrLoading(true);
     setError("");
+    if (!selectedQrPhases.length) {
+      setQrLoading(false);
+      setError("Select at least one attendance checkpoint.");
+      return;
+    }
     try {
+      const selectedSchedule = Object.fromEntries(
+        attendancePhases
+          .filter(({ key }) => selectedQrPhases.includes(key))
+          .map(({ key }) => {
+            const field = {
+              morning_in: "morningIn",
+              lunch_out: "morningOut",
+              afternoon_in: "afternoonIn",
+              afternoon_out: "afternoonOut",
+            }[key];
+            return [field, qrSchedule[field]];
+          }),
+      );
+      const scheduleResponse = await API.patch(
+        `/events/${event._id}/attendance/schedule`,
+        { day: selectedQrDay, schedule: selectedSchedule },
+      );
+      const savedSchedule = scheduleResponse.data || {
+        schedule: qrSchedule,
+      };
       const generated = await Promise.all(
-        attendancePhases.map(async ({ key: phase, label }) => {
-          const response = await API.post(
-            `/events/${event._id}/attendance/qr`,
-            { phase },
+        attendancePhases
+          .filter(({ key }) => selectedQrPhases.includes(key))
+          .map(async ({ key: phase, label }) => {
+            const response = await API.post(
+              `/events/${event._id}/attendance/qr`,
+              { day: selectedQrDay, phase },
+            );
+            const payload = response.code || response.data?.code;
+            if (!payload)
+              throw new Error(`The server did not return ${label}.`);
+            const image = await QRCode.toDataURL(payload, {
+              width: 360,
+              margin: 2,
+              errorCorrectionLevel: "M",
+            });
+            return { phase, label, payload, image };
+          }),
+      );
+      setQrImagesByEvent((current) => ({
+        ...current,
+        [event._id]: {
+          ...(current[event._id] || {}),
+          [selectedQrDay]: generated.map((qr) => ({
+            ...qr,
+            day: selectedQrDay,
+          })),
+        },
+      }));
+      setEvents((current) =>
+        current.map((item) => {
+          if (item._id !== event._id) return item;
+          const days = getEventDays(item).map((day) =>
+            day.day === selectedQrDay
+              ? { ...day, schedule: savedSchedule.schedule || qrSchedule }
+              : day,
           );
-          const payload = response.code || response.data?.code;
-          if (!payload) throw new Error(`The server did not return ${label}.`);
-          const image = await QRCode.toDataURL(payload, {
-            width: 360,
-            margin: 2,
-            errorCorrectionLevel: "M",
-          });
-          return { phase, label, payload, image };
+          return {
+            ...item,
+            attendanceDays: days,
+            attendanceSchedule: savedSchedule.schedule || qrSchedule,
+          };
         }),
       );
-      setQrImages(generated);
-      setQrDialog({ event });
-      showToast("Four attendance QR codes generated.", "success");
+      setQrConfigDialog(null);
+      showToast(
+        `Day ${selectedQrDay} schedule saved and ${generated.length} QR code${generated.length === 1 ? "" : "s"} generated.`,
+        "success",
+      );
     } catch (requestError) {
       const message =
         requestError.response?.data?.message ||
@@ -201,11 +391,44 @@ export default function SecretaryEvents({ proposals = [] }) {
     }
   };
 
-  const downloadQr = (qr) => {
-    if (!qr || !qrDialog) return;
+  const revokeQr = async (event, qr) => {
+    if (!event || !qr) return;
+    if (
+      !window.confirm(
+        `Revoke the Day ${qr.day} ${qr.label} QR code? Students will no longer be able to scan it.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await API.delete(`/events/${event._id}/attendance/qr`, {
+        data: { day: qr.day, phase: qr.phase },
+      });
+      setQrImagesByEvent((current) => {
+        const eventQrs = { ...(current[event._id] || {}) };
+        const remaining = (eventQrs[qr.day] || []).filter(
+          (item) => item.phase !== qr.phase,
+        );
+        if (remaining.length) eventQrs[qr.day] = remaining;
+        else delete eventQrs[qr.day];
+        return { ...current, [event._id]: eventQrs };
+      });
+      showToast(`${qr.label} QR revoked.`, "success");
+    } catch (requestError) {
+      showToast(
+        requestError.response?.data?.message ||
+          requestError.message ||
+          "Unable to revoke the QR code.",
+        "error",
+      );
+    }
+  };
+
+  const downloadQr = (event, qr) => {
+    if (!qr || !event) return;
     const link = document.createElement("a");
     link.href = qr.image;
-    link.download = `${qrDialog.event.title}-${qr.phase}-attendance.png`;
+    link.download = `${event.title}-day-${qr.day}-${qr.phase}-attendance.png`;
     link.click();
   };
 
@@ -324,6 +547,11 @@ export default function SecretaryEvents({ proposals = [] }) {
                     >
                       {event.lifecycle.status}
                     </span>
+                    {event.lifecycle.status === "Ongoing" && (
+                      <span className="rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                        {formatEventDay(now)}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-2 space-y-1 text-[11px] text-slate-500">
                     <p className="flex items-center gap-1.5">
@@ -363,12 +591,15 @@ export default function SecretaryEvents({ proposals = [] }) {
               <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                 <button
                   type="button"
-                  onClick={() => generateQr(event)}
-                  disabled={qrLoading || event.lifecycle.status !== "Ongoing"}
+                  onClick={() => openQrConfiguration(event)}
+                  disabled={
+                    qrLoading ||
+                    ["Ended", "Cancelled"].includes(event.lifecycle.status)
+                  }
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Generate 4 Attendance QR Codes
+                  <QrCode className="h-3.5 w-3.5" />
+                  Configure and Generate QR Codes
                 </button>
                 <button
                   type="button"
@@ -379,70 +610,195 @@ export default function SecretaryEvents({ proposals = [] }) {
                   Attendance
                 </button>
               </div>
+              {Object.keys(qrImagesByEvent[event._id] || {}).length > 0 && (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-extrabold text-[#4A0E17]">
+                        Attendance QR Codes
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        Each event day has unique codes accepted only during its
+                        configured checkpoint windows.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openQrConfiguration(event)}
+                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      Configure another day
+                    </button>
+                  </div>
+                  {Object.entries(qrImagesByEvent[event._id]).map(
+                    ([day, dayQrs]) => (
+                      <div key={day} className="mb-5 last:mb-0">
+                        <p className="mb-2 text-xs font-extrabold text-[#4A0E17]">
+                          Day {day} ·{" "}
+                          {formatEventDay(
+                            getEventDays(event).find(
+                              (item) => item.day === Number(day),
+                            )?.date,
+                          )}
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          {dayQrs.map((qr) => (
+                            <div
+                              key={`${day}-${qr.phase}`}
+                              className="rounded-lg border border-slate-200 p-3 text-center"
+                            >
+                              <p className="text-[11px] font-extrabold text-[#4A0E17]">
+                                {qr.label}
+                              </p>
+                              <img
+                                src={qr.image}
+                                alt={`Day ${day} ${qr.label} attendance QR`}
+                                className="mx-auto mt-2 aspect-square w-full max-w-40"
+                              />
+                              <div className="mt-2 flex items-center justify-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => downloadQr(event, qr)}
+                                  className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-600 hover:text-[#4A0E17]"
+                                >
+                                  <Download className="h-3.5 w-3.5" /> Download
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => revokeQr(event, qr)}
+                                  className="text-[10px] font-bold text-rose-600 hover:text-rose-800"
+                                >
+                                  Revoke
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
             </article>
           ))
         )}
       </div>
 
-      {qrDialog && (
+      {qrConfigDialog && (
         <div className="modal-backdrop">
-          <div className="modal-panel max-w-md p-5 text-center">
-            <div className="flex items-start justify-between gap-3 text-left">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              generateQr(qrConfigDialog);
+            }}
+            className="modal-panel max-w-lg p-5 sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[#7A610D]">
-                  Four attendance checkpoints
+                <p className="text-[10px] font-bold uppercase text-[#7A610D]">
+                  Attendance QR schedule
                 </p>
                 <h3 className="mt-1 text-base font-extrabold text-[#4A0E17]">
-                  {qrDialog.event.title}
+                  {qrConfigDialog.title}
                 </h3>
               </div>
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setQrDialog(null)}
-                aria-label="Close QR code"
+                onClick={() => setQrConfigDialog(null)}
+                aria-label="Close QR configuration"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Display each code only during its checkpoint. Students who joined
-              the event can scan all four codes to complete attendance.
-            </p>
-            <div className="my-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {qrImages.map((qr) => (
-                <div
-                  key={qr.phase}
-                  className="rounded-xl border border-slate-200 bg-white p-3"
-                >
-                  <p className="text-xs font-extrabold text-[#4A0E17]">
-                    {qr.label}
-                  </p>
-                  <img
-                    src={qr.image}
-                    alt={`${qr.label} attendance QR`}
-                    className="mx-auto mt-2 h-40 w-40"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => downloadQr(qr)}
-                    className="btn-secondary mt-2 inline-flex items-center gap-2 text-[11px]"
-                  >
-                    <Download className="h-3.5 w-3.5" /> Download
-                  </button>
-                </div>
-              ))}
+            <label className="mt-5 block text-[11px] font-bold text-slate-700">
+              Event date
+              <select
+                value={selectedQrDay}
+                onChange={(event) =>
+                  selectQrDay(qrConfigDialog, event.target.value)
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#4A0E17]"
+              >
+                {getEventDays(qrConfigDialog).map((day) => (
+                  <option key={day.day} value={day.day}>
+                    {formatEventDay(day.date)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-5 space-y-3">
+              <p className="text-[11px] font-bold text-slate-700">
+                Checkpoints to create
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {attendancePhases.map(({ key, label }) => {
+                  const field = {
+                    morning_in: "morningIn",
+                    lunch_out: "morningOut",
+                    afternoon_in: "afternoonIn",
+                    afternoon_out: "afternoonOut",
+                  }[key];
+                  const selected = selectedQrPhases.includes(key);
+                  return (
+                    <label
+                      key={key}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 p-3 text-[11px] font-bold text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() =>
+                          setSelectedQrPhases((current) =>
+                            selected
+                              ? current.filter((item) => item !== key)
+                              : [...current, key],
+                          )
+                        }
+                      />
+                      <span className="flex-1">{label}</span>
+                      <input
+                        type="time"
+                        required={selected}
+                        disabled={!selected}
+                        value={qrSchedule[field]}
+                        onChange={(event) =>
+                          setQrSchedule((current) => ({
+                            ...current,
+                            [field]: event.target.value,
+                          }))
+                        }
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:border-[#4A0E17] disabled:bg-slate-100"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex justify-center">
+            <p className="mt-4 text-[11px] text-slate-500">
+              Select one or more checkpoints. Only selected QR codes will be
+              created. Selected times must be chronological; unselected
+              checkpoints may be configured later.
+            </p>
+            <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
-                onClick={() => setQrDialog(null)}
-                className="btn-primary"
+                onClick={() => setQrConfigDialog(null)}
+                disabled={qrLoading}
+                className="btn-secondary"
               >
-                Done
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={qrLoading}
+                className="btn-primary inline-flex items-center gap-2"
+              >
+                <QrCode className="h-4 w-4" />
+                {qrLoading ? "Generating..." : "Save and Generate"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 

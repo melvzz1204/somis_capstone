@@ -23,6 +23,11 @@ const organizationSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    attendanceFineAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     academicPeriod: {
       academicYear: {
         type: String,

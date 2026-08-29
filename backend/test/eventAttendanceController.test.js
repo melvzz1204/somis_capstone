@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  getCreatedAttendanceCheckpoints,
   getLifecycle,
   parseAttendanceCode,
 } = require("../src/controllers/eventController");
@@ -43,6 +44,35 @@ test("parseAttendanceCode rejects malformed and unsupported payloads", () => {
   assert.equal(parseAttendanceCode(validCode("onsite")), null);
   assert.equal(parseAttendanceCode(validCode("advance")), null);
   assert.equal(parseAttendanceCode(validCode("final")), null);
+});
+
+test("created attendance checkpoints only include QR codes made by the secretary", () => {
+  const event = {
+    attendanceDays: [
+      {
+        day: 1,
+        date: new Date("2026-08-29T00:00:00.000Z"),
+        attendanceQr: {
+          morning_in: { generatedAt: new Date("2026-08-28T10:00:00.000Z") },
+          lunch_out: { code: "created-morning-out-code" },
+          afternoon_in: {},
+          afternoon_out: {},
+        },
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    getCreatedAttendanceCheckpoints(event).map(({ day, phase, field }) => ({
+      day,
+      phase,
+      field,
+    })),
+    [
+      { day: 1, phase: "morning_in", field: "morningInAt" },
+      { day: 1, phase: "lunch_out", field: "lunchOutAt" },
+    ],
+  );
 });
 
 test("getLifecycle reports upcoming, ongoing, ended, and cancelled events", () => {

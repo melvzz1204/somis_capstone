@@ -3,11 +3,14 @@ const {
   getEvents,
   createEvent,
   configureAttendanceSchedule,
+  configureAttendanceFine,
+  finalizeEventAttendanceFines,
   generateAttendanceQr,
   getCreatedAttendanceQrs,
   revokeAttendanceQr,
   scanAttendanceQr,
   getMyAttendance,
+  getMyAttendanceFines,
   getEventAttendance,
   joinEvent,
 } = require("../controllers/eventController");
@@ -27,7 +30,25 @@ router.post(
   scanAttendanceQr,
 );
 router.get("/attendance/mine", protect, authorize("student"), getMyAttendance);
+router.get(
+  "/attendance/fines/mine",
+  protect,
+  authorize("student"),
+  getMyAttendanceFines,
+);
 router.post("/:id/join", protect, authorize("student"), joinEvent);
+router.patch(
+  "/:id/attendance/fine",
+  protect,
+  authorize("secretary"),
+  configureAttendanceFine,
+);
+router.post(
+  "/:id/attendance/finalize-fines",
+  protect,
+  authorize("secretary"),
+  finalizeEventAttendanceFines,
+);
 router.patch(
   "/:id/attendance/schedule",
   protect,

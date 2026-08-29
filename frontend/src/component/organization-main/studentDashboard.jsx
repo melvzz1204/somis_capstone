@@ -9,6 +9,7 @@ import { Html5Qrcode } from "html5-qrcode";
 import {
   AlertCircle,
   CheckCircle2,
+  ClipboardCheck,
   FileImage,
   LoaderCircle,
   QrCode,
@@ -21,6 +22,11 @@ import {
   getEventLifecycle,
   lifecycleStyles,
 } from "../../util/eventLifecycle";
+import {
+  getAttendanceScanCount,
+  getCreatedAttendanceCheckpoints,
+  groupAttendanceCheckpointsByDay,
+} from "../../util/eventAttendance";
 
 // Sub-components
 import LogoutButton from "../logoutButton";
@@ -183,6 +189,8 @@ export default function StudentDashboard({ user: propsUser }) {
   const [roster, setRoster] = useState([]);
   const [studentProfile, setStudentProfile] = useState(null);
   const [fees, setFees] = useState([]);
+  const [attendanceFines, setAttendanceFines] = useState([]);
+  const [attendanceFineTotal, setAttendanceFineTotal] = useState(0);
   const [feeError, setFeeError] = useState("");
   const [studentFeeArchive, setStudentFeeArchive] = useState([]);
   const [selectedArchivedFeeIds, setSelectedArchivedFeeIds] = useState([]);
@@ -204,6 +212,7 @@ export default function StudentDashboard({ user: propsUser }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [eventView, setEventView] = useState("active");
   const [eventError, setEventError] = useState("");
   const [attendance, setAttendance] = useState([]);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -271,6 +280,7 @@ export default function StudentDashboard({ user: propsUser }) {
             eventResult,
             announcementResult,
             attendanceResult,
+            finesResult,
           ] = await Promise.allSettled([
             API.get("/fees"),
             API.get("/fees/clearance"),
@@ -279,6 +289,7 @@ export default function StudentDashboard({ user: propsUser }) {
             API.get("/events"),
             API.get("/announcements"),
             API.get("/events/attendance/mine"),
+            API.get("/events/attendance/fines/mine"),
           ]);
 
           if (feeResult.status === "fulfilled") {
@@ -365,7 +376,17 @@ export default function StudentDashboard({ user: propsUser }) {
           } else {
             setAttendance([]);
           }
+
+          if (finesResult.status === "fulfilled") {
+            setAttendanceFines(finesResult.value.data || []);
+            setAttendanceFineTotal(Number(finesResult.value.total || 0));
+          } else {
+            setAttendanceFines([]);
+            setAttendanceFineTotal(0);
+          }
         } else {
+          setAttendanceFines([]);
+          setAttendanceFineTotal(0);
           setFees([]);
           setClearanceFees([]);
           setPayments([]);
@@ -503,33 +524,8 @@ export default function StudentDashboard({ user: propsUser }) {
 
   const attendanceForEvent = (eventId) =>
     attendance.find(
-      (record) => (record.event?._id || record.event) === eventId,
+      (record) => String(record.event?._id || record.event) === String(eventId),
     );
-
-  const attendanceCheckpointCount = (record) => {
-    if (record?.days?.length) {
-      return record.days.reduce(
-        (total, day) =>
-          total +
-          [
-            day.morningInAt,
-            day.lunchOutAt,
-            day.afternoonInAt,
-            day.afternoonOutAt,
-          ].filter(Boolean).length,
-        0,
-      );
-    }
-    return [
-      record?.morningInAt,
-      record?.lunchOutAt,
-      record?.afternoonInAt,
-      record?.afternoonOutAt,
-    ].filter(Boolean).length;
-  };
-
-  const attendanceCheckpointTotal = (event) =>
-    Math.max(1, event?.attendanceDays?.length || 1) * 4;
 
   const joinEvent = async (event) => {
     setJoiningEventId(event._id);
@@ -782,7 +778,33 @@ export default function StudentDashboard({ user: propsUser }) {
       );
     });
 
-  const activeEventCount = trackedEvents.filter((event) =>
+  const activeEvents = trackedEvents.filter(
+    (event) => event.lifecycle.status !== "Ended",
+  );
+  const archivedEvents = trackedEvents
+    .filter((event) => event.lifecycle.status === "Ended")
+    .sort(
+      (first, second) =>
+        new Date(second.endDateTime).getTime() -
+        new Date(first.endDateTime).getTime(),
+    );
+  const visibleEvents = eventView === "archive" ? archivedEvents : activeEvents;
+  const attendedEventRecords = attendance
+    .filter((record) => record.status === "Present")
+    .map((record) => ({
+      record,
+      event: trackedEvents.find(
+        (event) =>
+          String(event._id) === String(record.event?._id || record.event),
+      ),
+    }))
+    .filter(({ event }) => Boolean(event))
+    .sort(
+      (first, second) =>
+        new Date(second.record.presentAt || second.record.updatedAt).getTime() -
+        new Date(first.record.presentAt || first.record.updatedAt).getTime(),
+    );
+  const activeEventCount = activeEvents.filter((event) =>
     ["Upcoming", "Ongoing"].includes(event.lifecycle.status),
   ).length;
   const activeFeeCount = fees.filter((fee) => fee.status === "active").length;
@@ -1380,6 +1402,40 @@ export default function StudentDashboard({ user: propsUser }) {
                   Fees created by your organization secretary and applicable to
                   your membership.
                 </p>
+                <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose-700">
+                        Attendance fines
+                      </p>
+                      <p className="mt-1 text-xs text-rose-800">
+                        Unpaid fines for events you missed
+                      </p>
+                    </div>
+                    <p className="text-lg font-black text-rose-800">
+                      ₱
+                      {attendanceFineTotal.toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </p>
+                  </div>
+                  {attendanceFines.length > 0 && (
+                    <div className="mt-3 space-y-2 border-t border-rose-200 pt-3">
+                      {attendanceFines.map((fine) => (
+                        <div
+                          key={fine._id}
+                          className="flex justify-between gap-3 text-xs text-rose-800"
+                        >
+                          <span>{fine.event?.title || fine.reason}</span>
+                          <strong>
+                            ₱{Number(fine.amount || 0).toFixed(2)}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {feeError && (
@@ -1636,12 +1692,58 @@ export default function StudentDashboard({ user: propsUser }) {
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
               <div className="border-b border-slate-100 pb-4">
                 <h3 className="text-base font-bold text-[#4A0E17]">
-                  Campus & Organization Events
+                  Events, Activities & Attendance
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Discover upcoming student activities and track your event
-                  participation.
+                  Discover activities and review attendance recorded after your
+                  successful QR scans.
                 </p>
+                <div
+                  className="mt-4 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1"
+                  role="tablist"
+                  aria-label="Event views"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={eventView === "active"}
+                    onClick={() => setEventView("active")}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                      eventView === "active"
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "text-slate-600 hover:bg-white"
+                    }`}
+                  >
+                    Events ({activeEvents.length})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={eventView === "archive"}
+                    onClick={() => setEventView("archive")}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                      eventView === "archive"
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "text-slate-600 hover:bg-white"
+                    }`}
+                  >
+                    Archive ({archivedEvents.length})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={eventView === "attendance"}
+                    onClick={() => setEventView("attendance")}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                      eventView === "attendance"
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "text-slate-600 hover:bg-white"
+                    }`}
+                  >
+                    <ClipboardCheck className="h-3.5 w-3.5" />
+                    Attendance ({attendedEventRecords.length})
+                  </button>
+                </div>
               </div>
 
               {eventError && (
@@ -1650,19 +1752,165 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               )}
 
-              {trackedEvents.length === 0 ? (
+              {eventView === "attendance" ? (
+                <div className="space-y-5">
+                  {attendedEventRecords.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 p-12 text-center space-y-2">
+                      <ClipboardCheck className="mx-auto h-8 w-8 text-slate-300" />
+                      <p className="text-xs font-bold text-slate-700">
+                        No QR attendance recorded yet
+                      </p>
+                      <p className="mx-auto max-w-md text-xs text-slate-400">
+                        After you join an event and successfully scan an active
+                        checkpoint QR code, your attendance summary will appear
+                        here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {attendedEventRecords.map(({ record, event }) => {
+                        const createdCheckpoints =
+                          getCreatedAttendanceCheckpoints(event);
+                        const checkpointCount = getAttendanceScanCount(
+                          record,
+                          createdCheckpoints,
+                        );
+                        const attendanceDays =
+                          groupAttendanceCheckpointsByDay(createdCheckpoints);
+
+                        return (
+                          <article
+                            key={record._id}
+                            className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                          >
+                            <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-4 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                    Attendance verified
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400">
+                                    {event.category}
+                                  </span>
+                                </div>
+                                <h4 className="mt-2 text-sm font-extrabold text-[#4A0E17]">
+                                  {event.title}
+                                </h4>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {formatDate(event.startDateTime)} •{" "}
+                                  {event.venue}
+                                </p>
+                              </div>
+                              {createdCheckpoints.length > 0 && (
+                                <div className="shrink-0 text-left sm:text-right">
+                                  <p className="text-lg font-extrabold text-[#4A0E17]">
+                                    {checkpointCount}/
+                                    {createdCheckpoints.length}
+                                  </p>
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                    created QR codes scanned
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-3 p-4">
+                              {attendanceDays.length === 0 ? (
+                                <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
+                                  The secretary has not created attendance QR
+                                  codes for this event.
+                                </p>
+                              ) : (
+                                attendanceDays.map((day) => {
+                                  const dailyRecord = record.days?.find(
+                                    (entry) => Number(entry.day) === day.day,
+                                  );
+                                  return (
+                                    <div
+                                      key={`${record._id}-${day.day}`}
+                                      className="rounded-xl border border-slate-200 p-3"
+                                    >
+                                      <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-[#7A610D]">
+                                        Day {day.day} • {formatDate(day.date)}
+                                      </p>
+                                      <div
+                                        className={`grid grid-cols-1 gap-2 ${
+                                          day.checkpoints.length > 1
+                                            ? "sm:grid-cols-2"
+                                            : ""
+                                        } ${
+                                          day.checkpoints.length > 2
+                                            ? "lg:grid-cols-4"
+                                            : ""
+                                        }`}
+                                      >
+                                        {day.checkpoints.map((checkpoint) => {
+                                          const scannedAt = dailyRecord
+                                            ? dailyRecord[checkpoint.field]
+                                            : day.day === 1
+                                              ? record[checkpoint.field]
+                                              : null;
+                                          return (
+                                            <div
+                                              key={checkpoint.key}
+                                              className={`rounded-lg border p-2.5 ${
+                                                scannedAt
+                                                  ? "border-emerald-200 bg-emerald-50"
+                                                  : "border-slate-200 bg-slate-50"
+                                              }`}
+                                            >
+                                              <p className="text-[10px] font-bold text-slate-500">
+                                                {checkpoint.label}
+                                              </p>
+                                              <p
+                                                className={`mt-1 text-xs font-extrabold ${
+                                                  scannedAt
+                                                    ? "text-emerald-800"
+                                                    : "text-slate-400"
+                                                }`}
+                                              >
+                                                {scannedAt
+                                                  ? new Date(
+                                                      scannedAt,
+                                                    ).toLocaleTimeString(
+                                                      "en-PH",
+                                                      {
+                                                        hour: "numeric",
+                                                        minute: "2-digit",
+                                                      },
+                                                    )
+                                                  : "Not scanned"}
+                                              </p>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : visibleEvents.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
                   <p className="text-xs font-bold text-slate-700">
-                    No Events & Activities
+                    {eventView === "archive"
+                      ? "No Archived Events"
+                      : "No Active Events & Activities"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    Check back later for newly approved activities from your
-                    organization.
+                    {eventView === "archive"
+                      ? "Events will appear here automatically after they end."
+                      : "Check back later for newly approved activities from your organization."}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3 text-xs">
-                  {trackedEvents.map((evt) => (
+                  {visibleEvents.map((evt) => (
                     <div
                       key={evt._id}
                       className="p-4 bg-slate-50/80 border border-slate-200/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -1686,16 +1934,19 @@ export default function StudentDashboard({ user: propsUser }) {
                               })}
                             </span>
                           )}
-                          {attendanceForEvent(evt._id) && (
-                            <span
-                              className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${attendanceCheckpointCount(attendanceForEvent(evt._id)) === attendanceCheckpointTotal(evt) ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
-                            >
-                              {attendanceCheckpointCount(
-                                attendanceForEvent(evt._id),
-                              )}
-                              /{attendanceCheckpointTotal(evt)} checkpoints
-                            </span>
-                          )}
+                          {attendanceForEvent(evt._id) &&
+                            getCreatedAttendanceCheckpoints(evt).length > 0 && (
+                              <span
+                                className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${getAttendanceScanCount(attendanceForEvent(evt._id), getCreatedAttendanceCheckpoints(evt)) === getCreatedAttendanceCheckpoints(evt).length ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                              >
+                                {getAttendanceScanCount(
+                                  attendanceForEvent(evt._id),
+                                  getCreatedAttendanceCheckpoints(evt),
+                                )}
+                                /{getCreatedAttendanceCheckpoints(evt).length}{" "}
+                                checkpoints
+                              </span>
+                            )}
                         </div>
                         <h4 className="font-bold text-slate-800 text-sm">
                           {evt.title}
@@ -1735,9 +1986,11 @@ export default function StudentDashboard({ user: propsUser }) {
                           )}
                         {evt.lifecycle.status === "Ongoing" &&
                           attendanceForEvent(evt._id) &&
-                          attendanceCheckpointCount(
+                          getCreatedAttendanceCheckpoints(evt).length > 0 &&
+                          getAttendanceScanCount(
                             attendanceForEvent(evt._id),
-                          ) < attendanceCheckpointTotal(evt) && (
+                            getCreatedAttendanceCheckpoints(evt),
+                          ) < getCreatedAttendanceCheckpoints(evt).length && (
                             <button
                               type="button"
                               onClick={openScanner}

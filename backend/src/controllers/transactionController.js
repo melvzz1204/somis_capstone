@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Transaction = require("../models/Transaction");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
+const { saveReceipt, getPublicReceiptUrl } = require("./receiptController");
 const {
   getCurrentAcademicPeriod,
   getAcademicPeriodFilter,
@@ -30,9 +31,12 @@ const normalizeTransaction = (body = {}) => {
   }
 
   const feeId = body.feeId || body.fee;
+  const fundingFeeId = body.fundingFeeId || body.fundingFee;
   if (
-    type === "income" &&
-    !mongoose.Types.ObjectId.isValid(String(feeId || ""))
+    (type === "income" &&
+      !mongoose.Types.ObjectId.isValid(String(feeId || ""))) ||
+    (type === "expense" &&
+      !mongoose.Types.ObjectId.isValid(String(fundingFeeId || "")))
   ) {
     return null;
   }
@@ -43,6 +47,7 @@ const normalizeTransaction = (body = {}) => {
     category,
     amount,
     feeId: type === "income" ? feeId : null,
+    fundingFeeId: type === "expense" ? fundingFeeId : null,
     date,
     reference: String(body.reference || "").trim(),
     status: type === "income" ? "Approved" : "Pending",
@@ -69,6 +74,8 @@ const listTransactions = async (req, res) => {
       ],
     })
       .populate("fee", "title amount baseCost marginPerMember status")
+      .populate("fundingFee", "title amount status")
+      .populate("reviewedBy", "name role")
       .sort({ date: -1, createdAt: -1 });
 
     return res.json({
@@ -91,13 +98,20 @@ const createTransaction = async (req, res) => {
     return res.status(400).json({
       success: false,
       message:
-        "Provide a title, valid type, category, amount, date, and an active dues collection for income entries.",
+        "Provide a title, valid type, category, amount, date, and a valid dues collection.",
     });
   }
 
   try {
     const period = await getCurrentAcademicPeriod();
     let collectionFields = {};
+
+    if (fields.type === "expense" && !req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "A receipt image is required for expense entries.",
+      });
+    }
 
     if (fields.type === "income") {
       const fee = await Fee.findOne({
@@ -160,9 +174,74 @@ const createTransaction = async (req, res) => {
         estimatedCost,
         netIncome: fields.amount - estimatedCost,
       };
+    } else {
+      const fundingFee = await Fee.findOne({
+        _id: fields.fundingFeeId,
+        org: req.user.organization,
+        ...getAcademicPeriodFilter(period),
+      }).select("title");
+
+      if (!fundingFee) {
+        return res.status(404).json({
+          success: false,
+          message: "The selected dues collection funding source was not found.",
+        });
+      }
+
+      const [paymentTotals, expenseTotals] = await Promise.all([
+        Payment.aggregate([
+          {
+            $match: {
+              organization: req.user.organization,
+              fee: fundingFee._id,
+              status: "VERIFIED",
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$claimedAmount" } } },
+        ]),
+        Transaction.aggregate([
+          {
+            $match: {
+              organization: req.user.organization,
+              fundingFee: fundingFee._id,
+              ...getAcademicPeriodFilter(period),
+              type: "expense",
+              status: { $ne: "Rejected" },
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+      ]);
+      const verifiedAmount = Number(paymentTotals[0]?.total || 0);
+      const alreadyAllocated = Number(expenseTotals[0]?.total || 0);
+      const availableAmount = Math.max(0, verifiedAmount - alreadyAllocated);
+
+      if (fields.amount > availableAmount) {
+        return res.status(409).json({
+          success: false,
+          message: `Only ₱${availableAmount.toFixed(2)} remains available from the selected dues collection.`,
+        });
+      }
+
+      let receiptImageUrl;
+      try {
+        const relativeReceiptUrl = await saveReceipt(req.file);
+        receiptImageUrl = getPublicReceiptUrl(req, relativeReceiptUrl);
+      } catch (error) {
+        console.error("Expense receipt storage failed:", error);
+        return res.status(500).json({
+          success: false,
+          message: "Unable to store the expense receipt image.",
+        });
+      }
+
+      collectionFields = {
+        fundingFee: fundingFee._id,
+        receiptImageUrl,
+      };
     }
 
-    const { feeId, ...transactionFields } = fields;
+    const { feeId, fundingFeeId, ...transactionFields } = fields;
     const transaction = await Transaction.create({
       ...transactionFields,
       ...collectionFields,
@@ -170,10 +249,13 @@ const createTransaction = async (req, res) => {
       organization: req.user.organization,
       createdBy: req.user._id,
     });
-    await transaction.populate(
-      "fee",
-      "title amount baseCost marginPerMember status",
-    );
+    await Promise.all([
+      transaction.populate(
+        "fee",
+        "title amount baseCost marginPerMember status",
+      ),
+      transaction.populate("fundingFee", "title amount status"),
+    ]);
 
     return res.status(201).json({
       success: true,
@@ -197,4 +279,87 @@ const createTransaction = async (req, res) => {
   }
 };
 
-module.exports = { listTransactions, createTransaction };
+const reviewExpenseTransaction = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(String(req.params.id || ""))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid transaction identifier.",
+      });
+    }
+
+    const decision = String(req.body?.decision || "")
+      .trim()
+      .toLowerCase();
+    const reviewRemarks = String(req.body?.remarks || "").trim();
+    if (!["approve", "reject"].includes(decision)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose either approve or reject.",
+      });
+    }
+    if (decision === "reject" && !reviewRemarks) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide a reason for rejecting this expense.",
+      });
+    }
+    if (reviewRemarks.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Review remarks must not exceed 500 characters.",
+      });
+    }
+
+    const transaction = await Transaction.findOne({
+      _id: req.params.id,
+      organization: req.user.organization,
+    });
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Expense transaction not found for your organization.",
+      });
+    }
+    if (transaction.type !== "expense") {
+      return res.status(400).json({
+        success: false,
+        message: "Only expense transactions require approval or rejection.",
+      });
+    }
+    if (transaction.status !== "Pending") {
+      return res.status(409).json({
+        success: false,
+        message: `This expense was already ${transaction.status.toLowerCase()}.`,
+      });
+    }
+
+    transaction.status = decision === "approve" ? "Approved" : "Rejected";
+    transaction.reviewRemarks = reviewRemarks;
+    transaction.reviewedAt = new Date();
+    transaction.reviewedBy = req.user._id;
+    await transaction.save();
+    await Promise.all([
+      transaction.populate("fundingFee", "title amount status"),
+      transaction.populate("reviewedBy", "name role"),
+    ]);
+
+    return res.json({
+      success: true,
+      message: `Expense ${transaction.status.toLowerCase()} successfully.`,
+      data: transaction,
+    });
+  } catch (error) {
+    console.error("Expense transaction review failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to review the expense transaction.",
+    });
+  }
+};
+
+module.exports = {
+  listTransactions,
+  createTransaction,
+  reviewExpenseTransaction,
+};

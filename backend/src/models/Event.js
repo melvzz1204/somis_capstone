@@ -138,6 +138,11 @@ const eventSchema = new mongoose.Schema(
         },
       },
     },
+    attendanceFineAmount: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
     status: {
       type: String,
       enum: ["Scheduled", "Ongoing", "Completed", "Cancelled"],

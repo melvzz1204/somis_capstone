@@ -3,6 +3,9 @@ const Event = require("../models/Event");
 const EventAttendance = require("../models/EventAttendance");
 const Member = require("../models/MemberOrganization");
 const Proposal = require("../models/Proposal");
+const Organization = require("../models/OrganizationModels");
+const AttendanceFine = require("../models/AttendanceFine");
+const User = require("../models/User");
 
 const ATTENDANCE_PHASES = new Set([
   "morning_in",
@@ -91,6 +94,25 @@ const toEventDateKey = (value) =>
   new Date(new Date(value).getTime() + EVENT_TIME_ZONE_OFFSET_MINUTES * 60_000)
     .toISOString()
     .slice(0, 10);
+
+const getCreatedAttendanceCheckpoints = (event) => {
+  const checkpoints = [];
+  for (const attendanceDay of event?.attendanceDays || []) {
+    for (const phase of ATTENDANCE_PHASES) {
+      const qr = attendanceDay.attendanceQr?.[phase];
+      if (!qr?.generatedAt && !qr?.code && !qr?.tokenHash) continue;
+      checkpoints.push({
+        day: attendanceDay.day,
+        date: attendanceDay.date,
+        phase,
+        field: ATTENDANCE_PHASE_FIELDS[phase],
+        label: ATTENDANCE_PHASE_LABELS[phase],
+        generatedAt: qr.generatedAt,
+      });
+    }
+  }
+  return checkpoints;
+};
 
 const addDaysToDateKey = (dateKey, amount) => {
   const date = new Date(`${dateKey}T00:00:00.000Z`);
@@ -812,6 +834,30 @@ const scanAttendanceQr = async (req, res) => {
   }
 };
 
+const getMyAttendanceFines = async (req, res) => {
+  try {
+    const fines = await AttendanceFine.find({
+      org: req.user.organization,
+      student: req.user._id,
+      status: "UNPAID",
+    })
+      .populate("event", "title startDateTime")
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.json({
+      success: true,
+      data: fines,
+      total: fines.reduce((sum, fine) => sum + Number(fine.amount || 0), 0),
+    });
+  } catch (error) {
+    console.error("Error fetching student attendance fines:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not fetch attendance fines.",
+    });
+  }
+};
+
 const getMyAttendance = async (req, res) => {
   try {
     const records = await EventAttendance.find({
@@ -825,6 +871,116 @@ const getMyAttendance = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Could not fetch your attendance records.",
+    });
+  }
+};
+
+const configureAttendanceFine = async (req, res) => {
+  try {
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Fine amount must be zero or greater.",
+      });
+    }
+    const event = await Event.findOneAndUpdate(
+      { _id: req.params.id, org: req.user.organization },
+      { $set: { attendanceFineAmount: amount } },
+      { new: true, runValidators: true },
+    );
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    return res.json({
+      success: true,
+      data: {
+        eventId: event._id,
+        attendanceFineAmount: event.attendanceFineAmount,
+      },
+    });
+  } catch (error) {
+    console.error("Error configuring attendance fine:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not save attendance fine.",
+    });
+  }
+};
+
+const finalizeEventAttendanceFines = async (req, res) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    if (new Date() < event.endDateTime && event.status !== "Completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Attendance fines can be generated after the event ends.",
+      });
+    }
+    const organization = await Organization.findById(event.org).select(
+      "attendanceFineAmount",
+    );
+    const amount = Number(
+      event.attendanceFineAmount ?? organization?.attendanceFineAmount ?? 0,
+    );
+    if (amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Set an attendance fine amount before finalizing.",
+      });
+    }
+
+    const attendees = await EventAttendance.find({ event: event._id })
+      .select("student member status")
+      .lean();
+    const fines = [];
+    for (const record of attendees) {
+      if (record.status === "Present") {
+        await AttendanceFine.deleteOne({
+          event: event._id,
+          student: record.student,
+        });
+        continue;
+      }
+      fines.push(
+        await AttendanceFine.findOneAndUpdate(
+          { event: event._id, student: record.student },
+          {
+            $set: {
+              org: event.org,
+              member: record.member,
+              amount,
+              reason: `Absent from ${event.title}`,
+              status: "UNPAID",
+            },
+          },
+          {
+            upsert: true,
+            new: true,
+            setDefaultsOnInsert: true,
+            runValidators: true,
+          },
+        ),
+      );
+    }
+    return res.json({ success: true, count: fines.length, data: fines });
+  } catch (error) {
+    console.error("Error finalizing attendance fines:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not generate attendance fines.",
     });
   }
 };
@@ -860,7 +1016,12 @@ const getEventAttendance = async (req, res) => {
       },
     );
 
-    return res.json({ success: true, data: records, summary });
+    return res.json({
+      success: true,
+      data: records,
+      summary,
+      checkpoints: getCreatedAttendanceCheckpoints(event),
+    });
   } catch (error) {
     console.error("Error fetching event attendance:", error);
     return res.status(500).json({
@@ -881,6 +1042,10 @@ module.exports = {
   joinEvent,
   scanAttendanceQr,
   getMyAttendance,
+  getMyAttendanceFines,
   getEventAttendance,
+  configureAttendanceFine,
+  finalizeEventAttendanceFines,
   parseAttendanceCode,
+  getCreatedAttendanceCheckpoints,
 };

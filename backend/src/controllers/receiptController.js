@@ -301,4 +301,6 @@ module.exports = {
   extractReferenceCandidates,
   extractAmount,
   recognizeReceipt,
+  saveReceipt,
+  getPublicReceiptUrl,
 };

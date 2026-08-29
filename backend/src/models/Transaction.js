@@ -18,6 +18,22 @@ const transactionSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    fundingFee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Fee",
+      default: null,
+      index: true,
+    },
+    receiptImageUrl: {
+      type: String,
+      trim: true,
+      required: [
+        function requireReceiptForExpense() {
+          return this.type === "expense";
+        },
+        "Receipt image URL is required for expense entries",
+      ],
+    },
     unitPriceSnapshot: { type: Number, min: 0, default: 0 },
     baseCostSnapshot: { type: Number, min: 0, default: 0 },
     estimatedCost: { type: Number, min: 0, default: 0 },
@@ -41,6 +57,18 @@ const transactionSchema = new mongoose.Schema(
       enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
     },
+    reviewRemarks: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
+    },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -58,5 +86,6 @@ transactionSchema.index({
   createdAt: -1,
 });
 transactionSchema.index({ organization: 1, fee: 1, type: 1 });
+transactionSchema.index({ organization: 1, fundingFee: 1, type: 1 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

@@ -441,6 +441,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [statementModalKey, setStatementModalKey] = useState(0);
   const [paymentAuditKey, setPaymentAuditKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reviewingTransactionId, setReviewingTransactionId] = useState("");
   const [isRefreshingCollections, setIsRefreshingCollections] = useState(false);
 
   // Dynamic Data States
@@ -459,8 +460,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     category: "Events & Logistics",
     amount: "",
     feeId: "",
+    fundingFeeId: "",
     date: new Date().toISOString().split("T")[0],
     reference: "",
+    receipt: null,
   });
 
   // Load the server-resolved academic period first so the portal does not use
@@ -895,7 +898,12 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Category Expense Calculations
   const getCategorySpent = (categoryName) => {
     return transactions
-      .filter((t) => t.category === categoryName && t.type === "expense")
+      .filter(
+        (t) =>
+          t.category === categoryName &&
+          t.type === "expense" &&
+          (t.status === "Approved" || !t.status),
+      )
       .reduce((sum, t) => sum + Number(t.amount || 0), 0);
   };
 
@@ -923,15 +931,63 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     return matchesFilter && matchesSearch;
   });
 
+  const reviewExpense = async (transaction, decision) => {
+    let remarks = "";
+    if (decision === "reject") {
+      const reason = window.prompt(
+        `Reason for rejecting “${transaction.title}”:`,
+      );
+      if (reason === null) return;
+      remarks = reason.trim();
+      if (!remarks) {
+        showToast("A rejection reason is required.", "error");
+        return;
+      }
+    } else if (
+      !window.confirm(
+        `Approve “${transaction.title}” for ₱${Number(transaction.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}? This will deduct it from the treasury balance.`,
+      )
+    ) {
+      return;
+    }
+
+    setReviewingTransactionId(transaction._id);
+    try {
+      const response = await API.patch(
+        `/transactions/${transaction._id}/review`,
+        { decision, remarks },
+      );
+      const reviewedTransaction = response.data;
+      setTransactions((current) =>
+        current.map((entry) =>
+          entry._id === reviewedTransaction._id ? reviewedTransaction : entry,
+        ),
+      );
+      showToast(response.message, "success");
+    } catch (error) {
+      showToast(error.message || "Unable to review this expense.", "error");
+    } finally {
+      setReviewingTransactionId("");
+    }
+  };
+
   // Handle Record Creation
   const handleTransactionSubmit = async (e) => {
     e.preventDefault();
     if (
       !transactionForm.title ||
       !transactionForm.amount ||
-      (transactionForm.type === "income" && !transactionForm.feeId)
-    )
+      (transactionForm.type === "expense" && !transactionForm.reference) ||
+      (transactionForm.type === "income" && !transactionForm.feeId) ||
+      (transactionForm.type === "expense" &&
+        (!transactionForm.fundingFeeId || !transactionForm.receipt))
+    ) {
+      showToast(
+        "Complete all required fields, including the receipt image.",
+        "error",
+      );
       return;
+    }
 
     setIsSubmitting(true);
     const payload = {
@@ -941,10 +997,24 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       organization: orgId,
       status: transactionForm.type === "expense" ? "Pending" : "Approved",
     };
+    delete payload.receipt;
 
     try {
-      const res = await API.post("/transactions", payload);
-      const newEntry = res.data || { ...payload, _id: Date.now().toString() };
+      const requestBody =
+        transactionForm.type === "expense"
+          ? (() => {
+              const formData = new FormData();
+              Object.entries(payload).forEach(([key, value]) => {
+                if (value !== undefined && value !== null)
+                  formData.append(key, value);
+              });
+              formData.append("receipt", transactionForm.receipt);
+              return formData;
+            })()
+          : payload;
+      const res = await API.post("/transactions", requestBody);
+      const newEntry = res.data ||
+        res || { ...payload, _id: Date.now().toString() };
       setTransactions((prev) => [newEntry, ...prev]);
       showToast("Transaction recorded successfully.", "success");
       setIsTransactionModalOpen(false);
@@ -954,8 +1024,10 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
         category: "Events & Logistics",
         amount: "",
         feeId: "",
+        fundingFeeId: "",
         date: new Date().toISOString().split("T")[0],
         reference: "",
+        receipt: null,
       });
     } catch (err) {
       console.error("Failed to create transaction entry:", err);
@@ -1047,13 +1119,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 className={`w-4 h-4 ${activeTab === "payments" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Payment Verification</span>
-              <NavCountBadge
-                count={
-                  transactions.filter(
-                    (transaction) => transaction.status === "Pending",
-                  ).length
-                }
-              />
             </button>
 
             <button
@@ -1176,7 +1241,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               label: "Payments",
               shortLabel: "Verify",
               icon: <ShieldCheckIcon className="w-4 h-4" />,
-              count: pendingCount,
             },
             { id: "budgets", label: "Budgets", icon: <PieChartIcon /> },
             {
@@ -1509,6 +1573,16 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                               >
                                 Posted: {formatPostedDateTime(tx.createdAt)} PHT
                               </p>
+                              {tx.type === "expense" && tx.fundingFee && (
+                                <p className="mt-1 text-[10px] font-bold text-amber-700">
+                                  Funded from: {tx.fundingFee.title}
+                                </p>
+                              )}
+                              {tx.type === "expense" && tx.reference && (
+                                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                                  OR / Reference: {tx.reference}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
@@ -1537,6 +1611,59 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             </span>
                           </div>
                         </div>
+
+                        {tx.type === "expense" && (
+                          <div className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div className="space-y-2">
+                              {tx.receiptImageUrl && (
+                                <a
+                                  href={tx.receiptImageUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-black text-amber-800 hover:bg-amber-100"
+                                >
+                                  View receipt image
+                                </a>
+                              )}
+                              {tx.reviewedAt && (
+                                <div className="text-[10px] text-slate-500">
+                                  <p className="font-bold">
+                                    Reviewed by{" "}
+                                    {tx.reviewedBy?.name || "Treasurer"} •{" "}
+                                    {formatPostedDateTime(tx.reviewedAt)} PHT
+                                  </p>
+                                  {tx.reviewRemarks && (
+                                    <p className="mt-1 rounded-lg bg-slate-50 px-2.5 py-2">
+                                      Remarks: {tx.reviewRemarks}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            {tx.status === "Pending" && (
+                              <div className="flex shrink-0 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => reviewExpense(tx, "reject")}
+                                  disabled={reviewingTransactionId === tx._id}
+                                  className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-[10px] font-black text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => reviewExpense(tx, "approve")}
+                                  disabled={reviewingTransactionId === tx._id}
+                                  className="rounded-lg bg-emerald-700 px-3 py-2 text-[10px] font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {reviewingTransactionId === tx._id
+                                    ? "Saving..."
+                                    : "Approve expense"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {tx.type === "income" && (
                           <div className="mt-4 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3 sm:grid-cols-5">
@@ -2423,6 +2550,43 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 {transactionForm.type === "expense" && (
                   <section>
                     <div className="space-y-3">
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                        <p className="font-black text-amber-950">
+                          Funding source
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-amber-800/80">
+                          Select the dues collection from which this expense was
+                          paid.
+                        </p>
+                        <label className="mt-3 mb-1.5 block font-bold text-slate-700">
+                          Collected dues source{" "}
+                          <span className="text-rose-600">*</span>
+                        </label>
+                        <select
+                          required
+                          value={transactionForm.fundingFeeId}
+                          onChange={(e) =>
+                            setTransactionForm({
+                              ...transactionForm,
+                              fundingFeeId: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-xl border border-amber-200 bg-white px-3 py-3 font-bold text-slate-800 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10"
+                        >
+                          <option value="">Select collected dues</option>
+                          {activeFeeDrives
+                            .filter(
+                              (fee) => Number(fee.collectedAmount || 0) > 0,
+                            )
+                            .map((fee) => (
+                              <option key={fee._id} value={fee._id}>
+                                {fee.title} · ₱
+                                {Number(fee.collectedAmount || 0).toFixed(2)}{" "}
+                                collected
+                              </option>
+                            ))}
+                        </select>
+                      </div>
                       <div>
                         <label className="mb-1.5 block font-bold text-slate-700">
                           Title / Particulars{" "}
@@ -2510,10 +2674,12 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <label className="mb-1.5 block font-bold text-slate-700">
-                            Reference / OR No.
+                            Reference / OR No.{" "}
+                            <span className="text-rose-600">*</span>
                           </label>
                           <input
                             type="text"
+                            required
                             placeholder="e.g. OR-9901"
                             value={transactionForm.reference}
                             onChange={(e) =>
@@ -2524,6 +2690,27 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                             }
                             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10"
                           />
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block font-bold text-slate-700">
+                            Receipt image{" "}
+                            <span className="text-rose-600">*</span>
+                          </label>
+                          <input
+                            type="file"
+                            required
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={(e) =>
+                              setTransactionForm({
+                                ...transactionForm,
+                                receipt: e.target.files?.[0] || null,
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px] outline-none file:mr-2 file:rounded-lg file:border-0 file:bg-rose-50 file:px-2 file:py-1 file:font-bold file:text-[#4A0E17]"
+                          />
+                          <p className="mt-1 text-[9px] text-slate-400">
+                            JPEG, PNG, or WebP · maximum 5 MB
+                          </p>
                         </div>
                         <div>
                           <label className="mb-1.5 block font-bold text-slate-700">
@@ -2566,7 +2753,11 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                     disabled={
                       isSubmitting ||
                       (transactionForm.type === "income" &&
-                        (!selectedIncomeFee || selectedFeeAvailableIncome <= 0))
+                        (!selectedIncomeFee ||
+                          selectedFeeAvailableIncome <= 0)) ||
+                      (transactionForm.type === "expense" &&
+                        (!transactionForm.fundingFeeId ||
+                          !transactionForm.receipt))
                     }
                     className="flex-1 rounded-xl bg-[#4A0E17] px-5 py-2.5 font-black text-white shadow-sm transition hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                   >

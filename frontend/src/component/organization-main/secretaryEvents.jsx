@@ -62,6 +62,7 @@ const restorePersistedQrs = async (eventId) => {
 export default function SecretaryEvents({ proposals = [] }) {
   const { showToast } = useToast();
   const [events, setEvents] = useState([]);
+  const [eventView, setEventView] = useState("active");
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -171,7 +172,18 @@ export default function SecretaryEvents({ proposals = [] }) {
     [events, now],
   );
 
-  const statusCounts = trackedEvents.reduce(
+  const activeEvents = trackedEvents.filter(
+    (event) => event.lifecycle.status !== "Ended",
+  );
+  const archivedEvents = trackedEvents
+    .filter((event) => event.lifecycle.status === "Ended")
+    .sort(
+      (first, second) =>
+        new Date(second.endDateTime).getTime() -
+        new Date(first.endDateTime).getTime(),
+    );
+  const visibleEvents = eventView === "archive" ? archivedEvents : activeEvents;
+  const statusCounts = activeEvents.reduce(
     (counts, event) => ({
       ...counts,
       [event.lifecycle.status]: (counts[event.lifecycle.status] || 0) + 1,
@@ -370,7 +382,12 @@ export default function SecretaryEvents({ proposals = [] }) {
   };
 
   const loadAttendance = async (event) => {
-    setAttendanceDialog({ event, records: [], summary: null });
+    setAttendanceDialog({
+      event,
+      records: [],
+      summary: null,
+      checkpoints: [],
+    });
     setAttendanceLoading(true);
     setAttendanceError("");
     try {
@@ -379,6 +396,7 @@ export default function SecretaryEvents({ proposals = [] }) {
         ...current,
         records: response.data || [],
         summary: response.summary || null,
+        checkpoints: response.checkpoints || [],
       }));
     } catch (requestError) {
       setAttendanceError(
@@ -509,29 +527,68 @@ export default function SecretaryEvents({ proposals = [] }) {
       </form>
 
       <div className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h4 className="text-sm font-bold text-[#4A0E17]">
-            Event Tracking ({events.length})
-          </h4>
-          <div className="flex flex-wrap gap-2 text-[10px] font-bold">
-            {["Upcoming", "Ongoing", "Ended"].map((status) => (
-              <span
-                key={status}
-                className={`rounded-md border px-2.5 py-1 ${lifecycleStyles[status]}`}
-              >
-                {status}: {statusCounts[status] || 0}
-              </span>
-            ))}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h4 className="text-sm font-bold text-[#4A0E17]">
+              {eventView === "archive" ? "Event Archive" : "Event Tracking"} (
+              {visibleEvents.length})
+            </h4>
+            {eventView === "active" && (
+              <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                {["Upcoming", "Ongoing", "Cancelled"].map((status) => (
+                  <span
+                    key={status}
+                    className={`rounded-md border px-2.5 py-1 ${lifecycleStyles[status]}`}
+                  >
+                    {status}: {statusCounts[status] || 0}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div
+            className="inline-flex w-fit rounded-xl border border-slate-200 bg-slate-50 p-1"
+            role="tablist"
+            aria-label="Event views"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={eventView === "active"}
+              onClick={() => setEventView("active")}
+              className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                eventView === "active"
+                  ? "bg-[#4A0E17] text-white shadow-sm"
+                  : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              Events ({activeEvents.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={eventView === "archive"}
+              onClick={() => setEventView("archive")}
+              className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                eventView === "archive"
+                  ? "bg-[#4A0E17] text-white shadow-sm"
+                  : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              Archive ({archivedEvents.length})
+            </button>
           </div>
         </div>
         {loading ? (
           <p className="text-xs text-slate-500">Loading events...</p>
-        ) : events.length === 0 ? (
+        ) : visibleEvents.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 p-10 text-center text-xs text-slate-500">
-            No events created yet.
+            {eventView === "archive"
+              ? "Events will appear here automatically after they end."
+              : "No active events created yet."}
           </div>
         ) : (
-          trackedEvents.map((event) => (
+          visibleEvents.map((event) => (
             <article
               key={event._id}
               className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-xs"
@@ -589,18 +646,19 @@ export default function SecretaryEvents({ proposals = [] }) {
                 )}
               </div>
               <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                <button
-                  type="button"
-                  onClick={() => openQrConfiguration(event)}
-                  disabled={
-                    qrLoading ||
-                    ["Ended", "Cancelled"].includes(event.lifecycle.status)
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <QrCode className="h-3.5 w-3.5" />
-                  Configure and Generate QR Codes
-                </button>
+                {eventView === "active" && (
+                  <button
+                    type="button"
+                    onClick={() => openQrConfiguration(event)}
+                    disabled={
+                      qrLoading || event.lifecycle.status === "Cancelled"
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <QrCode className="h-3.5 w-3.5" />
+                    Configure and Generate QR Codes
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => loadAttendance(event)}
@@ -610,75 +668,77 @@ export default function SecretaryEvents({ proposals = [] }) {
                   Attendance
                 </button>
               </div>
-              {Object.keys(qrImagesByEvent[event._id] || {}).length > 0 && (
-                <div className="mt-4 border-t border-slate-100 pt-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-extrabold text-[#4A0E17]">
-                        Attendance QR Codes
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-500">
-                        Each event day has unique codes accepted only during its
-                        configured checkpoint windows.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openQrConfiguration(event)}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
-                    >
-                      Configure another day
-                    </button>
-                  </div>
-                  {Object.entries(qrImagesByEvent[event._id]).map(
-                    ([day, dayQrs]) => (
-                      <div key={day} className="mb-5 last:mb-0">
-                        <p className="mb-2 text-xs font-extrabold text-[#4A0E17]">
-                          Day {day} ·{" "}
-                          {formatEventDay(
-                            getEventDays(event).find(
-                              (item) => item.day === Number(day),
-                            )?.date,
-                          )}
+              {eventView === "active" &&
+                Object.keys(qrImagesByEvent[event._id] || {}).length > 0 && (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-extrabold text-[#4A0E17]">
+                          Attendance QR Codes
                         </p>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                          {dayQrs.map((qr) => (
-                            <div
-                              key={`${day}-${qr.phase}`}
-                              className="rounded-lg border border-slate-200 p-3 text-center"
-                            >
-                              <p className="text-[11px] font-extrabold text-[#4A0E17]">
-                                {qr.label}
-                              </p>
-                              <img
-                                src={qr.image}
-                                alt={`Day ${day} ${qr.label} attendance QR`}
-                                className="mx-auto mt-2 aspect-square w-full max-w-40"
-                              />
-                              <div className="mt-2 flex items-center justify-center gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => downloadQr(event, qr)}
-                                  className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-600 hover:text-[#4A0E17]"
-                                >
-                                  <Download className="h-3.5 w-3.5" /> Download
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => revokeQr(event, qr)}
-                                  className="text-[10px] font-bold text-rose-600 hover:text-rose-800"
-                                >
-                                  Revoke
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                        <p className="mt-0.5 text-[10px] text-slate-500">
+                          Each event day has unique codes accepted only during
+                          its configured checkpoint windows.
+                        </p>
                       </div>
-                    ),
-                  )}
-                </div>
-              )}
+                      <button
+                        type="button"
+                        onClick={() => openQrConfiguration(event)}
+                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Configure another day
+                      </button>
+                    </div>
+                    {Object.entries(qrImagesByEvent[event._id]).map(
+                      ([day, dayQrs]) => (
+                        <div key={day} className="mb-5 last:mb-0">
+                          <p className="mb-2 text-xs font-extrabold text-[#4A0E17]">
+                            Day {day} ·{" "}
+                            {formatEventDay(
+                              getEventDays(event).find(
+                                (item) => item.day === Number(day),
+                              )?.date,
+                            )}
+                          </p>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            {dayQrs.map((qr) => (
+                              <div
+                                key={`${day}-${qr.phase}`}
+                                className="rounded-lg border border-slate-200 p-3 text-center"
+                              >
+                                <p className="text-[11px] font-extrabold text-[#4A0E17]">
+                                  {qr.label}
+                                </p>
+                                <img
+                                  src={qr.image}
+                                  alt={`Day ${day} ${qr.label} attendance QR`}
+                                  className="mx-auto mt-2 aspect-square w-full max-w-40"
+                                />
+                                <div className="mt-2 flex items-center justify-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadQr(event, qr)}
+                                    className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-600 hover:text-[#4A0E17]"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />{" "}
+                                    Download
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => revokeQr(event, qr)}
+                                    className="text-[10px] font-bold text-rose-600 hover:text-rose-800"
+                                  >
+                                    Revoke
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
             </article>
           ))
         )}
@@ -833,6 +893,69 @@ export default function SecretaryEvents({ proposals = [] }) {
               </p>
             ) : (
               <>
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <label className="block text-[10px] font-bold uppercase text-amber-800">
+                    Attendance fine per absence
+                  </label>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue={
+                        attendanceDialog.event.attendanceFineAmount ?? ""
+                      }
+                      onBlur={async (e) => {
+                        const amount = Number(e.target.value || 0);
+                        try {
+                          await API.patch(
+                            `/events/${attendanceDialog.event._id}/attendance/fine`,
+                            { amount },
+                          );
+                          setAttendanceDialog((current) => ({
+                            ...current,
+                            event: {
+                              ...current.event,
+                              attendanceFineAmount: amount,
+                            },
+                          }));
+                        } catch (error) {
+                          setAttendanceError(
+                            error.message || "Unable to save attendance fine.",
+                          );
+                        }
+                      }}
+                      className="w-40 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
+                    />
+                    <span className="self-center text-xs text-amber-800">
+                      per absent student
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[10px] text-amber-700">
+                    After the event, pending attendance records can be finalized
+                    into student fines.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await API.post(
+                          `/events/${attendanceDialog.event._id}/attendance/finalize-fines`,
+                        );
+                        setAttendanceError("");
+                        await loadAttendance(attendanceDialog.event);
+                      } catch (error) {
+                        setAttendanceError(
+                          error.message ||
+                            "Unable to finalize attendance fines.",
+                        );
+                      }
+                    }}
+                    className="mt-3 rounded-lg bg-[#4A0E17] px-3 py-2 text-[10px] font-bold text-white"
+                  >
+                    Finalize absent-student fines
+                  </button>
+                </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
                   {["total", "joined", "pending", "present"].map((key) => (
                     <div key={key} className="rounded-xl bg-slate-50 p-3">
@@ -851,30 +974,68 @@ export default function SecretaryEvents({ proposals = [] }) {
                       No students have checked in yet.
                     </p>
                   ) : (
-                    attendanceDialog.records.map((record) => (
-                      <div
-                        key={record._id}
-                        className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 last:border-0"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-bold text-slate-700">
-                            {record.student?.name ||
-                              record.student?.email ||
-                              "Student"}
-                          </p>
-                          <p className="truncate text-[10px] text-slate-400">
-                            {record.student?.email ||
-                              record.member?.idNumber ||
-                              ""}
-                          </p>
-                        </div>
-                        <span
-                          className={`rounded-md border px-2 py-1 text-[10px] font-bold ${record.status === "Present" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
-                        >
-                          {record.status}
-                        </span>
-                      </div>
-                    ))
+                    <table className="min-w-full text-left text-[10px]">
+                      <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2 font-bold">Student</th>
+                          {attendanceDialog.checkpoints.map((checkpoint) => (
+                            <th
+                              key={`${checkpoint.day}-${checkpoint.phase}`}
+                              className="whitespace-nowrap px-3 py-2 font-bold"
+                            >
+                              Day {checkpoint.day} {checkpoint.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attendanceDialog.records.map((record) => (
+                          <tr
+                            key={record._id}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="min-w-40 px-3 py-2.5">
+                              <p className="truncate text-xs font-bold text-slate-700">
+                                {record.student?.name ||
+                                  record.student?.email ||
+                                  "Student"}
+                              </p>
+                              <p className="truncate text-[10px] text-slate-400">
+                                {record.student?.email ||
+                                  record.member?.idNumber ||
+                                  ""}
+                              </p>
+                            </td>
+                            {attendanceDialog.checkpoints.map((checkpoint) => {
+                              const dailyRecord = record.days?.find(
+                                (day) => Number(day.day) === checkpoint.day,
+                              );
+                              const scannedAt = dailyRecord?.[checkpoint.field];
+                              return (
+                                <td
+                                  key={`${checkpoint.day}-${checkpoint.phase}`}
+                                  className="whitespace-nowrap px-3 py-2.5"
+                                >
+                                  <span
+                                    className={`rounded-md border px-2 py-1 font-bold ${scannedAt ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"}`}
+                                  >
+                                    {scannedAt
+                                      ? new Date(scannedAt).toLocaleTimeString(
+                                          "en-PH",
+                                          {
+                                            hour: "numeric",
+                                            minute: "2-digit",
+                                          },
+                                        )
+                                      : "Not scanned"}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
               </>

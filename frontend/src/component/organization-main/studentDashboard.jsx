@@ -165,7 +165,11 @@ const BACKEND_URL = getRootBackendUrl();
 
 const getAvatarSrc = (avatarPath) => {
   if (!avatarPath) return null;
-  if (avatarPath.startsWith("http") || avatarPath.startsWith("blob:")) {
+  if (
+    avatarPath.startsWith("http") ||
+    avatarPath.startsWith("blob:") ||
+    avatarPath.startsWith("data:")
+  ) {
     return avatarPath;
   }
   return `${BACKEND_URL}${avatarPath}`;
@@ -1315,10 +1319,10 @@ export default function StudentDashboard({ user: propsUser }) {
                                       <img
                                         src={avatarUrl}
                                         alt={officer.name || "Officer"}
-                                        className="h-15 w-15 shrink-0 rounded-full border border-[#D4AF37]/50 object-cover object-top"
+                                        className="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
                                       />
                                     ) : (
-                                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
+                                      <div className="grid h-15 w-15 shrink-0 place-items-center rounded-full border-2 border-[#D4AF37]/60 bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
                                         {officer.name?.charAt(0) || "?"}
                                       </div>
                                     )}

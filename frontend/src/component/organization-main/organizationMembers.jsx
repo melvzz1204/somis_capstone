@@ -381,11 +381,9 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
         payload.append("avatar", avatarFile);
       }
 
-      const config = {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      };
+      // Let Axios/browser set the multipart boundary automatically. Setting the
+      // Content-Type manually can omit the boundary in production requests.
+      const config = {};
 
       if (editingOfficer) {
         const response = await API.put(
@@ -476,7 +474,11 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
 
   const getAvatarSrc = (avatarPath) => {
     if (!avatarPath) return null;
-    if (avatarPath.startsWith("http") || avatarPath.startsWith("blob:")) {
+    if (
+      avatarPath.startsWith("http") ||
+      avatarPath.startsWith("blob:") ||
+      avatarPath.startsWith("data:")
+    ) {
       return avatarPath;
     }
     return `${BACKEND_URL}${avatarPath}`;
@@ -599,10 +601,10 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                       <img
                         src={avatarUrl}
                         alt={officer.name}
-                        className="w-14 h-16 rounded-xl object-cover border border-slate-200/90 shadow-xs shrink-0"
+                        className="w-14 h-14 rounded-full object-cover object-top border-2 border-[#D4AF37]/60 shadow-xs shrink-0"
                       />
                     ) : (
-                      <div className="w-14 h-16 rounded-xl bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border border-[#4A0E17]/20 uppercase shrink-0 shadow-xs">
+                      <div className="w-14 h-14 rounded-full bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border-2 border-[#D4AF37]/60 uppercase shrink-0 shadow-xs">
                         {officer.name?.charAt(0)}
                       </div>
                     )}
@@ -686,12 +688,12 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
               <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                <div className="w-16 h-20 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
+                <div className="w-20 h-20 rounded-full bg-slate-200 border-2 border-[#D4AF37]/70 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                   {avatarPreview ? (
                     <img
                       src={avatarPreview}
                       alt="Preview"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-top"
                     />
                   ) : (
                     <span className="text-slate-400 text-[10px] font-bold">

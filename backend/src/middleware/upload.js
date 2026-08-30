@@ -1,24 +1,9 @@
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 
-// Standardize upload directory relative to project root
-const uploadDir = path.join(process.cwd(), "uploads");
-
-// Ensure folder exists
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, "avatar-" + uniqueSuffix + path.extname(file.originalname));
-  },
-});
+// Keep avatar bytes in memory so production deployments do not depend on an
+// ephemeral local filesystem (for example, Render's instance disk). The
+// controller persists the resulting data URI in MongoDB with the member.
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith("image/")) {
@@ -29,9 +14,9 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 👈 Increased from 2MB to 5MB (or change to 10 * 1024 * 1024 for 10MB)
+  storage,
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 module.exports = upload;

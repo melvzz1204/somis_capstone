@@ -32,6 +32,11 @@ const formatMemberName = ({ surname, firstName, middleInitial, suffix }) => {
   return [baseName, cleanSuffix].filter(Boolean).join(", ");
 };
 
+const getAvatarDataUri = (file) => {
+  if (!file?.buffer || !file.mimetype) return null;
+  return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+};
+
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
 // ==========================================
@@ -218,10 +223,7 @@ exports.addMember = async (req, res) => {
       });
     }
 
-    let avatarPath = null;
-    if (req.file) {
-      avatarPath = `/uploads/${req.file.filename}`;
-    }
+    const avatarPath = getAvatarDataUri(req.file);
 
     if (normalizedRole === "Department Dean") {
       const existingDean = await Member.findOne({
@@ -392,8 +394,9 @@ exports.updateMember = async (req, res) => {
       }
     }
 
-    if (req.file) {
-      member.avatar = `/uploads/${req.file.filename}`;
+    const avatarDataUri = getAvatarDataUri(req.file);
+    if (avatarDataUri) {
+      member.avatar = avatarDataUri;
     }
 
     await member.save();

@@ -6,6 +6,7 @@ import {
   Download,
   MapPin,
   QrCode,
+  Search,
   Users,
   X,
 } from "lucide-react";
@@ -87,6 +88,7 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [attendanceDialog, setAttendanceDialog] = useState(null);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
+  const [attendanceSearch, setAttendanceSearch] = useState("");
 
   const approvedProposals = useMemo(
     () => proposals.filter((proposal) => proposal.status === "Approved"),
@@ -382,6 +384,7 @@ export default function SecretaryEvents({ proposals = [] }) {
   };
 
   const loadAttendance = async (event) => {
+    setAttendanceSearch("");
     setAttendanceDialog({
       event,
       records: [],
@@ -449,6 +452,17 @@ export default function SecretaryEvents({ proposals = [] }) {
     link.download = `${event.title}-day-${qr.day}-${qr.phase}-attendance.png`;
     link.click();
   };
+
+  const filteredAttendanceRecords = attendanceDialog
+    ? attendanceDialog.records.filter((record) => {
+        const query = attendanceSearch.trim().toLocaleLowerCase();
+        if (!query) return true;
+        const studentName = String(
+          record.student?.name || "",
+        ).toLocaleLowerCase();
+        return studentName.includes(query);
+      })
+    : [];
 
   return (
     <div className="space-y-5">
@@ -968,10 +982,38 @@ export default function SecretaryEvents({ proposals = [] }) {
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 max-h-72 overflow-auto rounded-xl border border-slate-100">
+                <div className="mt-4">
+                  <label
+                    htmlFor="attendance-name-search"
+                    className="mb-1.5 block text-[10px] font-bold uppercase text-slate-500"
+                  >
+                    Search student name
+                  </label>
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <input
+                      id="attendance-name-search"
+                      type="search"
+                      value={attendanceSearch}
+                      onChange={(event) =>
+                        setAttendanceSearch(event.target.value)
+                      }
+                      placeholder="Type a student name..."
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-slate-100">
                   {attendanceDialog.records.length === 0 ? (
                     <p className="p-6 text-center text-xs text-slate-500">
                       No students have checked in yet.
+                    </p>
+                  ) : filteredAttendanceRecords.length === 0 ? (
+                    <p className="p-6 text-center text-xs text-slate-500">
+                      No student names match “{attendanceSearch.trim()}”.
                     </p>
                   ) : (
                     <table className="min-w-full text-left text-[10px]">
@@ -989,7 +1031,7 @@ export default function SecretaryEvents({ proposals = [] }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {attendanceDialog.records.map((record) => (
+                        {filteredAttendanceRecords.map((record) => (
                           <tr
                             key={record._id}
                             className="border-t border-slate-100"

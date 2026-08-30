@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+
 const apiOrigin = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1"
 ).replace(/\/api\/v1\/?$/, "");
@@ -38,6 +40,37 @@ export default function ProposalList({
   onEdit,
   onDelete,
 }) {
+  const [proposalView, setProposalView] = useState("all");
+
+  const proposalViews = useMemo(
+    () => [
+      { key: "all", label: "All", count: proposals.length },
+      {
+        key: "archive",
+        label: "Archive",
+        count: proposals.filter((proposal) => proposal.status === "Approved")
+          .length,
+      },
+      {
+        key: "rejected",
+        label: "Rejected",
+        count: proposals.filter((proposal) => proposal.status === "Rejected")
+          .length,
+      },
+    ],
+    [proposals],
+  );
+
+  const visibleProposals = useMemo(() => {
+    if (proposalView === "archive") {
+      return proposals.filter((proposal) => proposal.status === "Approved");
+    }
+    if (proposalView === "rejected") {
+      return proposals.filter((proposal) => proposal.status === "Rejected");
+    }
+    return proposals;
+  }, [proposalView, proposals]);
+
   if (isLoading) {
     return (
       <div className="border border-slate-200 bg-white px-6 py-12 text-center text-xs font-semibold text-slate-500">
@@ -66,18 +99,49 @@ export default function ProposalList({
         </button>
       </div>
 
-      {proposals.length === 0 ? (
+      <div
+        className="inline-flex max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1"
+        role="tablist"
+        aria-label="Proposal views"
+      >
+        {proposalViews.map((view) => (
+          <button
+            key={view.key}
+            type="button"
+            role="tab"
+            aria-selected={proposalView === view.key}
+            onClick={() => setProposalView(view.key)}
+            className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+              proposalView === view.key
+                ? "bg-[#4A0E17] text-white shadow-sm"
+                : "text-slate-600 hover:bg-white"
+            }`}
+          >
+            {view.label} ({view.count})
+          </button>
+        ))}
+      </div>
+
+      {visibleProposals.length === 0 ? (
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
-            No proposals added yet
+            {proposalView === "archive"
+              ? "No archived proposals"
+              : proposalView === "rejected"
+                ? "No rejected proposals"
+                : "No proposals added yet"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Create the first activity proposal for this organization.
+            {proposalView === "archive"
+              ? "Approved proposals will appear in the archive."
+              : proposalView === "rejected"
+                ? "Rejected proposals will appear here."
+                : "Create the first activity proposal for this organization."}
           </p>
         </div>
       ) : (
         <div className="divide-y divide-slate-200 border border-slate-200 bg-white">
-          {proposals.map((proposal) => (
+          {visibleProposals.map((proposal) => (
             <article key={proposal._id} className="p-5">
               <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
                 <div className="min-w-0 flex-1">

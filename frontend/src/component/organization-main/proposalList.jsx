@@ -46,8 +46,8 @@ export default function ProposalList({
     () => [
       { key: "all", label: "All", count: proposals.length },
       {
-        key: "archive",
-        label: "Archive",
+        key: "approved",
+        label: "Approved",
         count: proposals.filter((proposal) => proposal.status === "Approved")
           .length,
       },
@@ -62,7 +62,7 @@ export default function ProposalList({
   );
 
   const visibleProposals = useMemo(() => {
-    if (proposalView === "archive") {
+    if (proposalView === "approved") {
       return proposals.filter((proposal) => proposal.status === "Approved");
     }
     if (proposalView === "rejected") {
@@ -125,15 +125,15 @@ export default function ProposalList({
       {visibleProposals.length === 0 ? (
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
-            {proposalView === "archive"
-              ? "No archived proposals"
+            {proposalView === "approved"
+              ? "No approved proposals"
               : proposalView === "rejected"
                 ? "No rejected proposals"
                 : "No proposals added yet"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            {proposalView === "archive"
-              ? "Approved proposals will appear in the archive."
+            {proposalView === "approved"
+              ? "Approved proposals will appear here."
               : proposalView === "rejected"
                 ? "Rejected proposals will appear here."
                 : "Create the first activity proposal for this organization."}

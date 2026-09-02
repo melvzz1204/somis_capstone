@@ -216,6 +216,7 @@ export default function StudentDashboard({ user: propsUser }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [meetings, setMeetings] = useState([]);
   const [eventView, setEventView] = useState("active");
   const [eventError, setEventError] = useState("");
   const [attendance, setAttendance] = useState([]);
@@ -261,6 +262,7 @@ export default function StudentDashboard({ user: propsUser }) {
       setPayments([]);
       setStudentFeeArchive([]);
       setUpcomingEvents([]);
+      setMeetings([]);
       setAttendance([]);
       setAnnouncements([]);
 
@@ -282,6 +284,7 @@ export default function StudentDashboard({ user: propsUser }) {
             paymentResult,
             studentArchiveResult,
             eventResult,
+            meetingResult,
             announcementResult,
             attendanceResult,
             finesResult,
@@ -291,6 +294,7 @@ export default function StudentDashboard({ user: propsUser }) {
             API.get("/payments/mine"),
             API.get("/fees/student-archive"),
             API.get("/events"),
+            API.get("/meetings"),
             API.get("/announcements"),
             API.get("/events/attendance/mine"),
             API.get("/events/attendance/fines/mine"),
@@ -360,6 +364,12 @@ export default function StudentDashboard({ user: propsUser }) {
             );
           }
 
+          if (meetingResult.status === "fulfilled") {
+            setMeetings(meetingResult.value.data || []);
+          } else {
+            setMeetings([]);
+          }
+
           if (announcementResult.status === "fulfilled") {
             setAnnouncements(announcementResult.value.data || []);
             setAnnouncementError("");
@@ -396,6 +406,7 @@ export default function StudentDashboard({ user: propsUser }) {
           setPayments([]);
           setStudentFeeArchive([]);
           setUpcomingEvents([]);
+          setMeetings([]);
           setAttendance([]);
           setAnnouncements([]);
           setFeeError("");
@@ -1749,6 +1760,69 @@ export default function StudentDashboard({ user: propsUser }) {
                   </button>
                 </div>
               </div>
+
+              <section className="space-y-3">
+                <div>
+                  <h4 className="text-sm font-extrabold text-[#4A0E17]">
+                    Meetings for You ({meetings.length})
+                  </h4>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Meetings shown here are targeted to your organization
+                    audience.
+                  </p>
+                </div>
+                {meetings.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400">
+                    No meetings have been scheduled for your audience.
+                  </div>
+                ) : (
+                  meetings.map((meeting) => (
+                    <article
+                      key={meeting._id}
+                      className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-4"
+                    >
+                      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h5 className="text-sm font-extrabold text-[#4A0E17]">
+                              {meeting.title}
+                            </h5>
+                            <span className="rounded-md border border-[#D4AF37]/40 bg-white px-2 py-0.5 text-[10px] font-bold text-[#7A610D]">
+                              {meeting.audience}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs font-semibold text-slate-700">
+                            📅{" "}
+                            {new Date(meeting.startDateTime).toLocaleString(
+                              "en-PH",
+                              {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              },
+                            )}{" "}
+                            –{" "}
+                            {new Date(meeting.endDateTime).toLocaleString(
+                              "en-PH",
+                              {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              },
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            📍 {meeting.venue}
+                          </p>
+                          {meeting.description && (
+                            <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">
+                              {meeting.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </section>
 
               {eventError && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">

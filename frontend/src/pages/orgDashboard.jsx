@@ -6,6 +6,7 @@ import MobileTabBar from "../component/mobileTabBar";
 import NavCountBadge from "../component/navCountBadge";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
 import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import MeetingManager from "../component/organization-main/meetingManager";
 import {
   ActivityPlanIcon,
   AnnualReportIcon,
@@ -395,6 +396,20 @@ export default function OrgDashboard() {
             </button>
 
             <button
+              onClick={() => setActiveTab("meetings")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "meetings"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <CalendarEventIcon
+                className={`w-4 h-4 ${activeTab === "meetings" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Meetings</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("activity-plan")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "activity-plan"
@@ -500,6 +515,11 @@ export default function OrgDashboard() {
               label: "Accomplishment Report",
               shortLabel: "Accomp. Report",
               icon: <AnnualReportIcon />,
+            },
+            {
+              id: "meetings",
+              label: "Meetings",
+              icon: <CalendarEventIcon />,
             },
             {
               id: "activity-plan",
@@ -717,6 +737,12 @@ export default function OrgDashboard() {
                 actionId={proposalActionId}
                 onReview={handleProposalReview}
               />
+            </div>
+          )}
+
+          {activeTab === "meetings" && (
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
+              <MeetingManager />
             </div>
           )}
 

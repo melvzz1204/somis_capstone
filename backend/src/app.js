@@ -43,6 +43,7 @@ const proposalRoutes = require("./routes/proposalRoutes");
 const organizationDocumentRoutes = require("./routes/organizationDocumentRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const eventRoutes = require("./routes/eventRoutes");
+const meetingRoutes = require("./routes/meetingRoutes");
 const transactionRoutes = require("./routes/transactionRoutes");
 const announcementRoutes = require("./routes/announcementRoutes");
 
@@ -106,6 +107,7 @@ app.use("/api/v1/proposals", proposalRoutes);
 app.use("/api/v1/organization-documents", organizationDocumentRoutes);
 app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/events", eventRoutes);
+app.use("/api/v1/meetings", meetingRoutes);
 app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/announcements", announcementRoutes);
 app.use("/api/payments", paymentRoutes);

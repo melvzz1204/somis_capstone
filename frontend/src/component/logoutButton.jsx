@@ -150,7 +150,7 @@ export default function LogoutButton({
                 onClick={logout}
                 className="w-full sm:w-1/2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
               >
-                Sign Out
+                Log Out
               </button>
             </div>
           </div>

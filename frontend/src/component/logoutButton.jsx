@@ -129,7 +129,7 @@ export default function LogoutButton({
                 id="logout-dialog-title"
                 className="text-base font-extrabold text-[#4A0E17]"
               >
-                Confirm Sign Out
+                Are you sure you want to logout?
               </h3>
               <p className="text-xs text-slate-500 font-medium leading-relaxed">
                 Are you sure you want to end your session? You will need to log
@@ -143,14 +143,14 @@ export default function LogoutButton({
                 onClick={() => setIsOpen(false)}
                 className="w-full sm:w-1/2 px-4 py-2.5 border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
-                Cancel
+                No
               </button>
               <button
                 type="button"
                 onClick={logout}
                 className="w-full sm:w-1/2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
               >
-                Log Out
+                Yes
               </button>
             </div>
           </div>

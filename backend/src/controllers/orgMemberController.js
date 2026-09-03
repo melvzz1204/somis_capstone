@@ -37,6 +37,36 @@ const getAvatarDataUri = (file) => {
   return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 };
 
+// Backfill the avatar on roster (Member) records from the linked active
+// student account. Students upload their avatar in Account settings, which is
+// saved on the User record; keep the official roster in sync so organization
+// leaders always see the student's avatar under "Organization Members" even
+// for records created before avatar syncing existed.
+const syncMemberAvatarsFromActiveAccounts = async (orgId) => {
+  const accountsWithAvatar = await User.find({
+    organization: orgId,
+    status: "Active",
+    avatar: { $ne: null },
+  }).select("email avatar");
+
+  if (accountsWithAvatar.length === 0) return;
+
+  await Promise.all(
+    accountsWithAvatar.map((account) =>
+      Member.updateMany(
+        {
+          organization: orgId,
+          email: String(account.email || "")
+            .toLowerCase()
+            .trim(),
+          avatar: { $in: [null, ""] },
+        },
+        { $set: { avatar: account.avatar } },
+      ),
+    ),
+  );
+};
+
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
 // ==========================================
@@ -99,6 +129,11 @@ exports.getMembersByOrg = async (req, res) => {
         { $set: { hasAccount: true } },
       );
     }
+
+    // Backfill avatars onto roster records from active student accounts so the
+    // organization leader portal shows the student's profile photo even for
+    // members whose roster row predates avatar syncing.
+    await syncMemberAvatarsFromActiveAccounts(orgId);
 
     const members = await Member.find({ organization: orgId }).sort({
       role: 1,

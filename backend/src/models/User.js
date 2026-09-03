@@ -41,6 +41,10 @@ const userSchema = new mongoose.Schema(
       enum: ["Pending", "Active", "Inactive"],
       default: "Pending",
     },
+    avatar: {
+      type: String,
+      default: null,
+    },
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",

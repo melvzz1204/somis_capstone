@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   QrCode,
   UploadCloud,
+  UserCircle,
   X,
 } from "lucide-react";
 import API from "../../api/axios";
@@ -300,12 +301,135 @@ const sortOfficersByRole = (officers) =>
     return (a.name || "").localeCompare(b.name || "");
   });
 
+function AccountPanel({
+  form,
+  setForm,
+  avatar,
+  setAvatar,
+  setFile,
+  file,
+  message,
+  error,
+  isSaving,
+  onSave,
+}) {
+  return (
+    <form
+      onSubmit={onSave}
+      className="max-w-2xl space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs"
+    >
+      <div className="border-b border-slate-100 pb-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-[#7A610D]">
+          Account settings
+        </p>
+        <h2 className="mt-1 text-xl font-extrabold text-[#4A0E17]">
+          Update your account
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Keep your contact details and profile photo up to date.
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+        <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#4A0E17] text-3xl font-bold text-[#D4AF37]">
+          {avatar ? (
+            <img
+              src={getAvatarSrc(avatar)}
+              alt="Profile avatar"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            form.name.charAt(0).toUpperCase() || (
+              <UserCircle className="h-12 w-12" />
+            )
+          )}
+        </div>
+        <label className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-[#4A0E17] hover:bg-slate-50">
+          <UploadCloud className="mr-2 inline h-4 w-4" /> Choose profile avatar
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              const selected = event.target.files?.[0];
+              if (selected) {
+                setFile(selected);
+                setAvatar(URL.createObjectURL(selected));
+              }
+            }}
+          />
+        </label>
+        {file && <span className="text-xs text-slate-500">{file.name}</span>}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="text-sm font-bold text-slate-700">
+          Full name
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17]"
+            required
+          />
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Email address
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17]"
+            required
+          />
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Contact number
+          <input
+            value={form.contactNumber}
+            onChange={(e) =>
+              setForm({ ...form, contactNumber: e.target.value })
+            }
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17]"
+          />
+        </label>
+      </div>
+      {error && (
+        <p className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p className="rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+          {message}
+        </p>
+      )}
+      <button
+        type="submit"
+        disabled={isSaving}
+        className="rounded-lg bg-[#4A0E17] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#601520] disabled:opacity-50"
+      >
+        {isSaving ? "Saving..." : "Save account changes"}
+      </button>
+    </form>
+  );
+}
+
 export default function StudentDashboard({ user: propsUser }) {
   const currentUser =
     propsUser || JSON.parse(localStorage.getItem("user") || "null");
   const userName = currentUser?.name || "Student";
   const upperName = userName.toUpperCase();
   const userEmail = currentUser?.email || "No email registered";
+  const [accountForm, setAccountForm] = useState({
+    name: currentUser?.name || "",
+    email: currentUser?.email || "",
+    contactNumber: "",
+  });
+  const [accountAvatar, setAccountAvatar] = useState(
+    currentUser?.avatar || null,
+  );
+  const [accountFile, setAccountFile] = useState(null);
+  const [accountMessage, setAccountMessage] = useState("");
+  const [accountError, setAccountError] = useState("");
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
 
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
@@ -401,6 +525,15 @@ export default function StudentDashboard({ user: propsUser }) {
         setMembership(data.membership || null);
         setRoster(data.roster || []);
         setStudentProfile(data.studentProfile || null);
+        setAccountForm({
+          name: data.user?.name || currentUser?.name || "",
+          email: data.user?.email || currentUser?.email || "",
+          contactNumber: data.studentProfile?.contactNumber || "",
+        });
+        setAccountAvatar(data.user?.avatar || currentUser?.avatar || null);
+        if (data.user) {
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
 
         if (data.organization?._id) {
           const [
@@ -1116,6 +1249,17 @@ export default function StudentDashboard({ user: propsUser }) {
               <span>Digital Clearance</span>
               <NavCountBadge count={pendingClearanceCount} />
             </button>
+            <button
+              onClick={() => setActiveTab("account")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "account"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <UserCircle className="h-4 w-4" />
+              <span>Account</span>
+            </button>
           </nav>
         </div>
 
@@ -1207,6 +1351,7 @@ export default function StudentDashboard({ user: propsUser }) {
               icon: <CheckCircleIcon />,
               count: pendingClearanceCount,
             },
+            { id: "account", label: "Account", icon: <UserCircle /> },
           ]}
         />
 
@@ -2260,6 +2405,49 @@ export default function StudentDashboard({ user: propsUser }) {
           {/* TAB: ORGANIZATION MEETINGS */}
           {activeTab === "meetings" && (
             <MeetingList meetings={meetings} isLoading={isLoading} />
+          )}
+
+          {/* TAB: ACCOUNT */}
+          {activeTab === "account" && (
+            <AccountPanel
+              form={accountForm}
+              setForm={setAccountForm}
+              avatar={accountAvatar}
+              setAvatar={setAccountAvatar}
+              setFile={setAccountFile}
+              file={accountFile}
+              message={accountMessage}
+              error={accountError}
+              isSaving={isSavingAccount}
+              onSave={async (event) => {
+                event.preventDefault();
+                setIsSavingAccount(true);
+                setAccountMessage("");
+                setAccountError("");
+                try {
+                  const formData = new FormData();
+                  Object.entries(accountForm).forEach(([key, value]) =>
+                    formData.append(key, value),
+                  );
+                  if (accountFile) formData.append("avatar", accountFile);
+                  const result = await API.put(
+                    "/auth/student-account",
+                    formData,
+                  );
+                  const updated = result.user;
+                  localStorage.setItem("user", JSON.stringify(updated));
+                  setAccountAvatar(updated.avatar || null);
+                  setAccountFile(null);
+                  setAccountMessage(
+                    result.message || "Account updated successfully.",
+                  );
+                } catch (error) {
+                  setAccountError(error.message || "Unable to update account.");
+                } finally {
+                  setIsSavingAccount(false);
+                }
+              }}
+            />
           )}
 
           {/* TAB 5: DIGITAL CLEARANCE */}

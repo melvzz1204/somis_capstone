@@ -321,7 +321,78 @@ exports.setupAccount = async (req, res) => {
 };
 
 // ==========================================
-// 4. GET ME FUNCTION
+// 4. UPDATE STUDENT ACCOUNT
+// ==========================================
+exports.updateStudentAccount = async (req, res) => {
+  try {
+    if (req.user.role !== "student") {
+      return res
+        .status(403)
+        .json({ message: "Only students can update this account." });
+    }
+
+    const { name, email, contactNumber } = req.body;
+    const user = await User.findById(req.user._id);
+    const originalEmail = user?.email;
+    const profile = await StudentProfile.findOne({ user: req.user._id });
+    if (!user || !profile) {
+      return res
+        .status(404)
+        .json({ message: "Student account profile not found." });
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = String(email).toLowerCase().trim();
+      if (!normalizedEmail)
+        return res.status(400).json({ message: "Email is required." });
+      const duplicate = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: user._id },
+      });
+      if (duplicate)
+        return res
+          .status(409)
+          .json({ message: "That email is already in use." });
+      user.email = normalizedEmail;
+    }
+    if (name !== undefined && String(name).trim())
+      user.name = String(name).trim();
+    if (req.file)
+      user.avatar = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    if (contactNumber !== undefined)
+      profile.contactNumber = String(contactNumber).trim();
+
+    await Promise.all([user.save(), profile.save()]);
+
+    // Synchronize the official roster record so organization leaders see the
+    // student's latest name, email, and avatar.
+    const memberUpdate = { email: user.email, name: user.name };
+    if (req.file) memberUpdate.avatar = user.avatar;
+    await Member.findOneAndUpdate(
+      {
+        organization: profile.organization,
+        email: { $in: [originalEmail, user.email] },
+      },
+      { $set: memberUpdate },
+      { new: true },
+    );
+
+    const updatedUser = await User.findById(user._id)
+      .select("-password")
+      .populate("organization");
+    return res.status(200).json({
+      message: "Account updated successfully.",
+      user: updatedUser,
+      studentProfile: profile,
+    });
+  } catch (error) {
+    console.error("Update student account error:", error);
+    return res.status(500).json({ message: "Failed to update account." });
+  }
+};
+
+// ==========================================
+// 5. GET ME FUNCTION
 // ==========================================
 exports.getMe = async (req, res) => {
   try {

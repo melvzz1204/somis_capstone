@@ -152,7 +152,11 @@ exports.getMyOrganization = async (req, res) => {
     const studentProfile = await StudentProfile.findOne({ user: req.user._id });
 
     if (!organization) {
+      const user = await User.findById(req.user._id)
+        .select("name email role status avatar")
+        .lean();
       return res.status(200).json({
+        user,
         organization: null,
         membership: null,
         roster: [],
@@ -164,7 +168,12 @@ exports.getMyOrganization = async (req, res) => {
       organization: organization._id,
     }).sort({ role: 1, name: 1 });
 
+    const user = await User.findById(req.user._id)
+      .select("name email role status avatar")
+      .lean();
+
     return res.status(200).json({
+      user,
       organization,
       membership,
       roster,

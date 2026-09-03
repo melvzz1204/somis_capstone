@@ -8,6 +8,8 @@ const { login, setupAccount, getMe } = authController;
 
 router.post("/login", login);
 router.post("/setup-account", setupAccount);
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password", authController.resetPassword);
 router.get("/me", protect, getMe);
 router.post("/register-student", authController.registerStudent);
 

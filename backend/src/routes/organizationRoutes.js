@@ -50,6 +50,26 @@ router.get("/", async (req, res) => {
   }
 });
 
+// =========================================================
+// GET /v1/organizations/advisers - List all assigned faculty
+// advisers across organizations (OVPSAS admin only)
+// =========================================================
+router.get("/advisers", protect, authorize("admin"), async (req, res) => {
+  try {
+    const advisers = await Member.find({ role: "Faculty Adviser" })
+      .select(
+        "name surname firstName middleInitial suffix email hasAccount organization createdAt",
+      )
+      .populate("organization", "name acronym college status")
+      .sort({ name: 1 });
+
+    return res.status(200).json(advisers);
+  } catch (error) {
+    console.error("Error fetching advisers:", error);
+    return res.status(500).json({ message: "Failed to fetch advisers." });
+  }
+});
+
 router.get("/academic-period", protect, async (req, res) => {
   try {
     const settings = await AcademicPeriodSettings.findOneAndUpdate(

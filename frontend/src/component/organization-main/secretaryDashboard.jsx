@@ -13,6 +13,7 @@ import {
 } from "./organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "./organizationDocumentWorkspace";
 import SecretaryEvents from "./secretaryEvents";
+import MeetingList from "./meetingList";
 import LogoutButton from "../logoutButton";
 import NavCountBadge from "../navCountBadge";
 import {
@@ -49,6 +50,22 @@ const CalendarIcon = ({ className = "w-4 h-4" }) => (
       strokeLinejoin="round"
       strokeWidth="2"
       d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+    />
+  </svg>
+);
+
+const MeetingIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
     />
   </svg>
 );
@@ -345,6 +362,20 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
+              onClick={() => setActiveTab("meetings")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "meetings"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <MeetingIcon
+                className={`w-4 h-4 ${activeTab === "meetings" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Meetings</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("roster")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "roster"
@@ -442,6 +473,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               label: "Events",
               icon: <CalendarIcon />,
               count: 0,
+            },
+            {
+              id: "meetings",
+              label: "Meetings",
+              icon: <MeetingIcon />,
             },
             { id: "roster", label: "Roster", icon: <UsersIcon />, count: 0 },
           ]}
@@ -577,6 +613,9 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
           {/* TAB CONTENT 3: EVENTS */}
           {activeTab === "events" && <SecretaryEvents proposals={proposals} />}
+
+          {/* TAB CONTENT: MEETINGS */}
+          {activeTab === "meetings" && <MeetingList />}
 
           {/* TAB CONTENT 4: EXECUTIVE ROSTER & MEMBERS */}
           {activeTab === "roster" && (

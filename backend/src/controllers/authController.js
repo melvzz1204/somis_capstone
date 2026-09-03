@@ -7,7 +7,10 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { sendEmail } = require("../config/nodeMailer");
-const { createSetupUrl } = require("../config/frontendUrl");
+const {
+  createSetupUrl,
+  createResetPasswordUrl,
+} = require("../config/frontendUrl");
 
 // ==========================================
 // 1. REGISTER STUDENT FUNCTION
@@ -328,5 +331,138 @@ exports.getMe = async (req, res) => {
     return res.status(200).json(user);
   } catch (error) {
     return res.status(500).json({ message: "Server error." });
+  }
+};
+
+// ==========================================
+// 5. FORGOT PASSWORD FUNCTION
+// ==========================================
+exports.forgotPassword = async (req, res) => {
+  try {
+    const normalizedEmail = String(req.body?.email || "")
+      .toLowerCase()
+      .trim();
+
+    if (!normalizedEmail) {
+      return res
+        .status(400)
+        .json({ message: "Email is required to reset your password." });
+    }
+
+    // Do not reveal whether the account exists. Always respond the same way
+    // so attackers cannot enumerate registered emails through this endpoint.
+    const genericResponse = {
+      success: true,
+      message:
+        "If an account exists for this email, a password reset link has been sent. Please check your inbox.",
+    };
+
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user || !user.password) {
+      // Account is missing or was never activated (no password set yet), so
+      // there is nothing to reset. Silently return the generic message.
+      return res.status(200).json(genericResponse);
+    }
+
+    // Generate a single-use reset token valid for 1 hour.
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenExpires = new Date(Date.now() + 60 * 60 * 1000);
+
+    user.resetToken = rawToken;
+    user.resetTokenExpires = tokenExpires;
+    await user.save({ validateBeforeSave: false });
+
+    const resetLink = createResetPasswordUrl(rawToken);
+
+    await sendEmail({
+      to: normalizedEmail,
+      subject: "MarSU SOMIS - Password Reset Link",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #4A0E17;">MarSU SOMIS Portal - Password Reset</h2>
+          <p>We received a request to reset the password for your SOMIS account.</p>
+          <p style="margin: 25px 0;">
+            <a href="${resetLink}" style="background-color: #4A0E17; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+              Reset My Password
+            </a>
+          </p>
+          <p style="font-size: 12px; color: #777;">This link will expire in 1 hour. If you did not request a password reset, you can safely ignore this email.</p>
+          <p style="font-size: 12px; color: #777;">If the button doesn't work, copy and paste this link:<br>${resetLink}</p>
+        </div>
+      `,
+    });
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to send password reset email." });
+  }
+};
+
+// ==========================================
+// 6. RESET PASSWORD FUNCTION
+// ==========================================
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({
+        message: "Reset token and new password are required.",
+      });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters long.",
+      });
+    }
+
+    const user = await User.findOne({
+      resetToken: token,
+      resetTokenExpires: { $gt: Date.now() },
+    }).select("+password +resetToken +resetTokenExpires");
+
+    if (!user) {
+      return res
+        .status(400)
+        .json({ message: "Invalid or expired reset token." });
+    }
+
+    // Assign the new password; the pre-save hook hashes it automatically.
+    user.password = password;
+    user.resetToken = undefined;
+    user.resetTokenExpires = undefined;
+
+    // Ensure the account stays fully usable after the reset.
+    if (!user.status || user.status === "Pending") {
+      user.status = "Active";
+    }
+
+    await user.save();
+
+    const authToken = jwt.sign(
+      { id: user._id, role: user.role, orgId: user.organization },
+      process.env.JWT_SECRET || "capstone_secret_key_123",
+      { expiresIn: "1d" },
+    );
+
+    return res.status(200).json({
+      message: "Password reset successful!",
+      token: authToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        organization: user.organization,
+      },
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({ message: "Failed to reset password." });
   }
 };

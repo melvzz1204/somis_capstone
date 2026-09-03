@@ -38,7 +38,7 @@ const UserGroupIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-export default function Login() {
+export default function Login({ onForgotPassword }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [portalType, setPortalType] = useState("org"); // "org" or "admin"
@@ -213,6 +213,19 @@ export default function Login() {
         >
           {isLoading ? "Signing in..." : `Sign in`}
         </button>
+
+        {/* FORGOT PASSWORD LINK */}
+        <div className="text-right">
+          <button
+            type="button"
+            onClick={() =>
+              onForgotPassword?.(formData.email.trim(), portalType)
+            }
+            className="text-[11px] text-[#4A0E17] font-bold hover:underline cursor-pointer"
+          >
+            Forgot Password?
+          </button>
+        </div>
       </form>
 
       {/* FOOTER NOTICE */}

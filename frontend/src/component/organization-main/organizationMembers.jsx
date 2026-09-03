@@ -29,6 +29,15 @@ const getRootBackendUrl = () => {
 };
 const BACKEND_URL = getRootBackendUrl();
 
+const getTodayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+const TODAY_DATE_STRING = getTodayDateString();
+
 // Inline SVG Icons
 const UserPlusIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -841,6 +850,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                     </label>
                     <input
                       type="date"
+                      max={TODAY_DATE_STRING}
                       value={formData.birthday}
                       onChange={(e) =>
                         setFormData({ ...formData, birthday: e.target.value })

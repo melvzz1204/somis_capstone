@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
+import {
+  PAST,
+  UPCOMING,
+  partitionMeetingsByStatus,
+} from "../../util/meetingStatus";
 
 const emptyForm = {
   title: "",
@@ -17,15 +22,26 @@ const formatDateTime = (value) =>
     timeStyle: "short",
   });
 
+const toDateTimeLocal = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+};
+
 export default function MeetingManager() {
   const { showToast } = useToast();
   const [meetings, setMeetings] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState(UPCOMING);
+  const [now, setNow] = useState(() => new Date().getTime());
 
   const loadMeetings = async () => {
     try {
@@ -47,24 +63,70 @@ export default function MeetingManager() {
     return () => window.clearTimeout(request);
   }, []);
 
+  // Keep the Upcoming/Past tabs in sync as meetings end over time.
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date().getTime()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const updateField = (event) =>
     setForm((current) => ({
       ...current,
       [event.target.name]: event.target.value,
     }));
 
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingMeeting(null);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setIsFormOpen(true);
+  };
+
+  const openEdit = (meeting) => {
+    setEditingMeeting(meeting);
+    setForm({
+      title: meeting.title || "",
+      description: meeting.description || "",
+      startDateTime: toDateTimeLocal(meeting.startDateTime),
+      endDateTime: toDateTimeLocal(meeting.endDateTime),
+      venue: meeting.venue || "",
+      audience: meeting.audience || "All Members",
+    });
+    setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setIsFormOpen(false);
+    resetForm();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
     setIsSaving(true);
     try {
-      const response = await API.post("/meetings", form);
-      setMeetings((current) => [response.data, ...current]);
-      setForm(emptyForm);
-      setIsFormOpen(false);
-      showToast("Meeting created successfully.", "success");
+      if (editingMeeting) {
+        const response = await API.patch(
+          `/meetings/${editingMeeting._id}`,
+          form,
+        );
+        setMeetings((current) =>
+          current.map((item) =>
+            item._id === editingMeeting._id ? response.data : item,
+          ),
+        );
+        showToast("Meeting updated successfully.", "success");
+      } else {
+        const response = await API.post("/meetings", form);
+        setMeetings((current) => [response.data, ...current]);
+        showToast("Meeting created successfully.", "success");
+      }
+      closeForm();
     } catch (requestError) {
-      setError(requestError.message || "Unable to create meeting.");
+      setError(requestError.message || "Unable to save meeting.");
     } finally {
       setIsSaving(false);
     }
@@ -86,6 +148,14 @@ export default function MeetingManager() {
     }
   };
 
+  const { upcoming: upcomingMeetings = [], past: pastMeetings = [] } = useMemo(
+    () => partitionMeetingsByStatus(meetings, now),
+    [meetings, now],
+  );
+
+  const activeMeetings =
+    activeTab === UPCOMING ? upcomingMeetings : pastMeetings;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
@@ -100,7 +170,7 @@ export default function MeetingManager() {
         </div>
         <button
           type="button"
-          onClick={() => setIsFormOpen((current) => !current)}
+          onClick={() => (isFormOpen ? closeForm() : openCreate())}
           className="self-start rounded-lg bg-[#4A0E17] px-4 py-2.5 text-xs font-extrabold text-white hover:bg-[#601520] sm:self-auto"
         >
           {isFormOpen ? "Close Form" : "+ Add Meeting"}
@@ -113,11 +183,52 @@ export default function MeetingManager() {
         </div>
       )}
 
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab(UPCOMING)}
+          aria-pressed={activeTab === UPCOMING}
+          className={`rounded-lg border px-3 py-1.5 text-[11px] font-bold transition ${
+            activeTab === UPCOMING
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Upcoming ({upcomingMeetings.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab(PAST)}
+          aria-pressed={activeTab === PAST}
+          className={`rounded-lg border px-3 py-1.5 text-[11px] font-bold transition ${
+            activeTab === PAST
+              ? "border-[#D4AF37]/60 bg-[#D4AF37]/10 text-[#7A610D]"
+              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Past ({pastMeetings.length})
+        </button>
+      </div>
+
       {isFormOpen && (
         <form
           onSubmit={handleSubmit}
           className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-2"
         >
+          <div className="flex items-center justify-between md:col-span-2">
+            <h4 className="text-sm font-extrabold text-[#4A0E17]">
+              {editingMeeting ? "Edit Meeting" : "Create a Meeting"}
+            </h4>
+            {editingMeeting && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-xs font-bold text-slate-500 hover:text-[#4A0E17]"
+              >
+                Switch to new meeting
+              </button>
+            )}
+          </div>
           <label className="text-xs font-bold text-slate-700 md:col-span-2">
             Meeting title *
             <input
@@ -191,7 +302,11 @@ export default function MeetingManager() {
               disabled={isSaving}
               className="rounded-lg bg-[#4A0E17] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#601520] disabled:opacity-50"
             >
-              {isSaving ? "Saving..." : "Create Meeting"}
+              {isSaving
+                ? "Saving..."
+                : editingMeeting
+                  ? "Save Changes"
+                  : "Create Meeting"}
             </button>
           </div>
         </form>
@@ -203,12 +318,22 @@ export default function MeetingManager() {
         <div className="rounded-xl border border-dashed border-slate-200 p-10 text-center text-xs text-slate-500">
           No meetings created yet.
         </div>
+      ) : activeMeetings.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400">
+          {activeTab === UPCOMING
+            ? "No upcoming meetings. Create one with the button above."
+            : "No past meetings yet."}
+        </div>
       ) : (
         <div className="space-y-3">
-          {meetings.map((meeting) => (
+          {activeMeetings.map((meeting) => (
             <article
               key={meeting._id}
-              className="rounded-xl border border-slate-200 bg-white p-4"
+              className={
+                activeTab === PAST
+                  ? "rounded-xl border border-slate-200 bg-slate-50 p-4 opacity-80"
+                  : "rounded-xl border border-slate-200 bg-white p-4"
+              }
             >
               <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                 <div>
@@ -233,14 +358,23 @@ export default function MeetingManager() {
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteMeeting(meeting)}
-                  disabled={deletingId === meeting._id}
-                  className="self-start rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                >
-                  {deletingId === meeting._id ? "Deleting..." : "Delete"}
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(meeting)}
+                    className="rounded-lg border border-[#D4AF37]/40 bg-white px-3 py-2 text-xs font-bold text-[#7A610D] hover:bg-[#D4AF37]/10"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteMeeting(meeting)}
+                    disabled={deletingId === meeting._id}
+                    className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    {deletingId === meeting._id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               </div>
             </article>
           ))}

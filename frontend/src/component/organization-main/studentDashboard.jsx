@@ -34,6 +34,7 @@ import MobileTabBar from "../mobileTabBar";
 import NavCountBadge from "../navCountBadge";
 import StudentPaymentTracker from "./StudentPaymentTracker";
 import DigitalClearance from "./DigitalClearance";
+import MeetingList from "./meetingList";
 import { getClearanceSummary } from "../../util/clearanceStatus";
 import {
   formatAcademicPeriod,
@@ -53,6 +54,82 @@ const formatDate = (dateString) => {
     day: "numeric",
     year: "numeric",
   });
+};
+
+// Helper: checks whether two datetimes fall on the same calendar day.
+const isSameCalendarDay = (startDateTime, endDateTime) => {
+  const start = new Date(startDateTime);
+  const end = new Date(endDateTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return true;
+  }
+  return (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate()
+  );
+};
+
+// Helper: event date span. Same-day events render a single date (with the
+// start time when requested); multi-day events render a range like
+// "Sep 5 – Sep 10, 2026".
+const formatEventDateSpan = (
+  startDateTime,
+  endDateTime,
+  { includeTime = false } = {},
+) => {
+  if (!startDateTime) return "N/A";
+  const start = new Date(startDateTime);
+  if (Number.isNaN(start.getTime())) return "N/A";
+
+  if (!endDateTime || isSameCalendarDay(startDateTime, endDateTime)) {
+    return includeTime
+      ? start.toLocaleString("en-PH", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : start.toLocaleDateString("en-PH", { dateStyle: "medium" });
+  }
+
+  const end = new Date(endDateTime);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const startText = start.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const endText = end.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startText} – ${endText}`;
+};
+
+// Helper: full event schedule for the details modal. Same-day events keep a
+// single date with both times; multi-day events repeat the date on both ends.
+const formatEventSchedule = (startDateTime, endDateTime) => {
+  if (!startDateTime) return "N/A";
+  const start = new Date(startDateTime);
+  if (Number.isNaN(start.getTime())) return "N/A";
+
+  const startText = start.toLocaleString("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  if (!endDateTime) return startText;
+
+  const end = new Date(endDateTime);
+  if (isSameCalendarDay(startDateTime, endDateTime)) {
+    return `${startText} – ${end.toLocaleTimeString("en-PH", {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
+  }
+  return `${startText} – ${end.toLocaleString("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })}`;
 };
 
 // --- INLINE SVG ICON COMPONENTS (With Sizing Guarantees) ---
@@ -100,6 +177,22 @@ const CalendarIcon = ({ className = "" }) => (
       strokeLinejoin="round"
       strokeWidth="2"
       d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+    />
+  </svg>
+);
+
+const MeetingIcon = ({ className = "" }) => (
+  <svg
+    className={`w-4 h-4 ${className}`}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
     />
   </svg>
 );
@@ -174,6 +267,38 @@ const getAvatarSrc = (avatarPath) => {
   }
   return `${BACKEND_URL}${avatarPath}`;
 };
+
+// Officer hierarchy: Dean -> Adviser -> President -> remaining officers.
+const OFFICER_ROLE_RANK = [
+  "Department Dean",
+  "Faculty Adviser",
+  "President",
+  "Vice-President",
+  "Secretary",
+  "Treasurer",
+  "Auditor",
+  "Business Manager",
+  "P.I.O",
+  "Sgt. & Arms",
+  "Muse",
+  "Escort",
+];
+
+const getOfficerRoleRank = (role) => {
+  const normalized = role?.trim().toLowerCase();
+  const index = OFFICER_ROLE_RANK.findIndex(
+    (rankedRole) => rankedRole.toLowerCase() === normalized,
+  );
+  return index === -1 ? OFFICER_ROLE_RANK.length : index;
+};
+
+const sortOfficersByRole = (officers) =>
+  [...officers].sort((a, b) => {
+    const rankA = getOfficerRoleRank(a.role);
+    const rankB = getOfficerRoleRank(b.role);
+    if (rankA !== rankB) return rankA - rankB;
+    return (a.name || "").localeCompare(b.name || "");
+  });
 
 export default function StudentDashboard({ user: propsUser }) {
   const currentUser =
@@ -822,13 +947,31 @@ export default function StudentDashboard({ user: propsUser }) {
   const activeEventCount = activeEvents.filter((event) =>
     ["Upcoming", "Ongoing"].includes(event.lifecycle.status),
   ).length;
+  const upcomingMeetingCount = meetings.filter((meeting) => {
+    const end = new Date(meeting.endDateTime).getTime();
+    return !Number.isNaN(end) && end >= now;
+  }).length;
   const activeFeeCount = fees.filter((fee) => fee.status === "active").length;
   const pendingPaymentCount = payments.filter(
     (payment) => payment.status === "PENDING_MANUAL_REVIEW",
   ).length;
   const activeFeeActivityCount = activeFeeCount + pendingPaymentCount;
-  const officerRoster = roster.filter(
-    (member) => member.role?.trim().toLowerCase() !== "member",
+  const officerRoster = sortOfficersByRole(
+    roster.filter((member) => member.role?.trim().toLowerCase() !== "member"),
+  );
+  const findOfficerName = (role) =>
+    officerRoster.find((officer) => officer.role?.trim().toLowerCase() === role)
+      ?.name;
+  const deanName = findOfficerName("department dean");
+  const adviserName =
+    findOfficerName("faculty adviser") || organization?.adviser || "";
+  const presidentName =
+    findOfficerName("president") || organization?.president || "";
+  const otherOfficers = officerRoster.filter(
+    (officer) =>
+      !["department dean", "faculty adviser", "president"].includes(
+        officer.role?.trim().toLowerCase(),
+      ),
   );
   const activeMembershipsCount = organization ? 1 : 0;
   const clearanceSummary = getClearanceSummary(
@@ -917,6 +1060,25 @@ export default function StudentDashboard({ user: propsUser }) {
               />
               <span>Events & Activities</span>
               <NavCountBadge count={activeEventCount} />
+            </button>
+
+            <button
+              onClick={() => setActiveTab("meetings")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "meetings"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <MeetingIcon
+                className={
+                  activeTab === "meetings"
+                    ? "text-[#D4AF37]"
+                    : "text-rose-200/60"
+                }
+              />
+              <span>Meetings</span>
+              <NavCountBadge count={upcomingMeetingCount} />
             </button>
 
             <button
@@ -1025,6 +1187,12 @@ export default function StudentDashboard({ user: propsUser }) {
               label: "Events",
               icon: <CalendarIcon />,
               count: activeEventCount,
+            },
+            {
+              id: "meetings",
+              label: "Meetings",
+              icon: <MeetingIcon />,
+              count: upcomingMeetingCount,
             },
             {
               id: "fees",
@@ -1304,62 +1472,94 @@ export default function StudentDashboard({ user: propsUser }) {
                     ) : (
                       <div className="overflow-x-auto rounded-xl bg-slate-50/70 p-3 sm:p-5">
                         <div className="mx-auto min-w-[560px] max-w-4xl">
+                          {/* Level 1: Department Dean */}
+                          <div className="flex justify-center">
+                            <div className="w-56 rounded-xl border border-[#D4AF37]/50 bg-white px-3 py-2 text-center shadow-sm">
+                              <p className="text-[9px] font-black uppercase tracking-wider text-[#7A610D]">
+                                Department Dean
+                              </p>
+                              <p className="mt-1 truncate text-xs font-extrabold text-[#4A0E17]">
+                                {deanName || "Not recorded"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mx-auto h-5 w-px bg-[#D4AF37]" />
+                          {/* Level 2: Faculty Adviser */}
+                          <div className="flex justify-center">
+                            <div className="w-56 rounded-xl border border-[#D4AF37]/50 bg-white px-3 py-2 text-center shadow-sm">
+                              <p className="text-[9px] font-black uppercase tracking-wider text-[#7A610D]">
+                                Faculty Adviser
+                              </p>
+                              <p className="mt-1 truncate text-xs font-extrabold text-[#4A0E17]">
+                                {adviserName || "Not recorded"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mx-auto h-5 w-px bg-[#D4AF37]" />
+                          {/* Level 3: Organization President */}
                           <div className="flex justify-center">
                             <div className="w-56 rounded-xl border border-[#D4AF37]/50 bg-white px-3 py-2 text-center shadow-sm">
                               <p className="text-[9px] font-black uppercase tracking-wider text-[#7A610D]">
                                 Organization President
                               </p>
                               <p className="mt-1 truncate text-xs font-extrabold text-[#4A0E17]">
-                                {organization.president || "Not recorded"}
+                                {presidentName || "Not recorded"}
                               </p>
                             </div>
                           </div>
-                          <div className="mx-auto h-5 w-px bg-[#D4AF37]" />
-                          <div className="relative border-t border-[#D4AF37] pt-5">
-                            <div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              {officerRoster.map((officer) => {
-                                const avatarUrl = getAvatarSrc(officer.avatar);
-                                return (
-                                  <article
-                                    key={officer._id}
-                                    className="relative flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
-                                  >
-                                    <div className="absolute -top-5 left-1/2 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
-                                    {avatarUrl ? (
-                                      <img
-                                        src={avatarUrl}
-                                        alt={officer.name || "Officer"}
-                                        className="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
-                                      />
-                                    ) : (
-                                      <div className="grid h-15 w-15 shrink-0 place-items-center rounded-full border-2 border-[#D4AF37]/60 bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
-                                        {officer.name?.charAt(0) || "?"}
-                                      </div>
-                                    )}
-                                    <div className="min-w-0">
-                                      <p className="truncate text-[10px] font-black uppercase tracking-wide text-[#7A610D]">
-                                        {officer.role || "Officer"}
-                                      </p>
-                                      <p
-                                        className="truncate text-xs font-bold text-slate-800"
-                                        title={officer.name}
+                          {otherOfficers.length > 0 && (
+                            <>
+                              <div className="mx-auto h-5 w-px bg-[#D4AF37]" />
+                              <div className="relative border-t border-[#D4AF37] pt-5">
+                                <div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                  {otherOfficers.map((officer) => {
+                                    const avatarUrl = getAvatarSrc(
+                                      officer.avatar,
+                                    );
+                                    return (
+                                      <article
+                                        key={officer._id}
+                                        className="relative flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
                                       >
-                                        {officer.name}
-                                      </p>
-                                      {(officer.year || officer.section) && (
-                                        <p className="truncate text-[10px] text-slate-500">
-                                          {[officer.year, officer.section]
-                                            .filter(Boolean)
-                                            .join(" • ")}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </article>
-                                );
-                              })}
-                            </div>
-                          </div>
+                                        <div className="absolute -top-5 left-1/2 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
+                                        {avatarUrl ? (
+                                          <img
+                                            src={avatarUrl}
+                                            alt={officer.name || "Officer"}
+                                            className="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
+                                          />
+                                        ) : (
+                                          <div className="grid h-15 w-15 shrink-0 place-items-center rounded-full border-2 border-[#D4AF37]/60 bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
+                                            {officer.name?.charAt(0) || "?"}
+                                          </div>
+                                        )}
+                                        <div className="min-w-0">
+                                          <p className="truncate text-[10px] font-black uppercase tracking-wide text-[#7A610D]">
+                                            {officer.role || "Officer"}
+                                          </p>
+                                          <p
+                                            className="truncate text-xs font-bold text-slate-800"
+                                            title={officer.name}
+                                          >
+                                            {officer.name}
+                                          </p>
+                                          {(officer.year ||
+                                            officer.section) && (
+                                            <p className="truncate text-[10px] text-slate-500">
+                                              {[officer.year, officer.section]
+                                                .filter(Boolean)
+                                                .join(" • ")}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </article>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1762,66 +1962,24 @@ export default function StudentDashboard({ user: propsUser }) {
               </div>
 
               <section className="space-y-3">
-                <div>
-                  <h4 className="text-sm font-extrabold text-[#4A0E17]">
-                    Meetings for You ({meetings.length})
-                  </h4>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Meetings shown here are targeted to your organization
-                    audience.
-                  </p>
-                </div>
-                {meetings.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400">
-                    No meetings have been scheduled for your audience.
+                <div className="flex flex-col justify-between gap-3 rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-4 sm:flex-row sm:items-center">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#4A0E17]">
+                      Meetings for You ({meetings.length})
+                    </h4>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Meetings set by your organization leader now live in the
+                      Meetings tab.
+                    </p>
                   </div>
-                ) : (
-                  meetings.map((meeting) => (
-                    <article
-                      key={meeting._id}
-                      className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-4"
-                    >
-                      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h5 className="text-sm font-extrabold text-[#4A0E17]">
-                              {meeting.title}
-                            </h5>
-                            <span className="rounded-md border border-[#D4AF37]/40 bg-white px-2 py-0.5 text-[10px] font-bold text-[#7A610D]">
-                              {meeting.audience}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-xs font-semibold text-slate-700">
-                            📅{" "}
-                            {new Date(meeting.startDateTime).toLocaleString(
-                              "en-PH",
-                              {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                              },
-                            )}{" "}
-                            –{" "}
-                            {new Date(meeting.endDateTime).toLocaleString(
-                              "en-PH",
-                              {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                              },
-                            )}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-600">
-                            📍 {meeting.venue}
-                          </p>
-                          {meeting.description && (
-                            <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">
-                              {meeting.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </article>
-                  ))
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("meetings")}
+                    className="self-start rounded-lg bg-[#4A0E17] px-3 py-2 text-xs font-bold text-white hover:bg-[#601520] sm:self-auto"
+                  >
+                    View Meetings
+                  </button>
+                </div>
               </section>
 
               {eventError && (
@@ -1875,8 +2033,11 @@ export default function StudentDashboard({ user: propsUser }) {
                                   {event.title}
                                 </h4>
                                 <p className="mt-1 text-[11px] text-slate-500">
-                                  {formatDate(event.startDateTime)} •{" "}
-                                  {event.venue}
+                                  {formatEventDateSpan(
+                                    event.startDateTime,
+                                    event.endDateTime,
+                                  )}{" "}
+                                  • {event.venue}
                                 </p>
                               </div>
                               {createdCheckpoints.length > 0 && (
@@ -2031,10 +2192,13 @@ export default function StudentDashboard({ user: propsUser }) {
                         </h4>
                         <p className="text-[11px] text-slate-500">
                           📍 {evt.venue} • 📅{" "}
-                          {new Date(evt.startDateTime).toLocaleString("en-PH", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
+                          {formatEventDateSpan(
+                            evt.startDateTime,
+                            evt.endDateTime,
+                            {
+                              includeTime: true,
+                            },
+                          )}
                         </p>
                         {evt.lifecycle.target && (
                           <p
@@ -2091,6 +2255,11 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               )}
             </div>
+          )}
+
+          {/* TAB: ORGANIZATION MEETINGS */}
+          {activeTab === "meetings" && (
+            <MeetingList meetings={meetings} isLoading={isLoading} />
           )}
 
           {/* TAB 5: DIGITAL CLEARANCE */}
@@ -2318,14 +2487,9 @@ export default function StudentDashboard({ user: propsUser }) {
                 <div className="rounded-xl bg-slate-50 p-3">
                   <p className="font-bold text-slate-400">Schedule</p>
                   <p className="mt-1 font-semibold text-slate-800">
-                    {new Date(selectedEvent.startDateTime).toLocaleString(
-                      "en-PH",
-                      { dateStyle: "medium", timeStyle: "short" },
-                    )}{" "}
-                    –{" "}
-                    {new Date(selectedEvent.endDateTime).toLocaleString(
-                      "en-PH",
-                      { timeStyle: "short" },
+                    {formatEventSchedule(
+                      selectedEvent.startDateTime,
+                      selectedEvent.endDateTime,
                     )}
                   </p>
                 </div>

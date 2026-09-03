@@ -10,12 +10,14 @@ import {
   Plus,
   Send,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import API from "../../api/axios";
 import LogoutButton from "../logoutButton";
 import MobileTabBar from "../mobileTabBar";
 import NavCountBadge from "../navCountBadge";
+import MeetingList from "./meetingList";
 
 const EMPTY_FORM = {
   title: "",
@@ -226,6 +228,11 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
       label: "Announcement Library",
       icon: <Bell size={16} />,
       count: activeAnnouncementCount,
+    },
+    {
+      id: "meetings",
+      label: "Meetings",
+      icon: <Users size={16} />,
     },
   ];
 
@@ -494,6 +501,8 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
               </div>
             </section>
           )}
+
+          {activeTab === "meetings" && <MeetingList />}
         </main>
       </div>
 

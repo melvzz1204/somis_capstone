@@ -5,6 +5,7 @@ import LandingPage from "./pages/landingPage.jsx";
 import AdminDashboard from "./pages/adminDashboard.jsx";
 import StudentPage from "./pages/studentPage.jsx";
 import SetUpAccount from "./pages/setupAccount.jsx";
+import ResetPassword from "./pages/resetPassword.jsx";
 import OrgDashboard from "./pages/orgDashboard.jsx";
 import OrgSecretaryPage from "./pages/orgsecretaryPage.jsx";
 import OrgTreasurerPage from "./pages/orgTreasurerPage.jsx";
@@ -31,6 +32,7 @@ function App() {
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
         <Route path="/student-dashboard" element={<StudentPage />} />
         <Route path="/setup-account" element={<SetUpAccount />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/org-dashboard" element={<OrgDashboard />} />
         <Route path="/org-secretary" element={<OrgSecretaryPage />} />
         <Route path="/org-treasurer" element={<OrgTreasurerPage />} />

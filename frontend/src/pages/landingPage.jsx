@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Login from "../component/login";
+import ForgotPasswordForm from "../component/forgotPasswordForm";
 import RoleSelectionModal from "../component/roleSelectionModal";
 import StudentOnboardingModal from "../component/studentOnboardingModal";
 import StudentLogin from "../component/studentLogin";
@@ -14,6 +15,28 @@ export default function LandingPage() {
 
     return !token && !hasCompletedOnboarding ? "role" : null;
   });
+
+  // Remembers the email typed into the login form (and which login modal to
+  // return to) so the forgot-password form can pre-fill it.
+  const [forgotPasswordContext, setForgotPasswordContext] = useState({
+    email: "",
+    returnModal: "login",
+    portalLabel: "your account",
+  });
+
+  const handleForgotPassword = (email, portalType) => {
+    setForgotPasswordContext({
+      email: email || "",
+      returnModal: portalType === "student" ? "student_login" : "login",
+      portalLabel:
+        portalType === "student"
+          ? "your student account"
+          : portalType === "admin"
+            ? "your OVPSAS admin account"
+            : "your officer account",
+    });
+    setActiveModal("forgot_password");
+  };
 
   const handleSelectOfficer = () => {
     localStorage.setItem("somis_user_role", "officer");
@@ -429,7 +452,7 @@ export default function LandingPage() {
             </button>
 
             <div className="p-2">
-              <Login />
+              <Login onForgotPassword={handleForgotPassword} />
             </div>
           </div>
         </div>
@@ -464,6 +487,45 @@ export default function LandingPage() {
               <StudentLogin
                 onClose={handleCloseModals}
                 onSwitchToOnboarding={() => setActiveModal("student")}
+                onForgotPassword={(email) =>
+                  handleForgotPassword(email, "student")
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. FORGOT PASSWORD MODAL */}
+      {activeModal === "forgot_password" && (
+        <div className="modal-backdrop">
+          <div className="modal-panel relative max-w-sm min-h-[300px]">
+            <button
+              onClick={handleCloseModals}
+              className="absolute top-4 right-4 z-10 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Close modal"
+              aria-label="Close Modal"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+
+            <div className="p-2">
+              <ForgotPasswordForm
+                initialEmail={forgotPasswordContext.email}
+                portalLabel={forgotPasswordContext.portalLabel}
+                onBack={() => setActiveModal(forgotPasswordContext.returnModal)}
               />
             </div>
           </div>

@@ -106,6 +106,16 @@ const CheckCircleIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 );
 
+const getTodayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const TODAY_DATE_STRING = getTodayDateString();
+
 export default function StudentOnboardingModal({
   isOpen = true,
   onClose,
@@ -712,6 +722,7 @@ export default function StudentOnboardingModal({
                   <input
                     type="date"
                     required
+                    max={TODAY_DATE_STRING}
                     value={formData.birthDate}
                     onChange={(e) => updateForm("birthDate", e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-white text-slate-900 border border-slate-300 rounded-xl focus:outline-none focus:border-[#4A0E17] font-medium placeholder:text-slate-400 shadow-sm"

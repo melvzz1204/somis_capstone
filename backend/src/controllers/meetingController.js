@@ -66,20 +66,16 @@ exports.createMeeting = async (req, res) => {
     const start = parseDate(startDateTime);
     const end = parseDate(endDateTime);
     if (!start || !end) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Enter valid meeting date and time values.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Enter valid meeting date and time values.",
+      });
     }
     if (end <= start) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Meeting end time must be after its start time.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Meeting end time must be after its start time.",
+      });
     }
 
     const meeting = await Meeting.create({
@@ -110,6 +106,80 @@ exports.createMeeting = async (req, res) => {
         status === 400
           ? Object.values(error.errors)[0]?.message || error.message
           : "Could not create the meeting.",
+    });
+  }
+};
+
+exports.updateMeeting = async (req, res) => {
+  try {
+    const organization = getOrganizationId(req);
+    const meeting = await Meeting.findOne({
+      _id: req.params.id,
+      organization,
+    });
+    if (!meeting) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Meeting not found." });
+    }
+
+    const { title, description, startDateTime, endDateTime, venue, audience } =
+      req.body || {};
+
+    if (audience !== undefined && !AUDIENCES.includes(audience)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Choose a valid meeting audience." });
+    }
+
+    const start = startDateTime !== undefined ? parseDate(startDateTime) : null;
+    const end = endDateTime !== undefined ? parseDate(endDateTime) : null;
+    if (startDateTime !== undefined && !start) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Enter a valid meeting start time." });
+    }
+    if (endDateTime !== undefined && !end) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Enter a valid meeting end time." });
+    }
+
+    const effectiveStart = start || meeting.startDateTime;
+    const effectiveEnd = end || meeting.endDateTime;
+    if (effectiveEnd <= effectiveStart) {
+      return res.status(400).json({
+        success: false,
+        message: "Meeting end time must be after its start time.",
+      });
+    }
+
+    if (title !== undefined) meeting.title = title;
+    if (description !== undefined) meeting.description = description;
+    if (start) meeting.startDateTime = start;
+    if (end) meeting.endDateTime = end;
+    if (venue !== undefined) meeting.venue = venue;
+    if (audience !== undefined) meeting.audience = audience;
+
+    await meeting.save();
+
+    const populatedMeeting = await populateMeeting(
+      Meeting.findById(meeting._id),
+    );
+    return res.json({
+      success: true,
+      message: "Meeting updated successfully.",
+      data: populatedMeeting,
+    });
+  } catch (error) {
+    console.error("Error updating meeting:", error);
+    const status = error.name === "ValidationError" ? 400 : 500;
+    return res.status(status).json({
+      success: false,
+      message:
+        status === 400
+          ? Object.values(error.errors)[0]?.message || error.message
+          : "Could not update the meeting.",
     });
   }
 };

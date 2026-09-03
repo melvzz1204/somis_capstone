@@ -5,7 +5,11 @@ import PasswordInput from "./passwordInput";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
 import { useToast } from "../util/toastContext";
 
-export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
+export default function StudentLogin({
+  onClose,
+  onSwitchToOnboarding,
+  onForgotPassword,
+}) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
@@ -150,6 +154,17 @@ export default function StudentLogin({ onClose, onSwitchToOnboarding }) {
         >
           {isLoading ? "Signing in..." : "SIGN IN"}
         </button>
+
+        {/* FORGOT PASSWORD LINK */}
+        <div className="text-right">
+          <button
+            type="button"
+            onClick={() => onForgotPassword?.(formData.email.trim())}
+            className="text-[11px] text-[#4A0E17] font-bold hover:underline cursor-pointer"
+          >
+            Forgot Password?
+          </button>
+        </div>
       </form>
 
       {/* FOOTER ACTION */}

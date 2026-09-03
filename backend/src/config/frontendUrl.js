@@ -28,4 +28,14 @@ const createSetupUrl = (token) => {
   return setupUrl.toString();
 };
 
-module.exports = { createSetupUrl, getFrontendUrl };
+const createResetPasswordUrl = (token) => {
+  const resetUrl = new URL("/reset-password", `${getFrontendUrl()}/`);
+  resetUrl.searchParams.set("token", token);
+  return resetUrl.toString();
+};
+
+module.exports = {
+  createSetupUrl,
+  createResetPasswordUrl,
+  getFrontendUrl,
+};

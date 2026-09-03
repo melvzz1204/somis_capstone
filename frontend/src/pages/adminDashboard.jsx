@@ -114,6 +114,12 @@ export default function AdminDashboard() {
     getEffectiveAcademicPeriod(null),
   );
 
+  // Adviser list modal state
+  const [isAdviserModalOpen, setIsAdviserModalOpen] = useState(false);
+  const [advisers, setAdvisers] = useState([]);
+  const [isAdviserLoading, setIsAdviserLoading] = useState(false);
+  const [adviserError, setAdviserError] = useState("");
+
   // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
     name: "",
@@ -132,6 +138,18 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let mounted = true;
+
+    // Adviser accounts are fetched separately so a failure here never
+    // blocks the rest of the dashboard data from loading.
+    const fetchAdvisers = async () => {
+      try {
+        const data = await API.get("/organizations/advisers");
+        if (!mounted) return;
+        setAdvisers(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to fetch advisers:", err);
+      }
+    };
 
     const fetchDashboardData = async () => {
       try {
@@ -167,6 +185,7 @@ export default function AdminDashboard() {
     };
 
     fetchDashboardData();
+    fetchAdvisers();
     return () => {
       mounted = false;
     };
@@ -292,6 +311,26 @@ export default function AdminDashboard() {
     } finally {
       setProposalActionId("");
     }
+  };
+
+  const openAdviserModal = async () => {
+    setIsAdviserModalOpen(true);
+    setIsAdviserLoading(true);
+    setAdviserError("");
+
+    try {
+      const data = await API.get("/organizations/advisers");
+      setAdvisers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch advisers:", err);
+      setAdviserError(err.message || "Unable to load adviser accounts.");
+    } finally {
+      setIsAdviserLoading(false);
+    }
+  };
+
+  const closeAdviserModal = () => {
+    setIsAdviserModalOpen(false);
   };
 
   const handleDeleteOrganization = async (org) => {
@@ -537,19 +576,26 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={openAdviserModal}
+                  className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between w-full text-left transition-all hover:border-[#D4AF37]/50 hover:shadow-md cursor-pointer group"
+                >
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       Advisers Assigned
                     </p>
                     <h3 className="text-2xl font-black text-[#8B6E10] mt-1">
-                      {organizations.filter((o) => o.adviser).length}
+                      {advisers.length}
                     </h3>
+                    <span className="text-[10px] font-semibold text-[#8B6E10]/70 group-hover:text-[#8B6E10]">
+                      View adviser accounts →
+                    </span>
                   </div>
                   <div className="p-3 bg-[#D4AF37]/15 rounded-xl text-[#8B6E10]">
                     <UserGroupIcon className="w-6 h-6" />
                   </div>
-                </div>
+                </button>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
@@ -799,6 +845,99 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADVISER ACCOUNTS */}
+      {isAdviserModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-5">
+            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[#4A0E17]">
+                  Adviser Accounts
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Faculty advisers registered across all organizations.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAdviserModal}
+                className="text-slate-400 hover:text-[#4A0E17] text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {isAdviserLoading ? (
+              <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+                <UserGroupIcon className="w-8 h-8 mx-auto text-slate-300 animate-pulse" />
+                <p className="font-medium">Loading adviser accounts...</p>
+              </div>
+            ) : adviserError ? (
+              <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+                {adviserError}
+              </div>
+            ) : advisers.length > 0 ? (
+              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                {advisers.map((adviser) => (
+                  <div
+                    key={adviser._id}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-slate-200/80 bg-slate-50/50"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center text-[#8B6E10] font-bold text-xs shrink-0">
+                      {(adviser.name || "A").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-[#4A0E17] truncate">
+                        {adviser.name}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {adviser.email}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {adviser.organization
+                          ? `${adviser.organization.name} (${adviser.organization.acronym || "N/A"})`
+                          : "No organization assigned"}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-2.5 py-1 rounded-full border font-bold text-[10px] shrink-0 ${
+                        adviser.hasAccount
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                          : "bg-amber-50 border-amber-200 text-amber-800"
+                      }`}
+                    >
+                      {adviser.hasAccount ? "Account Active" : "No Account Yet"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+                <UserGroupIcon className="w-8 h-8 mx-auto text-slate-300" />
+                <p className="font-medium">No adviser accounts found yet.</p>
+                <p className="text-[10px]">
+                  Advisers are added by organization leaders from their
+                  dashboard.
+                </p>
+              </div>
+            )}
+
+            <div className="pt-3 flex items-center justify-between border-t border-slate-100">
+              <span className="text-[10px] font-semibold text-slate-400">
+                Showing {advisers.length} adviser account/s
+              </span>
+              <button
+                type="button"
+                onClick={closeAdviserModal}
+                className="px-4 py-2.5 border border-[#4A0E17]/30 bg-white rounded-xl text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-semibold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

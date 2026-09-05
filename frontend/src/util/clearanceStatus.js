@@ -4,36 +4,66 @@ export const CLEARANCE_ACADEMIC_YEAR = `${currentAcademicYearStart} - ${currentA
 
 export const CLEARANCE_REQUIREMENTS = [
   {
-    id: "cicsso-fee",
-    label: "CICSSO Fee",
+    id: "organization-fee",
+    label: "Organization Fee",
     feeCategories: ["organization_fee"],
     exemptible: false,
   },
   {
-    id: "cicsso-paf",
-    label: "CICSSO PAF",
+    id: "paf",
+    label: "PAF",
     feeCategories: ["paf"],
     exemptible: false,
   },
   {
-    id: "cics-study-center",
-    label: "CICS Study Center",
+    id: "study-center",
+    label: "Study Center",
     feeCategories: ["study_center"],
     exemptible: false,
   },
   {
-    id: "cics-attendance-fines",
-    label: "CICS Attendance Fines",
+    id: "attendance-fines",
+    label: "Attendance Fines",
     feeCategories: ["attendance_fines"],
     exemptible: true,
   },
   {
-    id: "cics-week-fee",
-    label: "CICS Week Fee",
+    id: "organization-week-fee",
+    label: "Organization Week Fee",
     feeCategories: ["organization_week_fee"],
     exemptible: true,
   },
 ];
+
+export function getOrganizationClearanceConfig(organization) {
+  const acronym = String(organization?.acronym || "ORG")
+    .trim()
+    .toUpperCase();
+  const college = String(organization?.college || "").trim();
+  const name = String(organization?.name || `${acronym} Organization`).trim();
+
+  return {
+    acronym,
+    college,
+    name,
+    title: `${acronym} Annual Clearance`,
+    organizationFeeLabel: `${acronym} Fee`,
+    organizationWeekFeeLabel: `${acronym} Week Fee`,
+  };
+}
+
+export function getOrganizationRequirements(organization) {
+  const config = getOrganizationClearanceConfig(organization);
+  return CLEARANCE_REQUIREMENTS.map((requirement) => ({
+    ...requirement,
+    label:
+      requirement.id === "organization-fee"
+        ? config.organizationFeeLabel
+        : requirement.id === "organization-week-fee"
+          ? config.organizationWeekFeeLabel
+          : requirement.label,
+  }));
+}
 
 export const normalizeClearanceText = (value) =>
   String(value || "")
@@ -62,17 +92,15 @@ const isMatchingFee = (requirement, fee) => {
   // were added to the collection form.
   const title = normalizeClearanceText(fee?.title);
   const legacyTitleMatches = {
-    "cicsso-fee":
-      title.includes("cicsso fee") ||
+    "organization-fee":
+      title.includes(" fee") ||
       title.includes("organization fee") ||
       title.includes("membership fee"),
-    "cicsso-paf": title.includes("paf"),
-    "cics-study-center": title.includes("study center"),
-    "cics-attendance-fines": title.includes("attendance fine"),
-    "cics-week-fee":
-      title.includes("cics week") ||
-      title.includes("cicsso week") ||
-      title.includes("organization week"),
+    paf: title.includes("paf"),
+    "study-center": title.includes("study center"),
+    "attendance-fines": title.includes("attendance fine"),
+    "organization-week-fee":
+      title.includes("week fee") || title.includes("organization week"),
   };
 
   return Boolean(legacyTitleMatches[requirement.id]);
@@ -82,13 +110,14 @@ export function getClearanceRequirements(
   fees = [],
   payments = [],
   academicYear = CLEARANCE_ACADEMIC_YEAR,
+  organization = null,
 ) {
   const requestedYear = academicYearKey(academicYear);
   const eligibleFees = fees.filter(
     (fee) => academicYearKey(fee.academicYear) === requestedYear,
   );
 
-  return CLEARANCE_REQUIREMENTS.map((requirement) => {
+  return getOrganizationRequirements(organization).map((requirement) => {
     const matchingFees = eligibleFees.filter((candidate) =>
       isMatchingFee(requirement, candidate),
     );
@@ -178,15 +207,8 @@ export function getClearanceRequirements(
 }
 
 export function isCicssoOrganization(organization) {
-  const normalizedOrganization = normalizeClearanceText(
-    `${organization?.acronym || ""} ${organization?.name || ""}`,
-  );
-
-  return (
-    normalizedOrganization.includes("cicsso") ||
-    normalizedOrganization.includes(
-      "college of information and computing sciences student organization",
-    )
+  return Boolean(
+    organization?._id || organization?.name || organization?.acronym,
   );
 }
 
@@ -196,11 +218,18 @@ export function getClearanceSummary(
   payments = [],
   academicYear = CLEARANCE_ACADEMIC_YEAR,
 ) {
-  const requirements = getClearanceRequirements(fees, payments, academicYear);
+  const requirements = getClearanceRequirements(
+    fees,
+    payments,
+    academicYear,
+    organization,
+  );
   const satisfiedCount = requirements.filter(
     (requirement) => requirement.isSatisfied,
   ).length;
-  const isCicsso = isCicssoOrganization(organization);
+  const isCicsso = Boolean(
+    organization?._id || organization?.name || organization?.acronym,
+  );
 
   return {
     requirements,
@@ -209,7 +238,8 @@ export function getClearanceSummary(
     academicYear,
     isCleared:
       isCicsso &&
-      requirements.length === CLEARANCE_REQUIREMENTS.length &&
+      requirements.length ===
+        getOrganizationRequirements(organization).length &&
       satisfiedCount === requirements.length,
   };
 }

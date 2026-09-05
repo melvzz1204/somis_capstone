@@ -152,6 +152,16 @@ export default function OrgDashboard() {
   const [organizationMembers, setOrganizationMembers] = useState([]);
   const [proposalActionId, setProposalActionId] = useState("");
   const [proposalNotice, setProposalNotice] = useState("");
+  const [isSuborganizationModalOpen, setIsSuborganizationModalOpen] =
+    useState(false);
+  const [isSuborganizationSubmitting, setIsSuborganizationSubmitting] =
+    useState(false);
+  const [suborganizationForm, setSuborganizationForm] = useState({
+    name: "",
+    acronym: "",
+    president: "",
+    email: "",
+  });
 
   const loadOrganizationProfile = useCallback(async () => {
     setIsProfileLoading(true);
@@ -257,6 +267,39 @@ export default function OrgDashboard() {
     }
   };
 
+  const handleSuborganizationInput = (event) => {
+    const { name, value } = event.target;
+    setSuborganizationForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleSuborganizationSubmit = async (event) => {
+    event.preventDefault();
+    setIsSuborganizationSubmitting(true);
+    try {
+      const response = await API.post("/organizations/suborganizations", {
+        ...suborganizationForm,
+        president: suborganizationForm.president.trim().replace(/\s+/g, " "),
+      });
+      setIsSuborganizationModalOpen(false);
+      setSuborganizationForm({
+        name: "",
+        acronym: "",
+        president: "",
+        email: "",
+      });
+      showToast(
+        response.emailStatus === "failed"
+          ? "Suborganization registered, but the invitation email could not be sent."
+          : "Suborganization registered and invitation sent.",
+        response.emailStatus === "failed" ? "warning" : "success",
+      );
+    } catch (err) {
+      showToast(err.message || "Unable to register suborganization.", "error");
+    } finally {
+      setIsSuborganizationSubmitting(false);
+    }
+  };
+
   const organization =
     user?.organization && typeof user.organization === "object"
       ? user.organization
@@ -275,6 +318,8 @@ export default function OrgDashboard() {
     email: organization?.email || user?.email || "org@marsu.edu.ph",
     status: organization?.status || "Active",
     academicPeriod: organization?.academicPeriod,
+    organizationType: organization?.organizationType || "parent",
+    parentOrganization: organization?.parentOrganization || null,
   };
 
   const organizationNeeds = [
@@ -595,6 +640,28 @@ export default function OrgDashboard() {
 
               <AcademicPeriodSettings organization={organization} readOnly />
 
+              {org.organizationType !== "suborganization" && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-5 py-4">
+                  <div>
+                    <p className="text-sm font-bold text-[#4A0E17]">
+                      Register a sub-organization
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Create an organization under {org.name}. It will inherit
+                      the college and receive its own leader invitation.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSuborganizationModalOpen(true)}
+                    disabled={org.status !== "Active"}
+                    className="shrink-0 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Register Sub-Organization
+                  </button>
+                </div>
+              )}
+
               {/* Detail Profile Grid */}
               <div className="border border-slate-200/80 bg-white rounded-2xl shadow-xs overflow-hidden">
                 <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between gap-3 text-xs text-[#4A0E17]">
@@ -820,6 +887,96 @@ export default function OrgDashboard() {
           )}
         </main>
       </div>
+
+      {isSuborganizationModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-md p-5 sm:p-6 space-y-5">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-[#4A0E17]">
+                  Register Sub-Organization
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Main Org {org.name} · College: {org.college}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSuborganizationModalOpen(false)}
+                disabled={isSuborganizationSubmitting}
+                className="text-sm font-bold text-slate-400 hover:text-[#4A0E17]"
+              >
+                ✕
+              </button>
+            </div>
+            <form
+              onSubmit={handleSuborganizationSubmit}
+              className="space-y-4 text-xs"
+            >
+              <label className="block font-bold text-[#4A0E17]">
+                Organization Full Name
+                <input
+                  name="name"
+                  required
+                  value={suborganizationForm.name}
+                  onChange={handleSuborganizationInput}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                />
+              </label>
+              <label className="block font-bold text-[#4A0E17]">
+                Acronym / Code
+                <input
+                  name="acronym"
+                  required
+                  value={suborganizationForm.acronym}
+                  onChange={handleSuborganizationInput}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                />
+              </label>
+              <label className="block font-bold text-[#4A0E17]">
+                Surname of Student Leader / President
+                <input
+                  name="president"
+                  required
+                  value={suborganizationForm.president}
+                  onChange={handleSuborganizationInput}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                />
+              </label>
+              <label className="block font-bold text-[#4A0E17]">
+                Official Organization Email
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  value={suborganizationForm.email}
+                  onChange={handleSuborganizationInput}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                />
+              </label>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSuborganizationModalOpen(false)}
+                  disabled={isSuborganizationSubmitting}
+                  className="rounded-xl border border-[#4A0E17]/30 bg-white px-4 py-2.5 font-semibold text-[#4A0E17]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSuborganizationSubmitting}
+                  className="rounded-xl bg-[#4A0E17] px-4 py-2.5 font-bold text-white disabled:opacity-50"
+                >
+                  {isSuborganizationSubmitting
+                    ? "Registering..."
+                    : "Register Sub-Organization"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

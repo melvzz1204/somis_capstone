@@ -125,6 +125,8 @@ export default function AdminDashboard() {
     name: "",
     acronym: "",
     college: "",
+    organizationType: "parent",
+    parentOrganization: "",
     president: "",
     email: "",
   });
@@ -201,6 +203,8 @@ export default function AdminDashboard() {
       name: "",
       acronym: "",
       college: "",
+      organizationType: "parent",
+      parentOrganization: "",
       president: "",
       email: "",
     });
@@ -217,6 +221,9 @@ export default function AdminDashboard() {
       name: org.name || "",
       acronym: org.acronym || "",
       college: org.college || "",
+      organizationType: org.organizationType || "parent",
+      parentOrganization:
+        org.parentOrganization?._id || org.parentOrganization || "",
       president: org.president || "",
       email: org.email || "",
     });
@@ -235,6 +242,8 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
     const payload = {
       ...newOrg,
+      organizationType: "parent",
+      parentOrganization: null,
       president: newOrg.president.trim().replace(/\s+/g, " "),
     };
 
@@ -628,69 +637,93 @@ export default function AdminDashboard() {
 
                 <div className="divide-y divide-slate-100">
                   {Array.isArray(organizations) && organizations.length > 0 ? (
-                    organizations.map((org) => (
-                      <div
-                        key={org._id || org.id}
-                        className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors"
-                      >
-                        <div className="space-y-1.5 max-w-xl">
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-sm font-bold text-[#4A0E17]">
-                              {org.name}
-                            </span>
-                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
-                              {org.acronym}
-                            </span>
+                    [...organizations]
+                      .sort((left, right) => {
+                        const leftParent = left.parentOrganization ? 1 : 0;
+                        const rightParent = right.parentOrganization ? 1 : 0;
+                        return (
+                          leftParent - rightParent ||
+                          left.name.localeCompare(right.name)
+                        );
+                      })
+                      .map((org) => (
+                        <div
+                          key={org._id || org.id}
+                          className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors ${org.parentOrganization ? "pl-9 border-l-4 border-[#D4AF37]/50" : ""}`}
+                        >
+                          <div className="space-y-1.5 max-w-xl">
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-sm font-bold text-[#4A0E17]">
+                                {org.name}
+                              </span>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
+                                {org.parentOrganization
+                                  ? "SUBORGANIZATION"
+                                  : "PARENT"}
+                              </span>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
+                                {org.acronym}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                              {org.college} <br className="sm:hidden" />
+                              {org.parentOrganization && (
+                                <>
+                                  <span className="mx-1">•</span>
+                                  Suborganization of{" "}
+                                  <span className="text-slate-700 font-medium">
+                                    {org.parentOrganization.name}
+                                  </span>{" "}
+                                  <br className="sm:hidden" />
+                                </>
+                              )}
+                              <span className="mx-1">•</span>
+                              President:{" "}
+                              <span className="text-slate-700 font-medium">
+                                {org.president || "N/A"}
+                              </span>
+                            </p>
                           </div>
-                          <p className="text-xs text-slate-500 leading-relaxed">
-                            {org.college} <br className="sm:hidden" />
-                            <span className="mx-1">•</span>
-                            President:{" "}
-                            <span className="text-slate-700 font-medium">
-                              {org.president || "N/A"}
-                            </span>
-                          </p>
-                        </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
-                          <span
-                            className={`px-3 py-1 rounded-full border font-bold text-[11px] flex items-center gap-1.5 ${
-                              org.status === "Inactive"
-                                ? "bg-slate-100 border-slate-200 text-slate-600"
-                                : "bg-emerald-50 border-emerald-200 text-emerald-800"
-                            }`}
-                          >
+                          <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${org.status === "Inactive" ? "bg-slate-400" : "bg-emerald-500 animate-pulse"}`}
-                            />
-                            {org.status || "Active"}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(org)}
-                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleOrganization(org)}
-                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                          >
-                            {org.status === "Inactive"
-                              ? "Activate"
-                              : "Deactivate"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteOrganization(org)}
-                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                          >
-                            Delete
-                          </button>
+                              className={`px-3 py-1 rounded-full border font-bold text-[11px] flex items-center gap-1.5 ${
+                                org.status === "Inactive"
+                                  ? "bg-slate-100 border-slate-200 text-slate-600"
+                                  : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${org.status === "Inactive" ? "bg-slate-400" : "bg-emerald-500 animate-pulse"}`}
+                              />
+                              {org.status || "Active"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(org)}
+                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleOrganization(org)}
+                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                            >
+                              {org.status === "Inactive"
+                                ? "Activate"
+                                : "Deactivate"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteOrganization(org)}
+                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))
                   ) : (
                     <div className="py-16 text-center text-xs text-slate-400 space-y-2">
                       <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
@@ -749,6 +782,18 @@ export default function AdminDashboard() {
                   onChange={handleInputChange}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[#4A0E17] font-bold mb-1">
+                  Organization Type
+                </label>
+                <input type="hidden" name="organizationType" value="parent" />
+                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                  OVPSAS registers parent organizations. Organization leaders
+                  register their own suborganizations from the organization
+                  portal.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

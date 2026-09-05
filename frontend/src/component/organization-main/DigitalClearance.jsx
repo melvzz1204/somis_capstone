@@ -11,6 +11,7 @@ import {
 import {
   CLEARANCE_ACADEMIC_YEAR,
   getClearanceSummary,
+  getOrganizationClearanceConfig,
   normalizeClearanceText,
 } from "../../util/clearanceStatus";
 
@@ -82,7 +83,9 @@ function SignatureLine({ name, role }) {
   );
 }
 
-function DocumentHeader({ copyLabel, isCleared, academicYear }) {
+function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
+  const config = getOrganizationClearanceConfig(organization);
+
   return (
     <>
       {/* Header Grid: Left Logos | Center Info | Right Logo */}
@@ -95,8 +98,8 @@ function DocumentHeader({ copyLabel, isCleared, academicYear }) {
             className="h-[16mm] w-[16mm] object-contain"
           />
           <img
-            src="/cics.png"
-            alt="College of Information and Computing Sciences logo"
+            src="/logo.png"
+            alt={`${config.college || "College"} logo`}
             className="h-[16mm] w-[16mm] object-contain"
           />
         </div>
@@ -107,22 +110,21 @@ function DocumentHeader({ copyLabel, isCleared, academicYear }) {
             Marinduque State University
           </p>
           <p className="mt-0.5 text-[10.5px] font-black leading-tight tracking-tight uppercase">
-            College of Information and Computing Sciences
+            {config.college || "College"}
           </p>
           <p className="mt-0.5 text-[8px] font-semibold leading-tight text-slate-700">
             Panfilo M. Manguerra Sr. Rd., Tanza, Boac, Marinduque
           </p>
           <p className="mt-0.5 text-[7.5px] font-bold leading-tight text-slate-900 uppercase">
-            College of Information and Computing Sciences Student Organization -
-            Boac (CICSSO)
+            {config.name} ({config.acronym})
           </p>
         </div>
 
         {/* Right Logo (Student Org) */}
         <div className="flex items-center justify-end shrink-0">
           <img
-            src="/cicsso.png"
-            alt="CICSSO seal"
+            src="/logo.png"
+            alt={`${config.name} seal`}
             className="h-[16mm] w-[16mm] object-contain"
           />
         </div>
@@ -136,7 +138,7 @@ function DocumentHeader({ copyLabel, isCleared, academicYear }) {
           </span>
         )}
         <h2 className="px-12 text-[18px] font-black leading-none tracking-wide text-slate-950 uppercase">
-          CICSSO Annual Clearance
+          {config.title}
         </h2>
         <p className="mt-1 text-[11px] font-bold leading-none text-[#4A0E17]">
           S.Y. {academicYear}
@@ -260,6 +262,7 @@ function ClearanceCopy({
   membership,
   signatories,
   academicYear,
+  organization,
 }) {
   return (
     <section className="min-h-0 px-[3mm] py-[2mm]">
@@ -267,6 +270,7 @@ function ClearanceCopy({
         copyLabel={copyLabel}
         isCleared={isCleared}
         academicYear={academicYear}
+        organization={organization}
       />
       <StudentInformation profile={profile} membership={membership} />
       <p
@@ -285,8 +289,14 @@ function ClearanceCopy({
       <section className="mt-[2mm] font-serif text-slate-950">
         <p className="text-[9px] font-black">ATTESTED BY:</p>
         <div className="mt-[2mm] grid grid-cols-2 gap-[10mm] px-[10mm]">
-          <SignatureLine name={signatories.treasurer} role="CICSSO Treasurer" />
-          <SignatureLine name={signatories.president} role="CICSSO President" />
+          <SignatureLine
+            name={signatories.treasurer}
+            role={`${getOrganizationClearanceConfig(organization).acronym} Treasurer`}
+          />
+          <SignatureLine
+            name={signatories.president}
+            role={`${getOrganizationClearanceConfig(organization).acronym} President`}
+          />
         </div>
         {isOfficeCopy && (
           <>
@@ -321,6 +331,7 @@ function ScreenStatus({
   onDownload,
   isDownloading,
   academicYear,
+  organization,
 }) {
   const pendingRequirements = requirements.filter(
     (requirement) => !requirement.isSatisfied,
@@ -342,14 +353,14 @@ function ScreenStatus({
     description = error;
     tone = "border-rose-300 bg-rose-50 text-rose-950";
   } else if (!isCicsso) {
-    title = "CICSSO membership required";
+    title = "Organization membership required";
     description =
-      "This annual clearance is issued to registered CICSSO members.";
+      "This annual clearance is issued to registered organization members.";
     tone = "border-rose-300 bg-rose-50 text-rose-950";
   } else if (isCleared) {
     icon = <CheckCircle2 className="h-5 w-5" aria-hidden="true" />;
     title = `Cleared for S.Y. ${academicYear}`;
-    description = "All five CICSSO requirements are verified or exempted.";
+    description = `All ${requirements.length} ${getOrganizationClearanceConfig(organization).acronym} requirements are verified or exempted.`;
     tone = "border-emerald-300 bg-emerald-50 text-emerald-950";
   }
 
@@ -522,8 +533,10 @@ export default function DigitalClearance({
         .replace(/[^a-z0-9-]+/gi, "-");
       const fileAcademicYear = academicYear.replace(/\s+/g, "");
       const documentType = isCleared ? "Clearance" : "Clearance-Progress";
+      const organizationPrefix =
+        getOrganizationClearanceConfig(organization).acronym;
       pdf.save(
-        `CICSSO-${documentType}-${studentId || "student"}-${fileAcademicYear}.pdf`,
+        `${organizationPrefix}-${documentType}-${studentId || "student"}-${fileAcademicYear}.pdf`,
       );
     } catch (error) {
       console.error("Unable to generate clearance PDF:", error);
@@ -551,6 +564,7 @@ export default function DigitalClearance({
         onReviewFees={onReviewFees}
         onDownload={handleDownloadPdf}
         isDownloading={isDownloading}
+        organization={organization}
       />
 
       <div
@@ -571,7 +585,7 @@ export default function DigitalClearance({
               transform: `scale(${previewScale})`,
               "--clearance-preview-scale": previewScale,
             }}
-            aria-label="CICSSO annual clearance document preview"
+            aria-label={`${getOrganizationClearanceConfig(organization).title} document preview`}
           >
             <div className="pointer-events-none absolute inset-0 opacity-[0.018] [background-image:radial-gradient(#4A0E17_0.5px,transparent_0.5px)] [background-size:4px_4px]" />
             <ClearanceCopy
@@ -583,6 +597,7 @@ export default function DigitalClearance({
               membership={membership}
               signatories={signatories}
               academicYear={academicYear}
+              organization={organization}
             />
 
             <div
@@ -596,7 +611,7 @@ export default function DigitalClearance({
             </div>
 
             <ClearanceCopy
-              copyLabel="CICSSO copy"
+              copyLabel={`${getOrganizationClearanceConfig(organization).acronym} copy`}
               isOfficeCopy={true}
               isCleared={isCleared}
               requirements={requirements}
@@ -604,6 +619,7 @@ export default function DigitalClearance({
               membership={membership}
               signatories={signatories}
               academicYear={academicYear}
+              organization={organization}
             />
           </article>
         </div>

@@ -18,6 +18,17 @@ const organizationSchema = new mongoose.Schema(
       required: [true, "College assignment is required"],
       trim: true,
     },
+    organizationType: {
+      type: String,
+      enum: ["parent", "suborganization"],
+      default: "parent",
+      required: true,
+    },
+    parentOrganization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      default: null,
+    },
     adviser: {
       type: String,
       default: "",
@@ -71,5 +82,37 @@ const organizationSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+organizationSchema.index({ parentOrganization: 1, status: 1, name: 1 });
+organizationSchema.index({ organizationType: 1, college: 1 });
+
+organizationSchema.pre("validate", function validateHierarchy(next) {
+  if (this.organizationType === "suborganization" && !this.parentOrganization) {
+    this.invalidate(
+      "parentOrganization",
+      "A suborganization must have a parent organization.",
+    );
+  }
+
+  if (this.organizationType !== "suborganization" && this.parentOrganization) {
+    this.invalidate(
+      "parentOrganization",
+      "Only suborganizations may have a parent organization.",
+    );
+  }
+
+  if (
+    this.parentOrganization &&
+    this._id &&
+    this.parentOrganization.equals(this._id)
+  ) {
+    this.invalidate(
+      "parentOrganization",
+      "An organization cannot be its own parent.",
+    );
+  }
+
+  next();
+});
 
 module.exports = mongoose.model("Organization", organizationSchema);

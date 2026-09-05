@@ -41,8 +41,11 @@ router.get("/", async (req, res) => {
     }
 
     const organizations = await Organization.find(filter)
-      .select("name acronym college adviser president email status")
-      .sort({ name: 1 });
+      .select(
+        "name acronym college adviser president email status organizationType parentOrganization",
+      )
+      .populate("parentOrganization", "name acronym college organizationType")
+      .sort({ college: 1, name: 1 });
     return res.status(200).json(organizations);
   } catch (error) {
     console.error("Error fetching organizations:", error);
@@ -170,10 +173,28 @@ router.patch(
 // =========================================================
 router.post("/", protect, authorize("admin"), async (req, res) => {
   try {
-    const { name, acronym, college, president, email } = req.body;
+    const { name, acronym, president, email } = req.body;
+    const organizationType = String(req.body.organizationType || "parent")
+      .trim()
+      .toLowerCase();
+    const college = String(req.body.college || "").trim();
     const presidentSurname = String(president || "")
       .trim()
       .replace(/\s+/g, " ");
+
+    // Child organizations are registered by their parent organization leader.
+    if (organizationType === "suborganization") {
+      return res.status(403).json({
+        message:
+          "Suborganizations must be registered by an organization leader.",
+      });
+    }
+
+    if (organizationType !== "parent") {
+      return res.status(400).json({
+        message: "Only parent organizations may be registered by OVPSAS.",
+      });
+    }
 
     // 1. Basic validation
     if (!name || !acronym || !college || !presidentSurname || !email) {
@@ -199,6 +220,8 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
       name,
       acronym,
       college,
+      organizationType: "parent",
+      parentOrganization: null,
       president: presidentSurname,
       email,
     });
@@ -256,6 +279,127 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
 });
 
 // =========================================================
+// POST /v1/organizations/suborganizations - Org leader registration
+// =========================================================
+router.post(
+  "/suborganizations",
+  protect,
+  authorize("org_admin"),
+  async (req, res) => {
+    try {
+      const { name, acronym, president, email } = req.body;
+      const parentOrganization = await Organization.findById(
+        req.user.organization,
+      );
+
+      if (!parentOrganization || parentOrganization.status !== "Active") {
+        return res.status(403).json({
+          message:
+            "Only an active organization can register a suborganization.",
+        });
+      }
+
+      const normalizedName = String(name || "").trim();
+      const normalizedAcronym = String(acronym || "")
+        .trim()
+        .toUpperCase();
+      const normalizedPresident = String(president || "")
+        .trim()
+        .replace(/\s+/g, " ");
+      const normalizedEmail = String(email || "")
+        .trim()
+        .toLowerCase();
+
+      if (
+        !normalizedName ||
+        !normalizedAcronym ||
+        !normalizedPresident ||
+        !normalizedEmail
+      ) {
+        return res.status(400).json({
+          message:
+            "Suborganization name, acronym, leader surname, and email are required.",
+        });
+      }
+
+      const duplicate = await Organization.findOne({
+        $or: [{ name: normalizedName }, { acronym: normalizedAcronym }],
+      }).collation({ locale: "en", strength: 2 });
+      if (duplicate) {
+        return res.status(409).json({
+          message: "An organization with this name or acronym already exists.",
+        });
+      }
+
+      const emailOwner = await User.findOne({ email: normalizedEmail });
+      if (emailOwner) {
+        return res.status(409).json({
+          message: "That email address is already assigned to another account.",
+        });
+      }
+
+      const organization = await Organization.create({
+        name: normalizedName,
+        acronym: normalizedAcronym,
+        college: parentOrganization.college,
+        organizationType: "suborganization",
+        parentOrganization: parentOrganization._id,
+        president: normalizedPresident,
+        email: normalizedEmail,
+      });
+
+      const setupToken = crypto.randomBytes(32).toString("hex");
+      const newUser = await User.create({
+        name: normalizedPresident,
+        email: normalizedEmail,
+        role: "org_admin",
+        organization: organization._id,
+        setupToken,
+        setupTokenExpires: Date.now() + 24 * 60 * 60 * 1000,
+      });
+
+      await Member.create({
+        name: normalizedPresident,
+        surname: normalizedPresident,
+        email: normalizedEmail,
+        role: "President",
+        organization: organization._id,
+        hasAccount: true,
+      });
+
+      const setupUrl = createSetupUrl(setupToken);
+      let emailStatus = "sent";
+      try {
+        await sendOrgInviteEmail(normalizedEmail, normalizedName, setupToken);
+      } catch (emailErr) {
+        emailStatus = "failed";
+        console.error(
+          `Suborganization invite failed for ${normalizedEmail}:`,
+          emailErr.message,
+        );
+      }
+
+      return res.status(201).json({
+        ...organization.toObject(),
+        demoSetupLink: setupUrl,
+        emailStatus,
+        userId: newUser._id,
+      });
+    } catch (error) {
+      console.error("Error creating suborganization:", error);
+      if (error.code === 11000) {
+        return res.status(409).json({
+          message: "That email address is already assigned to another account.",
+        });
+      }
+      return res
+        .status(500)
+        .json({ message: "Failed to create suborganization." });
+    }
+  },
+);
+
+// =========================================================
 // PUT /v1/organizations/:organizationId - Edit organization
 // =========================================================
 router.put(
@@ -275,13 +419,60 @@ router.put(
       const acronym = String(req.body.acronym || "")
         .trim()
         .toUpperCase();
-      const college = String(req.body.college || "").trim();
+      let college = String(req.body.college || "").trim();
+      const organizationType = String(
+        req.body.organizationType || organization.organizationType || "parent",
+      )
+        .trim()
+        .toLowerCase();
       const president = String(req.body.president || "")
         .trim()
         .replace(/\s+/g, " ");
       const email = String(req.body.email || "")
         .trim()
         .toLowerCase();
+
+      if (!["parent", "suborganization"].includes(organizationType)) {
+        return res.status(400).json({
+          message: "Organization type must be parent or suborganization.",
+        });
+      }
+
+      let parentOrganization = null;
+      if (organizationType === "suborganization") {
+        const parentId =
+          req.body.parentOrganization || organization.parentOrganization;
+        if (!parentId) {
+          return res.status(400).json({
+            message: "A parent organization is required for a suborganization.",
+          });
+        }
+        parentOrganization = await Organization.findById(parentId);
+        if (
+          !parentOrganization ||
+          String(parentOrganization._id) === String(organization._id)
+        ) {
+          return res
+            .status(400)
+            .json({ message: "Select a valid parent organization." });
+        }
+        if (parentOrganization.status !== "Active") {
+          return res
+            .status(400)
+            .json({ message: "The parent organization must be active." });
+        }
+        college = parentOrganization.college;
+      }
+
+      const childCount = await Organization.countDocuments({
+        parentOrganization: organization._id,
+      });
+      if (childCount > 0 && college !== organization.college) {
+        return res.status(400).json({
+          message:
+            "A parent organization with suborganizations cannot change colleges.",
+        });
+      }
 
       if (!name || !acronym || !college || !president || !email) {
         return res.status(400).json({
@@ -319,6 +510,8 @@ router.put(
         name,
         acronym,
         college,
+        organizationType,
+        parentOrganization: parentOrganization?._id || null,
         president,
         email,
       });
@@ -373,17 +566,33 @@ router.patch(
         });
       }
 
-      const organization = await Organization.findByIdAndUpdate(
+      const organization = await Organization.findById(
         req.params.organizationId,
-        { status },
-        { new: true, runValidators: true },
       );
       if (!organization) {
         return res.status(404).json({ message: "Organization not found." });
       }
+      organization.status = status;
+      await organization.save();
+
+      // A parent organization controls the availability of its child organizations.
+      const childOrganizations = await Organization.find({
+        parentOrganization: organization._id,
+      }).select("_id");
+      const organizationIds = [
+        organization._id,
+        ...childOrganizations.map((child) => child._id),
+      ];
+      await Organization.updateMany(
+        { _id: { $in: organizationIds } },
+        { $set: { status } },
+      );
 
       // Deactivation immediately blocks every non-admin account under the org.
-      await User.updateMany({ organization: organization._id }, { status });
+      await User.updateMany(
+        { organization: { $in: organizationIds } },
+        { status },
+      );
 
       return res.status(200).json(organization);
     } catch (error) {
@@ -409,6 +618,16 @@ router.delete(
       );
       if (!organization) {
         return res.status(404).json({ message: "Organization not found." });
+      }
+
+      const childCount = await Organization.countDocuments({
+        parentOrganization: organization._id,
+      });
+      if (childCount > 0) {
+        return res.status(409).json({
+          message:
+            "Delete all suborganizations before deleting their parent organization.",
+        });
       }
 
       await removeOrganizationDocumentFiles(organization._id);

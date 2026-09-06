@@ -7,6 +7,7 @@ import StudentPage from "./pages/studentPage.jsx";
 import SetUpAccount from "./pages/setupAccount.jsx";
 import ResetPassword from "./pages/resetPassword.jsx";
 import OrgDashboard from "./pages/orgDashboard.jsx";
+import SuborgDashboard from "./pages/suborgDashboard.jsx";
 import OrgSecretaryPage from "./pages/orgsecretaryPage.jsx";
 import OrgTreasurerPage from "./pages/orgTreasurerPage.jsx";
 import AdviserDashboard from "./pages/adviserDashboard.jsx";
@@ -34,6 +35,7 @@ function App() {
         <Route path="/setup-account" element={<SetUpAccount />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/org-dashboard" element={<OrgDashboard />} />
+        <Route path="/suborg-dashboard" element={<SuborgDashboard />} />
         <Route path="/org-secretary" element={<OrgSecretaryPage />} />
         <Route path="/org-treasurer" element={<OrgTreasurerPage />} />
         <Route path="/org-pio" element={<OrgPioPage />} />

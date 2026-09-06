@@ -63,7 +63,7 @@ export default function ResetPassword() {
       }
 
       // 4. Smooth redirect after displaying success message
-      const redirectPath = getRedirectPathByRole(user?.role || "student");
+      const redirectPath = getRedirectPathByRole(user || "student");
 
       setTimeout(() => {
         navigate(redirectPath, { replace: true });

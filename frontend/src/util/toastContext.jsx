@@ -33,7 +33,7 @@ export function ToastProvider({ children }) {
       {children}
 
       {/* GLOBAL TOAST CONTAINER (Bottom Right) */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+      <div className="fixed bottom-5 right-5 z-[100] flex max-h-[70vh] w-full max-w-sm flex-col gap-2.5 overflow-y-auto pointer-events-none px-4 sm:px-0">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -100,7 +100,9 @@ export function ToastProvider({ children }) {
                 </div>
               )}
 
-              <span className="leading-tight">{toast.message}</span>
+              <span className="max-h-32 overflow-y-auto break-words leading-tight">
+                {toast.message}
+              </span>
             </div>
 
             <button

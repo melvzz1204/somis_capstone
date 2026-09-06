@@ -288,9 +288,10 @@ router.post(
   async (req, res) => {
     try {
       const { name, acronym, president, email } = req.body;
-      const parentOrganization = await Organization.findById(
-        req.user.organization,
-      );
+      const parentOrganizationId =
+        req.user.organization?._id || req.user.organization;
+      const parentOrganization =
+        await Organization.findById(parentOrganizationId);
 
       if (!parentOrganization || parentOrganization.status !== "Active") {
         return res.status(403).json({
@@ -322,9 +323,14 @@ router.post(
         });
       }
 
+      const escapeRegex = (value) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const duplicate = await Organization.findOne({
-        $or: [{ name: normalizedName }, { acronym: normalizedAcronym }],
-      }).collation({ locale: "en", strength: 2 });
+        $or: [
+          { name: new RegExp(`^${escapeRegex(normalizedName)}$`, "i") },
+          { acronym: new RegExp(`^${escapeRegex(normalizedAcronym)}$`, "i") },
+        ],
+      });
       if (duplicate) {
         return res.status(409).json({
           message: "An organization with this name or acronym already exists.",
@@ -338,6 +344,14 @@ router.post(
         });
       }
 
+      // Mongoose's default collation is not available on every local MongoDB
+      // setup, so validate the parent relationship explicitly before writing.
+      if (parentOrganization.organizationType === "suborganization") {
+        return res.status(403).json({
+          message: "A suborganization cannot register another suborganization.",
+        });
+      }
+
       const organization = await Organization.create({
         name: normalizedName,
         acronym: normalizedAcronym,
@@ -346,6 +360,7 @@ router.post(
         parentOrganization: parentOrganization._id,
         president: normalizedPresident,
         email: normalizedEmail,
+        status: "Active",
       });
 
       const setupToken = crypto.randomBytes(32).toString("hex");
@@ -370,7 +385,10 @@ router.post(
       const setupUrl = createSetupUrl(setupToken);
       let emailStatus = "sent";
       try {
-        await sendOrgInviteEmail(normalizedEmail, normalizedName, setupToken);
+        await sendOrgInviteEmail(normalizedEmail, normalizedName, setupToken, {
+          registeredBy: parentOrganization.name,
+          organizationType: "suborganization",
+        });
       } catch (emailErr) {
         emailStatus = "failed";
         console.error(
@@ -392,9 +410,12 @@ router.post(
           message: "That email address is already assigned to another account.",
         });
       }
-      return res
-        .status(500)
-        .json({ message: "Failed to create suborganization." });
+      return res.status(500).json({
+        message:
+          process.env.NODE_ENV === "development"
+            ? `Failed to create suborganization: ${error.message}`
+            : "Failed to create suborganization.",
+      });
     }
   },
 );

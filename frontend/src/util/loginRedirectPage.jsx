@@ -1,7 +1,13 @@
 // src/util/loginRedirectPage.js
 
-export const getRedirectPathByRole = (role) => {
+export const getRedirectPathByRole = (roleOrUser) => {
+  const user = roleOrUser && typeof roleOrUser === "object" ? roleOrUser : null;
+  const role = user?.role || roleOrUser;
   const normalizedRole = role?.toString().toLowerCase().trim();
+  const organizationType = user?.organization?.organizationType
+    ?.toString()
+    .toLowerCase()
+    .trim();
 
   switch (normalizedRole) {
     // OVPSAS / Admin Route
@@ -37,7 +43,9 @@ export const getRedirectPathByRole = (role) => {
     case "org_officer":
     case "student_officer":
     case "president":
-      return "/org-dashboard";
+      return organizationType === "suborganization"
+        ? "/suborg-dashboard"
+        : "/org-dashboard";
 
     // Regular Student Member Route
     case "student":

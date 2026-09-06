@@ -294,7 +294,12 @@ export default function OrgDashboard() {
         response.emailStatus === "failed" ? "warning" : "success",
       );
     } catch (err) {
-      showToast(err.message || "Unable to register suborganization.", "error");
+      const errorMessage =
+        err.message ||
+        err.response?.data?.message ||
+        "Unable to register suborganization.";
+      console.error("Suborganization registration failed:", err);
+      showToast(errorMessage, "error", 15000);
     } finally {
       setIsSuborganizationSubmitting(false);
     }
@@ -353,7 +358,9 @@ export default function OrgDashboard() {
                 SOMIS
               </span>
               <span className="text-[10px] font-medium text-rose-200/70 tracking-wider block">
-                Org Leader Portal
+                {org.organizationType === "suborganization"
+                  ? "Sub-Org Leader Portal"
+                  : "Org Leader Portal"}
               </span>
             </div>
           </div>

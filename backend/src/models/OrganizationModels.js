@@ -86,7 +86,7 @@ const organizationSchema = new mongoose.Schema(
 organizationSchema.index({ parentOrganization: 1, status: 1, name: 1 });
 organizationSchema.index({ organizationType: 1, college: 1 });
 
-organizationSchema.pre("validate", function validateHierarchy(next) {
+organizationSchema.pre("validate", function validateHierarchy() {
   if (this.organizationType === "suborganization" && !this.parentOrganization) {
     this.invalidate(
       "parentOrganization",
@@ -111,8 +111,6 @@ organizationSchema.pre("validate", function validateHierarchy(next) {
       "An organization cannot be its own parent.",
     );
   }
-
-  next();
 });
 
 module.exports = mongoose.model("Organization", organizationSchema);

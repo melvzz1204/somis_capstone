@@ -67,6 +67,17 @@ const syncMemberAvatarsFromActiveAccounts = async (orgId) => {
   );
 };
 
+const syncOrganizationAdviser = async (organizationId) => {
+  const adviser = await Member.findOne({
+    organization: organizationId,
+    role: "Faculty Adviser",
+  }).sort({ createdAt: -1 });
+
+  await Organization.findByIdAndUpdate(organizationId, {
+    adviser: adviser?.name || "",
+  });
+};
+
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
 // ==========================================
@@ -139,6 +150,10 @@ exports.getMembersByOrg = async (req, res) => {
       role: 1,
       createdAt: -1,
     });
+
+    // Repair organizations created before adviser synchronization was added,
+    // and keep the profile value consistent with the official roster.
+    await syncOrganizationAdviser(orgId);
 
     return res.status(200).json(members);
   } catch (error) {
@@ -305,6 +320,10 @@ exports.addMember = async (req, res) => {
       organization: orgId,
     });
 
+    if (normalizedRole === "Faculty Adviser") {
+      await syncOrganizationAdviser(orgId);
+    }
+
     return res.status(201).json({
       message: "Officer/Member added successfully!",
       member: newMember,
@@ -325,6 +344,10 @@ exports.deleteMember = async (req, res) => {
 
     if (!deletedMember) {
       return res.status(404).json({ message: "Member not found." });
+    }
+
+    if (deletedMember.role === "Faculty Adviser") {
+      await syncOrganizationAdviser(deletedMember.organization);
     }
 
     return res.status(200).json({ message: "Member removed successfully." });
@@ -362,7 +385,8 @@ exports.updateMember = async (req, res) => {
 
     if (idNumber !== undefined) member.idNumber = idNumber;
 
-    const isPresident = member.role === "President";
+    const previousRole = member.role;
+    const isPresident = previousRole === "President";
     const preservedPresidentSurname = isPresident
       ? member.surname || cleanNamePart(String(member.name || "").split(",")[0])
       : "";
@@ -444,6 +468,14 @@ exports.updateMember = async (req, res) => {
     }
 
     await member.save();
+
+    if (
+      isPresident ||
+      previousRole === "Faculty Adviser" ||
+      member.role === "Faculty Adviser"
+    ) {
+      await syncOrganizationAdviser(member.organization);
+    }
 
     if (isPresident) {
       await Promise.all([

@@ -94,9 +94,9 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
   const normalizedAcronym = normalizeClearanceText(
     organization?.acronym || config.acronym,
   );
-  // CICS-only logo arrangement: MarSU + CICSSO + SOMIS on the left.
-  // Other departments have no official logo available, so they only get
-  // MarSU + SOMIS and must not render any college/org logo.
+  // Logo arrangement: MarSU + CICSSO on the left (CICS version only),
+  // SOMIS logo on the right. Other departments have no official logo
+  // available, so they only get MarSU on the left + SOMIS on the right.
   const isCicsVersion =
     normalizedAcronym === "cicsso" ||
     normalizedCollege.includes("information and computing") ||
@@ -111,19 +111,15 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
           src: "/cicsso.png",
           alt: "College of Information and Computing Sciences Student Organization seal",
         },
-        { src: "/logo.png", alt: "SOMIS logo" },
       ]
-    : [
-        { src: "/marsu.png", alt: "Marinduque State University seal" },
-        { src: "/logo.png", alt: "SOMIS logo" },
-      ];
+    : [{ src: "/marsu.png", alt: "Marinduque State University seal" }];
 
   return (
     <>
-      {/* Header: left logos overlaid so center text stays page-centered */}
-      <div className="relative flex items-center justify-center gap-3">
+      {/* Header Grid: Left Logos | Center Info | Right SOMIS Logo */}
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
         {/* Left Logos */}
-        <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {leftLogos.map((logo) => (
             <img
               key={logo.src}
@@ -402,8 +398,17 @@ function ScreenStatus({
                   {pendingRequirements.map((item) => item.label).join(", ")}
                 </p>
               )}
-            </div>
-          </div>
+        </div>
+
+        {/* Right Logo (SOMIS) */}
+        <div className="flex items-center justify-end shrink-0">
+          <img
+            src="/logo.png"
+            alt="SOMIS logo"
+            className="h-[14mm] w-[14mm] object-contain"
+          />
+        </div>
+      </div>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             {!isCleared && isCicsso && onReviewFees && (
               <button

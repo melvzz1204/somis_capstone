@@ -94,9 +94,10 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
   const normalizedAcronym = normalizeClearanceText(
     organization?.acronym || config.acronym,
   );
-  // Logo arrangement: MarSU + CICSSO on the left (CICS version only).
-  // Other departments have no official logo available, so they only get
-  // MarSU on the left. No SOMIS logo inside the clearance document.
+  // Logo arrangement: MarSU + CICSSO on the left (CICS version only),
+  // CICS + SOMIS side-by-side on the right. Other departments have no
+  // official logo available, so they only get MarSU on the left and
+  // SOMIS alone on the right.
   const isCicsVersion =
     normalizedAcronym === "cicsso" ||
     normalizedCollege.includes("information and computing") ||
@@ -114,12 +115,22 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
       ]
     : [{ src: "/marsu.png", alt: "Marinduque State University seal" }];
 
+  const rightLogos = isCicsVersion
+    ? [
+        {
+          src: "/cics.png",
+          alt: "College of Information and Computing Sciences seal",
+        },
+        { src: "/logo.png", alt: "SOMIS logo" },
+      ]
+    : [{ src: "/logo.png", alt: "SOMIS logo" }];
+
   return (
     <>
-      {/* Header: left logos overlaid so center text stays page-centered */}
-      <div className="relative flex items-center justify-center gap-3">
+      {/* Header Grid: Left Logos | Center Info | Right Logos */}
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
         {/* Left Logos */}
-        <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {leftLogos.map((logo) => (
             <img
               key={logo.src}
@@ -144,6 +155,18 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
           <p className="mt-0.5 text-[7.5px] font-bold leading-tight text-slate-900 uppercase">
             {config.name} ({config.acronym})
           </p>
+        </div>
+
+        {/* Right Logos (CICS + SOMIS side-by-side for CICS version) */}
+        <div className="flex items-center justify-end gap-2 shrink-0">
+          {rightLogos.map((logo) => (
+            <img
+              key={logo.src}
+              src={logo.src}
+              alt={logo.alt}
+              className="h-[14mm] w-[14mm] object-contain"
+            />
+          ))}
         </div>
       </div>
 
@@ -537,14 +560,56 @@ export default function DigitalClearance({
         unit: "mm",
         format: "a4",
       });
+      // Shrink the clearance content slightly to leave room for a
+      // download footer (timestamp + unique document ID) below it.
+      const footerTopMm = 289;
+      const contentWidthMm =
+        (footerTopMm * paperWidthPx) / paperHeightPx;
+      const contentXMm = (210 - contentWidthMm) / 2;
       pdf.addImage(
         canvas.toDataURL("image/jpeg", 0.96),
         "JPEG",
+        contentXMm,
         0,
-        0,
-        210,
-        297,
+        contentWidthMm,
+        footerTopMm,
       );
+      // Unique identifier generated fresh for every download instance.
+      const generatedAt = new Date();
+      const padSegment = (value, length = 2) =>
+        String(value).padStart(length, "0");
+      const dateSegment = `${generatedAt.getFullYear()}${padSegment(
+        generatedAt.getMonth() + 1,
+      )}${padSegment(generatedAt.getDate())}`;
+      const randomSegment = Math.floor(Math.random() * 0xffffff)
+        .toString(16)
+        .toUpperCase()
+        .padStart(6, "0");
+      const timeSegment = generatedAt
+        .getTime()
+        .toString(36)
+        .toUpperCase()
+        .slice(-4);
+      const organizationPrefix =
+        getOrganizationClearanceConfig(organization).acronym;
+      const documentId = `${organizationPrefix}-CLR-${dateSegment}-${timeSegment}${randomSegment}`;
+      const downloadedAtLabel = generatedAt.toLocaleString("en-PH", {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      });
+      pdf.setDrawColor(74, 14, 23);
+      pdf.line(10, footerTopMm + 0.5, 200, footerTopMm + 0.5);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(`Downloaded: ${downloadedAtLabel}`, 105, 292.5, {
+        align: "center",
+      });
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(40, 40, 40);
+      pdf.text(`Document ID: ${documentId}`, 105, 295.5, {
+        align: "center",
+      });
       const studentId = String(
         studentProfile?.studentIdNumber || membership?.idNumber || "student",
       )
@@ -552,8 +617,6 @@ export default function DigitalClearance({
         .replace(/[^a-z0-9-]+/gi, "-");
       const fileAcademicYear = academicYear.replace(/\s+/g, "");
       const documentType = isCleared ? "Clearance" : "Clearance-Progress";
-      const organizationPrefix =
-        getOrganizationClearanceConfig(organization).acronym;
       pdf.save(
         `${organizationPrefix}-${documentType}-${studentId || "student"}-${fileAcademicYear}.pdf`,
       );

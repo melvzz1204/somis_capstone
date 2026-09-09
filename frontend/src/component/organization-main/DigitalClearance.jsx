@@ -305,7 +305,10 @@ function ClearanceCopy({
   organization,
 }) {
   return (
-    <section className="min-h-0 px-[3mm] py-[2mm]">
+    <section
+      data-clearance-copy={copyLabel || "clearance-copy"}
+      className="min-h-0 px-[3mm] py-[2mm]"
+    >
       <DocumentHeader
         copyLabel={copyLabel}
         isCleared={isCleared}
@@ -546,35 +549,8 @@ export default function DigitalClearance({
         import("jspdf"),
       ]);
       paper.classList.add("clearance-pdf-capture");
-      const canvas = await html2canvas(paper, {
-        backgroundColor: "#fffefb",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        width: paperWidthPx,
-        height: paperHeightPx,
-      });
-      paper.classList.remove("clearance-pdf-capture");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
-      // Shrink the clearance content slightly to leave room for a
-      // download footer (timestamp + unique document ID) below it.
-      const footerTopMm = 289;
-      const contentWidthMm =
-        (footerTopMm * paperWidthPx) / paperHeightPx;
-      const contentXMm = (210 - contentWidthMm) / 2;
-      pdf.addImage(
-        canvas.toDataURL("image/jpeg", 0.96),
-        "JPEG",
-        contentXMm,
-        0,
-        contentWidthMm,
-        footerTopMm,
-      );
-      // Unique identifier generated fresh for every download instance.
+      // Unique identifier + timestamp generated once per download instance,
+      // stamped inside BOTH copies (student + office) so each copy shows it.
       const generatedAt = new Date();
       const padSegment = (value, length = 2) =>
         String(value).padStart(length, "0");
@@ -597,6 +573,51 @@ export default function DigitalClearance({
         dateStyle: "medium",
         timeStyle: "medium",
       });
+      // Temporarily inject the stamp into each copy; removed right after
+      // capture so the on-screen preview stays clean. Inline styles are
+      // used because runtime-injected nodes skip Tailwind compilation.
+      const downloadStamps = [];
+      paper.querySelectorAll("[data-clearance-copy]").forEach((copyEl) => {
+        const stamp = document.createElement("div");
+        stamp.setAttribute("data-download-stamp", "true");
+        stamp.setAttribute(
+          "style",
+          "margin-top:1.5mm;text-align:center;font-family:Georgia,'Times New Roman',serif;font-size:7px;line-height:1.4;color:#52525b;",
+        );
+        stamp.textContent = `Downloaded: ${downloadedAtLabel}   •   Document ID: ${documentId}`;
+        copyEl.appendChild(stamp);
+        downloadStamps.push(stamp);
+      });
+      const canvas = await html2canvas(paper, {
+        backgroundColor: "#fffefb",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        width: paperWidthPx,
+        height: paperHeightPx,
+      });
+      downloadStamps.forEach((stamp) => stamp.remove());
+      paper.classList.remove("clearance-pdf-capture");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+      // Shrink the clearance content slightly to leave room for a
+      // download footer (timestamp + unique document ID) below it.
+      const footerTopMm = 289;
+      const contentWidthMm =
+        (footerTopMm * paperWidthPx) / paperHeightPx;
+      const contentXMm = (210 - contentWidthMm) / 2;
+      pdf.addImage(
+        canvas.toDataURL("image/jpeg", 0.96),
+        "JPEG",
+        contentXMm,
+        0,
+        contentWidthMm,
+        footerTopMm,
+      );
+      // Page-level footer repeating the same per-download stamp.
       pdf.setDrawColor(74, 14, 23);
       pdf.line(10, footerTopMm + 0.5, 200, footerTopMm + 0.5);
       pdf.setFont("helvetica", "normal");
@@ -627,6 +648,9 @@ export default function DigitalClearance({
       );
     } finally {
       paper.classList.remove("clearance-pdf-capture");
+      paper
+        .querySelectorAll("[data-download-stamp]")
+        .forEach((stamp) => stamp.remove());
       setIsDownloading(false);
     }
   };

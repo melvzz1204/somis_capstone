@@ -145,6 +145,15 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
             {config.name} ({config.acronym})
           </p>
         </div>
+
+        {/* Right Logo (SOMIS) */}
+        <div className="flex items-center justify-end shrink-0">
+          <img
+            src="/logo.png"
+            alt="SOMIS logo"
+            className="h-[14mm] w-[14mm] object-contain"
+          />
+        </div>
       </div>
 
       {/* Title Banner */}

@@ -85,23 +85,53 @@ function SignatureLine({ name, role }) {
 
 function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
   const config = getOrganizationClearanceConfig(organization);
+  const normalizedCollege = normalizeClearanceText(
+    organization?.college || config.college,
+  );
+  const normalizedName = normalizeClearanceText(
+    organization?.name || config.name,
+  );
+  const normalizedAcronym = normalizeClearanceText(
+    organization?.acronym || config.acronym,
+  );
+  // CICS-only logo arrangement: MarSU + CICSSO + SOMIS on the left.
+  // Other departments have no official logo available, so they only get
+  // MarSU + SOMIS and must not render any college/org logo.
+  const isCicsVersion =
+    normalizedAcronym === "cicsso" ||
+    normalizedCollege.includes("information and computing") ||
+    normalizedName.includes("information and computing") ||
+    normalizedCollege === "cics" ||
+    normalizedName.includes("cicsso");
+
+  const leftLogos = isCicsVersion
+    ? [
+        { src: "/marsu.png", alt: "Marinduque State University seal" },
+        {
+          src: "/cicsso.png",
+          alt: "College of Information and Computing Sciences Student Organization seal",
+        },
+        { src: "/logo.png", alt: "SOMIS logo" },
+      ]
+    : [
+        { src: "/marsu.png", alt: "Marinduque State University seal" },
+        { src: "/logo.png", alt: "SOMIS logo" },
+      ];
 
   return (
     <>
-      {/* Header Grid: Left Logos | Center Info | Right Logo */}
-      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
-        {/* Left Logos (University & College) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <img
-            src="/marsu.png"
-            alt="Marinduque State University seal"
-            className="h-[16mm] w-[16mm] object-contain"
-          />
-          <img
-            src="/logo.png"
-            alt={`${config.college || "College"} logo`}
-            className="h-[16mm] w-[16mm] object-contain"
-          />
+      {/* Header: left logos overlaid so center text stays page-centered */}
+      <div className="relative flex items-center justify-center gap-3">
+        {/* Left Logos */}
+        <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 shrink-0">
+          {leftLogos.map((logo) => (
+            <img
+              key={logo.src}
+              src={logo.src}
+              alt={logo.alt}
+              className="h-[14mm] w-[14mm] object-contain"
+            />
+          ))}
         </div>
 
         {/* Center Text Information */}
@@ -118,15 +148,6 @@ function DocumentHeader({ copyLabel, isCleared, academicYear, organization }) {
           <p className="mt-0.5 text-[7.5px] font-bold leading-tight text-slate-900 uppercase">
             {config.name} ({config.acronym})
           </p>
-        </div>
-
-        {/* Right Logo (Student Org) */}
-        <div className="flex items-center justify-end shrink-0">
-          <img
-            src="/logo.png"
-            alt={`${config.name} seal`}
-            className="h-[16mm] w-[16mm] object-contain"
-          />
         </div>
       </div>
 

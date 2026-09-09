@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import API from "../api/axios";
 import { useToast } from "../util/toastContext";
 import { applySectionPrefix, getSectionPrefix } from "../util/academicSection";
+import {
+  CONTACT_NUMBER_ERROR,
+  CONTACT_NUMBER_LENGTH,
+  isValidContactNumber,
+  sanitizeContactNumber,
+} from "../util/contactNumber";
 
 // Inline Icons
 const UserIcon = ({ className = "w-5 h-5" }) => (
@@ -255,6 +261,13 @@ export default function StudentOnboardingModal({
     }
 
     setEmailError("");
+    if (!isValidContactNumber(formData.contactNumber)) {
+      const contactError = CONTACT_NUMBER_ERROR;
+      showToast(contactError, "error");
+      setIsSubmitting(false);
+      return;
+    }
+
     setIsSubmitting(true);
 
     // Check your backend req.body key expectations against this payload structure
@@ -704,15 +717,34 @@ export default function StudentOnboardingModal({
                   <input
                     type="tel"
                     required
-                    maxLength={30}
+                    inputMode="numeric"
+                    pattern="[0-9]{11}"
+                    minLength={CONTACT_NUMBER_LENGTH}
+                    maxLength={CONTACT_NUMBER_LENGTH}
                     autoComplete="tel"
                     placeholder="09XX XXX XXXX"
                     value={formData.contactNumber}
                     onChange={(e) =>
-                      updateForm("contactNumber", e.target.value)
+                      updateForm(
+                        "contactNumber",
+                        sanitizeContactNumber(e.target.value),
+                      )
                     }
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      updateForm(
+                        "contactNumber",
+                        sanitizeContactNumber(
+                          e.clipboardData?.getData("text") ?? "",
+                        ),
+                      );
+                    }}
+                    title={CONTACT_NUMBER_ERROR}
                     className="w-full px-3.5 py-2.5 bg-white text-slate-900 border border-slate-300 rounded-xl focus:outline-none focus:border-[#4A0E17] font-medium placeholder:text-slate-400 shadow-sm"
                   />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Numbers only, exactly 11 digits.
+                  </p>
                 </div>
 
                 <div className="sm:col-span-2">

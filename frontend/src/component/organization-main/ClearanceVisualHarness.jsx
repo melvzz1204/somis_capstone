@@ -8,6 +8,7 @@ import {
 const demoOrganization = {
   name: "College of Information and Computing Sciences Student Organization - Boac",
   acronym: "CICSSO",
+  college: "College of Information and Computing Sciences",
   president: "MARIA L. SANTOS",
   adviser: "PROF. ANA R. DELA CRUZ",
 };

@@ -38,6 +38,12 @@ import DigitalClearance from "./DigitalClearance";
 import MeetingList from "./meetingList";
 import { getClearanceSummary } from "../../util/clearanceStatus";
 import {
+  CONTACT_NUMBER_ERROR,
+  CONTACT_NUMBER_LENGTH,
+  isValidContactNumber,
+  sanitizeContactNumber,
+} from "../../util/contactNumber";
+import {
   formatAcademicPeriod,
   getEffectiveAcademicPeriod,
 } from "../../util/academicPeriod";
@@ -383,12 +389,35 @@ function AccountPanel({
         <label className="text-sm font-bold text-slate-700">
           Contact number
           <input
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]{11}"
+            minLength={CONTACT_NUMBER_LENGTH}
+            maxLength={CONTACT_NUMBER_LENGTH}
+            autoComplete="tel"
+            placeholder="09XX XXX XXXX"
+            title={CONTACT_NUMBER_ERROR}
             value={form.contactNumber}
             onChange={(e) =>
-              setForm({ ...form, contactNumber: e.target.value })
+              setForm({
+                ...form,
+                contactNumber: sanitizeContactNumber(e.target.value),
+              })
             }
+            onPaste={(e) => {
+              e.preventDefault();
+              setForm({
+                ...form,
+                contactNumber: sanitizeContactNumber(
+                  e.clipboardData?.getData("text") ?? "",
+                ),
+              });
+            }}
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17]"
           />
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            Numbers only, exactly 11 digits.
+          </span>
         </label>
       </div>
       {error && (
@@ -2421,6 +2450,13 @@ export default function StudentDashboard({ user: propsUser }) {
               isSaving={isSavingAccount}
               onSave={async (event) => {
                 event.preventDefault();
+                if (
+                  accountForm.contactNumber &&
+                  !isValidContactNumber(accountForm.contactNumber)
+                ) {
+                  setAccountError(CONTACT_NUMBER_ERROR);
+                  return;
+                }
                 setIsSavingAccount(true);
                 setAccountMessage("");
                 setAccountError("");

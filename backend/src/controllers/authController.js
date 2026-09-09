@@ -91,6 +91,14 @@ exports.registerStudent = async (req, res) => {
       });
     }
 
+    const normalizedContactNumber = String(contactNumber || "").trim();
+    if (!/^\d{11}$/.test(normalizedContactNumber)) {
+      return res.status(400).json({
+        message:
+          "Contact number must be exactly 11 digits (numbers only).",
+      });
+    }
+
     // 3. Check for duplicate email or Student ID
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -134,7 +142,7 @@ exports.registerStudent = async (req, res) => {
       lastName,
       suffix,
       studentIdNumber,
-      contactNumber: String(contactNumber || "").trim(),
+      contactNumber: normalizedContactNumber,
       birthDate,
       college,
       organization: selectedOrganization._id,
@@ -359,8 +367,16 @@ exports.updateStudentAccount = async (req, res) => {
       user.name = String(name).trim();
     if (req.file)
       user.avatar = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-    if (contactNumber !== undefined)
-      profile.contactNumber = String(contactNumber).trim();
+    if (contactNumber !== undefined) {
+      const normalizedContact = String(contactNumber).trim();
+      if (normalizedContact && !/^\d{11}$/.test(normalizedContact)) {
+        return res.status(400).json({
+          message:
+            "Contact number must be exactly 11 digits (numbers only).",
+        });
+      }
+      profile.contactNumber = normalizedContact;
+    }
 
     await Promise.all([user.save(), profile.save()]);
 

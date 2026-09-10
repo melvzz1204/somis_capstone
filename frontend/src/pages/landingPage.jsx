@@ -181,6 +181,12 @@ export default function LandingPage() {
     localStorage.setItem("somis_onboarding_completed", "true");
     setActiveModal("student_login");
   };
+  const handleSignUpClick = () => {
+    // Top-nav Sign up → onboarding role chooser (does NOT mark completed,
+    // so the user can pick Student vs Officer and follow the right flow)
+    setActiveModal("role");
+  };
+
   const handleSignInClick = () => {
     localStorage.setItem("somis_onboarding_completed", "true");
     const storedUser = localStorage.getItem("user");
@@ -221,7 +227,7 @@ export default function LandingPage() {
               className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
               aria-hidden
             />
-            Official OVPSAS Platform — A.Y. 2025–2026 clearances now in progress
+            Official OVPSAS Platform A.Y. 2025–2026 clearances now in progress
           </span>
           <span className="opacity-80 font-mono text-[10px] tracking-widest uppercase">
             Marinduque State University • Boac, Marinduque
@@ -308,10 +314,10 @@ export default function LandingPage() {
                 Sign in
               </button>
               <button
-                onClick={handleSignInClick}
+                onClick={handleSignUpClick}
                 className="inline-flex items-center gap-2 text-[13px] font-bold bg-[#4a0e17] text-white px-5 py-2.5 rounded-full shadow-[0_4px_14px_rgba(74,14,23,0.18)] hover:bg-[#2e080e] hover:-translate-y-0.5 transition-all"
               >
-                Access Portal
+                Sign up
                 <Icon.Arrow className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -388,9 +394,18 @@ export default function LandingPage() {
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  handleSignInClick();
+                  handleSignUpClick();
                 }}
                 className="w-full inline-flex items-center justify-center gap-2 text-sm font-bold bg-[#4a0e17] text-white py-3 rounded-full shadow-md"
+              >
+                Sign up create account
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleSignInClick();
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 text-sm font-bold bg-white border border-[#ece9e0] text-[#1a2332] py-3 rounded-full"
               >
                 Sign in to SOMIS
               </button>
@@ -447,7 +462,7 @@ export default function LandingPage() {
                       every peso,
                     </span>
                     <span className="block text-[34px] sm:text-[46px] lg:text-[56px] font-serif italic font-normal tracking-[-0.03em] text-[#4a0e17]">
-                      every clearance —
+                      every clearance
                     </span>
                     <span className="block text-[13px] sm:text-sm font-sans font-bold tracking-[0.16em] uppercase text-[#9a7a14] mt-3">
                       in one trusted place
@@ -459,9 +474,9 @@ export default function LandingPage() {
                       Student Organization Management and Information System
                     </strong>{" "}
                     for Marinduque State University. It digitizes the entire
-                    OVPSAS lifecycle — registration, rosters, fees, proposals,
-                    and end-of-semester clearance — so leaders lead, and records
-                    stay clean.
+                    OVPSAS lifecycle registration, rosters, fees, proposals, and
+                    end-of-semester clearance so leaders lead, and records stay
+                    clean.
                   </p>
                 </div>
 
@@ -793,8 +808,8 @@ export default function LandingPage() {
               </h2>
               <p className="text-[14px] sm:text-[15px] leading-6 text-[#6b7289] max-w-2xl mx-auto">
                 From fee posting to final clearance, SOMIS gives officers,
-                advisers, and OVPSAS the same source of truth — with
-                permissions, history, and signatures baked in.
+                advisers, and OVPSAS the same source of truth with permissions,
+                history, and signatures baked in.
               </p>
             </div>
 
@@ -803,7 +818,7 @@ export default function LandingPage() {
                 {
                   icon: Icon.File,
                   title: "Digitize every workflow",
-                  desc: "Proposals, minutes, and accomplishment reports move through guided approvals — traceable, timestamped, and never lost in GCs.",
+                  desc: "Proposals, minutes, and accomplishment reports move through guided approvals traceable, timestamped, and never lost in GCs.",
                   points: [
                     "Templates & reviewers",
                     "Adviser sign-off",
@@ -813,7 +828,7 @@ export default function LandingPage() {
                 {
                   icon: Icon.Wallet,
                   title: "Collections you can trust",
-                  desc: "Treasurers post dues, members upload receipts, and cash payments are logged — all reconciled in one ledger.",
+                  desc: "Treasurers post dues, members upload receipts, and cash payments are logged all reconciled in one ledger.",
                   points: [
                     "Receipt OCR + QR",
                     "Cash & online flows",
@@ -843,7 +858,7 @@ export default function LandingPage() {
                 {
                   icon: Icon.Clock,
                   title: "Real-time, role-aware",
-                  desc: "Live updates keep everyone aligned. Officers and OVPSAS see only what they should — instantly.",
+                  desc: "Live updates keep everyone aligned. Officers and OVPSAS see only what they should instantly.",
                   points: [
                     "Realtime sync",
                     "Granular permissions",
@@ -853,7 +868,7 @@ export default function LandingPage() {
                 {
                   icon: Icon.Spark,
                   title: "Built for MarSU",
-                  desc: "Academic periods, signatories, and org types match MarSU policy — no workaround needed.",
+                  desc: "Academic periods, signatories, and org types match MarSU policy no workaround needed.",
                   points: [
                     "A.Y. & sem control",
                     "Official signatories",
@@ -943,13 +958,13 @@ export default function LandingPage() {
                 {
                   n: "01",
                   t: "Register & invite",
-                  d: "OVPSAS registers orgs; officers receive secure invite tokens. Roles are assigned on setup — no manual encoding.",
+                  d: "OVPSAS registers orgs; officers receive secure invite tokens. Roles are assigned on setup no manual encoding.",
                   meta: "Admin • 2 min",
                 },
                 {
                   n: "02",
                   t: "Run day-to-day",
-                  d: "Secretary files minutes & proposals, Treasurer posts collections, PIO publishes updates — all in one workspace.",
+                  d: "Secretary files minutes & proposals, Treasurer posts collections, PIO publishes updates all in one workspace.",
                   meta: "Officers • Daily",
                 },
                 {
@@ -1002,7 +1017,7 @@ export default function LandingPage() {
               </h2>
               <p className="text-[14px] leading-6 text-[#6b7289]">
                 Officers manage execution; OVPSAS governs compliance. Each role
-                sees a tailored workspace with the right permissions — nothing
+                sees a tailored workspace with the right permissions nothing
                 more, nothing less.
               </p>
             </div>
@@ -1027,7 +1042,7 @@ export default function LandingPage() {
                     </div>
                     <p className="mt-4 text-[13px] leading-6 text-[#6b7289]">
                       Secretary, Treasurer, PIO, and assigned officers share one
-                      organization workspace — with live roster, fees, and
+                      organization workspace with live roster, fees, and
                       proposals.
                     </p>
                     <ul className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-[13px] font-medium">
@@ -1086,7 +1101,7 @@ export default function LandingPage() {
                     </div>
                     <p className="mt-4 text-[13px] leading-6 text-white/75">
                       OVPSAS oversees registration, compliance, and final
-                      clearance — with full visibility and audit history.
+                      clearance with full visibility and audit history.
                     </p>
                     <ul className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-[13px] font-medium">
                       {[
@@ -1161,12 +1176,12 @@ export default function LandingPage() {
                     <span className="font-serif italic font-normal text-[#4a0e17]">
                       prove
                     </span>{" "}
-                    — and print when ready.
+                    and print when ready.
                   </h2>
                   <p className="mt-3 text-[13px] leading-6 text-[#6b7289]">
                     A checklist that understands MarSU policy. Each step
                     auto-verifies when possible, and stays signed once approved
-                    — with a printable, QR-verifiable certificate.
+                    with a printable, QR-verifiable certificate.
                   </p>
 
                   <ol className="mt-8 space-y-4">
@@ -1328,7 +1343,7 @@ export default function LandingPage() {
                   name: "Angel M.",
                   role: "Secretary • CICS-SC",
                   quote:
-                    "Clearance used to be a scramble of GCs and folders. Now our checklist is live — and OVPSAS signed us in a day.",
+                    "Clearance used to be a scramble of GCs and folders. Now our checklist is live and OVPSAS signed us in a day.",
                   avatar: "https://i.pravatar.cc/100?img=5",
                 },
                 {
@@ -1415,7 +1430,7 @@ export default function LandingPage() {
                   },
                   {
                     q: "Does SOMIS replace paper clearances?",
-                    a: "Yes — the digital checklist is the official record. When OVPSAS approves, SOMIS issues a printable, QR-verifiable clearance certificate with the correct signatories and period. Paper is only for printing the certificate itself.",
+                    a: "Yes the digital checklist is the official record. When OVPSAS approves, SOMIS issues a printable, QR-verifiable clearance certificate with the correct signatories and period. Paper is only for printing the certificate itself.",
                   },
                   {
                     q: "What if my organization isn’t listed during registration?",
@@ -1494,7 +1509,7 @@ export default function LandingPage() {
                   </h2>
                   <p className="text-[13px] sm:text-[14px] leading-6 text-white/70 max-w-xl">
                     Join officers and OVPSAS administrators who already run the
-                    semester on SOMIS — with fewer follow-ups and no missing
+                    semester on SOMIS with fewer follow-ups and no missing
                     requirements.
                   </p>
                   <div className="flex flex-wrap gap-2 pt-1 text-[11px] font-semibold">
@@ -1696,7 +1711,7 @@ export default function LandingPage() {
 
           <div className="mt-10 pt-6 border-t border-[#ece9e0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             <span className="font-medium text-[#6b7289]">
-              © {new Date().getFullYear()} Marinduque State University — Office
+              © {new Date().getFullYear()} Marinduque State University Office
               of the Vice President for Student Affairs. All rights reserved.
             </span>
             <span className="font-mono text-[10px] tracking-widest uppercase text-[#9aa0b3]">

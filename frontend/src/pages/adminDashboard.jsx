@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
 import CollegeCatalog from "../component/collegeCatalog";
-import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
 import {
   ActivityPlanIcon,
   AnnualReportIcon,
@@ -15,7 +14,6 @@ import {
 } from "../util/academicPeriod";
 import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
-import NavCountBadge from "../component/navCountBadge";
 
 // --- SVG ICON COMPONENTS ---
 const BuildingIcon = ({ className = "w-5 h-5" }) => (
@@ -105,10 +103,6 @@ export default function AdminDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [organizations, setOrganizations] = useState([]);
   const [colleges, setColleges] = useState([]);
-  const [proposals, setProposals] = useState([]);
-  const [isProposalLoading, setIsProposalLoading] = useState(true);
-  const [proposalActionId, setProposalActionId] = useState("");
-  const [proposalNotice, setProposalNotice] = useState("");
   const [editingOrg, setEditingOrg] = useState(null);
   const [academicPeriod, setAcademicPeriod] = useState(() =>
     getEffectiveAcademicPeriod(null),
@@ -134,9 +128,6 @@ export default function AdminDashboard() {
   const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
   const adminName = storedUser.name || "Administrator";
   const adminEmail = storedUser.email || "admin@marsu.edu.ph";
-  const pendingProposalCount = proposals.filter(
-    (proposal) => proposal.status === "Pending OVPSAS Review",
-  ).length;
 
   useEffect(() => {
     let mounted = true;
@@ -155,34 +146,21 @@ export default function AdminDashboard() {
 
     const fetchDashboardData = async () => {
       try {
-        const [
-          organizationsData,
-          collegesData,
-          proposalResponse,
-          periodResponse,
-        ] = await Promise.all([
-          API.get("/organizations"),
-          API.get("/colleges"),
-          API.get("/proposals"),
-          API.get("/organizations/academic-period"),
-        ]);
+        const [organizationsData, collegesData, periodResponse] =
+          await Promise.all([
+            API.get("/organizations"),
+            API.get("/colleges"),
+            API.get("/organizations/academic-period"),
+          ]);
         if (!mounted) return;
         setOrganizations(
           Array.isArray(organizationsData) ? organizationsData : [],
         );
         setColleges(Array.isArray(collegesData) ? collegesData : []);
-        setProposals(
-          Array.isArray(proposalResponse?.data) ? proposalResponse.data : [],
-        );
         setAcademicPeriod(periodResponse?.data || periodResponse);
       } catch (err) {
         if (!mounted) return;
         console.error("Failed to fetch admin dashboard data:", err);
-        setProposalNotice(
-          err.message || "Unable to load proposals for OVPSAS review.",
-        );
-      } finally {
-        if (mounted) setIsProposalLoading(false);
       }
     };
 
@@ -296,32 +274,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleProposalReview = async (proposal, review) => {
-    setProposalActionId(proposal._id);
-    setProposalNotice("");
-
-    try {
-      const response = await API.patch(
-        `/proposals/${proposal._id}/review`,
-        review,
-      );
-      setProposals((current) =>
-        current.map((item) =>
-          item._id === proposal._id ? response.data : item,
-        ),
-      );
-      setProposalNotice(response.message || "Final proposal decision saved.");
-      return true;
-    } catch (error) {
-      setProposalNotice(
-        error.message || "Unable to save the final proposal decision.",
-      );
-      return false;
-    } finally {
-      setProposalActionId("");
-    }
-  };
-
   const openAdviserModal = async () => {
     setIsAdviserModalOpen(true);
     setIsAdviserLoading(true);
@@ -345,7 +297,7 @@ export default function AdminDashboard() {
   const handleDeleteOrganization = async (org) => {
     if (
       !window.confirm(
-        `Delete ${org.name}? This permanently removes its users, members, fees, payments, and proposals.`,
+        `Delete ${org.name}? This permanently removes its users, members, fees, payments, and resolutions.`,
       )
     )
       return;
@@ -408,20 +360,6 @@ export default function AdminDashboard() {
                 className={`w-4 h-4 ${activeTab === "colleges" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Colleges & Programs</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("clearance")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
-                activeTab === "clearance"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
-                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
-              }`}
-            >
-              <FileCheckIcon
-                className={`w-4 h-4 ${activeTab === "clearance" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
-              />
-              <span>Proposal Review</span>
-              <NavCountBadge count={pendingProposalCount} />
             </button>
             <button
               onClick={() => setActiveTab("annual-report")}
@@ -499,13 +437,6 @@ export default function AdminDashboard() {
             },
             { id: "colleges", label: "Colleges", icon: <BuildingIcon /> },
             {
-              id: "clearance",
-              label: "Proposal Review",
-              shortLabel: "Proposals",
-              icon: <FileCheckIcon />,
-              count: pendingProposalCount,
-            },
-            {
               id: "annual-report",
               label: "Accomplishment Report",
               shortLabel: "Accomp. Report",
@@ -523,21 +454,6 @@ export default function AdminDashboard() {
         <main className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl w-full mx-auto space-y-8">
           {activeTab === "colleges" ? (
             <CollegeCatalog />
-          ) : activeTab === "clearance" ? (
-            <div className="space-y-5">
-              {proposalNotice && (
-                <div className="border border-amber-200 bg-amber-50 px-5 py-4 text-xs font-semibold text-amber-800">
-                  {proposalNotice}
-                </div>
-              )}
-              <LeaderProposalReview
-                proposals={proposals}
-                isLoading={isProposalLoading}
-                actionId={proposalActionId}
-                onReview={handleProposalReview}
-                reviewRole="admin"
-              />
-            </div>
           ) : activeTab === "annual-report" ? (
             <OrganizationDocumentWorkspace
               documentType="Annual Report"

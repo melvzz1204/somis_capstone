@@ -5,8 +5,8 @@ import MobileTabBar from "../mobileTabBar";
 
 // Sub-components
 import OrganizationMembers from "./organizationMembers";
-import ProposalModal from "./proposalModal";
-import ProposalList from "./proposalList";
+import ResolutionModal from "./resolutionModal";
+import ResolutionList from "./resolutionList";
 import {
   ActivityPlanIcon,
   AnnualReportIcon,
@@ -102,6 +102,22 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
+const ResolutionIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+    />
+  </svg>
+);
+
 export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   const { showToast } = useToast();
   const [profileUser, setProfileUser] = useState(
@@ -130,15 +146,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Modals & Forms State
-  const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
-  const [editingProposal, setEditingProposal] = useState(null);
+  // Resolution workflow state
+  const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
+  const [editingResolution, setEditingResolution] = useState(null);
+  const [resolutions, setResolutions] = useState([]);
+  const [isLoadingResolutions, setIsLoadingResolutions] = useState(true);
+  const [deletingResolutionId, setDeletingResolutionId] = useState("");
+  const [submittingResolutionId, setSubmittingResolutionId] = useState("");
+  const [resolutionNotice, setResolutionNotice] = useState("");
 
-  // Dynamic Data States (Initialized empty - loaded via API)
-  const [proposals, setProposals] = useState([]);
-  const [isLoadingProposals, setIsLoadingProposals] = useState(true);
-  const [deletingProposalId, setDeletingProposalId] = useState("");
-  const [proposalNotice, setProposalNotice] = useState("");
   const [stats, setStats] = useState({
     totalMembers: 0,
     attendanceRate: 0,
@@ -184,76 +200,100 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
       }
     };
 
-    const loadProposals = async () => {
+    const loadResolutions = async () => {
       try {
-        const res = await API.get("/proposals");
-        const proposalData = res.data || [];
+        const res = await API.get("/resolutions");
+        const resolutionData = res.data || [];
         if (isActive) {
-          setProposals(Array.isArray(proposalData) ? proposalData : []);
+          setResolutions(Array.isArray(resolutionData) ? resolutionData : []);
         }
       } catch (err) {
-        console.error("Failed to fetch proposals:", err);
+        console.error("Failed to fetch resolutions:", err);
         if (isActive) {
-          setProposals([]);
-          setProposalNotice(err.message || "Unable to load proposals.");
+          setResolutions([]);
+          setResolutionNotice(err.message || "Unable to load resolutions.");
         }
       } finally {
-        if (isActive) setIsLoadingProposals(false);
+        if (isActive) setIsLoadingResolutions(false);
       }
     };
 
-    Promise.all([loadMembers(), loadProposals()]);
+    Promise.all([loadMembers(), loadResolutions()]);
     return () => {
       isActive = false;
     };
   }, [orgId]);
 
-  const openCreateProposal = () => {
-    setEditingProposal(null);
-    setIsProposalModalOpen(true);
+  const openCreateResolution = () => {
+    setEditingResolution(null);
+    setIsResolutionModalOpen(true);
   };
 
-  const openEditProposal = (proposal) => {
-    setEditingProposal(proposal);
-    setIsProposalModalOpen(true);
+  const openEditResolution = (resolution) => {
+    setEditingResolution(resolution);
+    setIsResolutionModalOpen(true);
   };
 
-  const handleProposalSaved = (savedProposal, action) => {
-    setProposals((current) =>
+  const handleResolutionSaved = (savedResolution, action) => {
+    setResolutions((current) =>
       action === "created"
-        ? [savedProposal, ...current]
+        ? [savedResolution, ...current]
         : current.map((item) =>
-            item._id === savedProposal._id ? savedProposal : item,
+            item._id === savedResolution._id ? savedResolution : item,
           ),
     );
-    setProposalNotice(`Proposal ${action} successfully.`);
-    setIsProposalModalOpen(false);
-    setEditingProposal(null);
-    setActiveTab("proposals");
+    setResolutionNotice(`Resolution ${action} successfully.`);
+    setIsResolutionModalOpen(false);
+    setEditingResolution(null);
+    setActiveTab("resolutions");
   };
 
-  const handleDeleteProposal = async (proposal) => {
+  const handleSubmitResolution = async (resolution) => {
+    setSubmittingResolutionId(resolution._id);
+    setResolutionNotice("");
+    try {
+      const response = await API.patch(
+        `/resolutions/${resolution._id}/submit`,
+      );
+      setResolutions((current) =>
+        current.map((item) =>
+          item._id === resolution._id ? response.data : item,
+        ),
+      );
+      const message = response.message || "Resolution submitted successfully.";
+      setResolutionNotice(message);
+      showToast(message, "success");
+    } catch (err) {
+      const errorMessage = err.message || "Unable to submit the resolution.";
+      setResolutionNotice(errorMessage);
+      showToast(errorMessage, "error");
+    } finally {
+      setSubmittingResolutionId("");
+    }
+  };
+
+  const handleDeleteResolution = async (resolution) => {
     if (
       !window.confirm(
-        `Delete “${proposal.proposalTitle}”? This cannot be undone.`,
+        `Delete "${resolution.title}"? This cannot be undone.`,
       )
     )
       return;
-    setDeletingProposalId(proposal._id);
-    setProposalNotice("");
+    setDeletingResolutionId(resolution._id);
+    setResolutionNotice("");
     try {
-      await API.delete(`/proposals/${proposal._id}`);
-      setProposals((current) =>
-        current.filter((item) => item._id !== proposal._id),
+      await API.delete(`/resolutions/${resolution._id}`);
+      setResolutions((current) =>
+        current.filter((item) => item._id !== resolution._id),
       );
-      setProposalNotice("Proposal deleted successfully.");
-      showToast("Proposal deleted successfully.", "success");
+      setResolutionNotice("Resolution deleted successfully.");
+      showToast("Resolution deleted successfully.", "success");
     } catch (err) {
-      const errorMessage = err.message || "Unable to delete the proposal.";
-      setProposalNotice(errorMessage);
+      const errorMessage = err.message || "Unable to delete the resolution.";
+      setResolutionNotice(errorMessage);
       showToast(errorMessage, "error");
     } finally {
-      setDeletingProposalId("");
+      setDeletingResolutionId("");
     }
   };
 
@@ -298,22 +338,22 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("proposals")}
+              onClick={() => setActiveTab("resolutions")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
-                activeTab === "proposals"
+                activeTab === "resolutions"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
-              <CalendarIcon
-                className={`w-4 h-4 ${activeTab === "proposals" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              <ResolutionIcon
+                className={`w-4 h-4 ${activeTab === "resolutions" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Proposals</span>
+              <span>Resolutions</span>
               <NavCountBadge
                 count={
-                  proposals.filter(
-                    (proposal) =>
-                      !["Approved", "Rejected"].includes(proposal.status),
+                  resolutions.filter(
+                    (resolution) =>
+                      !["Adopted", "Rejected"].includes(resolution.status),
                   ).length
                 }
               />
@@ -448,12 +488,12 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               icon: <LayoutDashboardIcon />,
             },
             {
-              id: "proposals",
-              label: "Proposals",
-              icon: <CalendarIcon />,
-              count: proposals.filter(
-                (proposal) =>
-                  !["Approved", "Rejected"].includes(proposal.status),
+              id: "resolutions",
+              label: "Resolutions",
+              icon: <ResolutionIcon />,
+              count: resolutions.filter(
+                (resolution) =>
+                  !["Adopted", "Rejected"].includes(resolution.status),
               ).length,
             },
             {
@@ -503,14 +543,14 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Activity Proposals
+                  Resolutions
                 </p>
                 <div className="flex items-baseline justify-between">
                   <h2 className="text-2xl font-extrabold text-[#4A0E17]">
-                    {proposals.length}
+                    {resolutions.length}
                   </h2>
                   <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-bold">
-                    Submitted
+                    Filed
                   </span>
                 </div>
               </div>
@@ -545,11 +585,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                     </span>
                     <div className="space-y-0.5">
                       <p className="font-bold text-slate-800">
-                        Activity Proposals
+                        Resolutions
                       </p>
                       <p className="text-slate-500">
-                        Currently tracking {proposals.length} submitted
-                        proposal(s) for the active academic term.
+                        Currently tracking {resolutions.length} resolution(s)
+                        for the active academic term.
                       </p>
                     </div>
                   </div>
@@ -578,21 +618,23 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </div>
           )}
 
-          {/* TAB CONTENT 2: PROPOSALS */}
-          {activeTab === "proposals" && (
+          {/* TAB CONTENT: RESOLUTIONS */}
+          {activeTab === "resolutions" && (
             <div className="space-y-4">
-              {proposalNotice && (
+              {resolutionNotice && (
                 <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
-                  {proposalNotice}
+                  {resolutionNotice}
                 </div>
               )}
-              <ProposalList
-                proposals={proposals}
-                isLoading={isLoadingProposals}
-                deletingId={deletingProposalId}
-                onCreate={openCreateProposal}
-                onEdit={openEditProposal}
-                onDelete={handleDeleteProposal}
+              <ResolutionList
+                resolutions={resolutions}
+                isLoading={isLoadingResolutions}
+                deletingId={deletingResolutionId}
+                submittingId={submittingResolutionId}
+                onCreate={openCreateResolution}
+                onEdit={openEditResolution}
+                onSubmit={handleSubmitResolution}
+                onDelete={handleDeleteResolution}
               />
             </div>
           )}
@@ -612,7 +654,9 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
           )}
 
           {/* TAB CONTENT 3: EVENTS */}
-          {activeTab === "events" && <SecretaryEvents proposals={proposals} />}
+          {activeTab === "events" && (
+            <SecretaryEvents resolutions={resolutions} />
+          )}
 
           {/* TAB CONTENT: MEETINGS */}
           {activeTab === "meetings" && <MeetingList />}
@@ -626,15 +670,15 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
         </main>
       </div>
 
-      {isProposalModalOpen && (
-        <ProposalModal
-          key={editingProposal?._id || "new-proposal"}
-          proposal={editingProposal}
+      {isResolutionModalOpen && (
+        <ResolutionModal
+          key={editingResolution?._id || "new-resolution"}
+          resolution={editingResolution}
           onClose={() => {
-            setIsProposalModalOpen(false);
-            setEditingProposal(null);
+            setIsResolutionModalOpen(false);
+            setEditingResolution(null);
           }}
-          onSaved={handleProposalSaved}
+          onSaved={handleResolutionSaved}
         />
       )}
     </div>

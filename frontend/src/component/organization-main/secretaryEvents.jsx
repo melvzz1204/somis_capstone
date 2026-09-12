@@ -18,7 +18,7 @@ import {
 } from "../../util/eventLifecycle";
 import { useToast } from "../../util/toastContext";
 
-const emptyForm = { proposal: "" };
+const emptyForm = { resolution: "" };
 
 const formatDateTime = (value) =>
   value
@@ -60,7 +60,7 @@ const restorePersistedQrs = async (eventId) => {
   return grouped;
 };
 
-export default function SecretaryEvents({ proposals = [] }) {
+export default function SecretaryEvents({ resolutions = [] }) {
   const { showToast } = useToast();
   const [events, setEvents] = useState([]);
   const [eventView, setEventView] = useState("active");
@@ -90,9 +90,9 @@ export default function SecretaryEvents({ proposals = [] }) {
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSearch, setAttendanceSearch] = useState("");
 
-  const approvedProposals = useMemo(
-    () => proposals.filter((proposal) => proposal.status === "Approved"),
-    [proposals],
+  const adoptedResolutions = useMemo(
+    () => resolutions.filter((resolution) => resolution.status === "Adopted"),
+    [resolutions],
   );
 
   useEffect(() => {
@@ -141,11 +141,11 @@ export default function SecretaryEvents({ proposals = [] }) {
     };
   }, []);
 
-  const existingProposalIds = new Set(
-    events.map((event) => event.proposal?._id || event.proposal),
+  const existingResolutionIds = new Set(
+    events.map((event) => event.resolution?._id || event.resolution),
   );
-  const availableProposals = approvedProposals.filter(
-    (proposal) => !existingProposalIds.has(proposal._id),
+  const availableResolutions = adoptedResolutions.filter(
+    (resolution) => !existingResolutionIds.has(resolution._id),
   );
 
   const trackedEvents = useMemo(
@@ -196,8 +196,8 @@ export default function SecretaryEvents({ proposals = [] }) {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
-    if (!form.proposal) {
-      setError("Choose an approved proposal first.");
+    if (!form.resolution) {
+      setError("Choose an adopted resolution first.");
       return;
     }
     setSaving(true);
@@ -208,7 +208,7 @@ export default function SecretaryEvents({ proposals = [] }) {
         ...current,
       ]);
       setForm(emptyForm);
-      showToast("Event created from the approved proposal.", "success");
+      showToast("Event created from the adopted resolution.", "success");
     } catch (requestError) {
       const message =
         requestError.response?.data?.message || "Unable to create the event.";
@@ -471,8 +471,8 @@ export default function SecretaryEvents({ proposals = [] }) {
           Organization Events
         </h3>
         <p className="mt-0.5 text-xs text-slate-500">
-          Create an event from a proposal that received final approval from the
-          president and adviser.
+          Create an event from a resolution that has been adopted by the
+          president, adviser, and dean.
         </p>
       </div>
 
@@ -482,46 +482,55 @@ export default function SecretaryEvents({ proposals = [] }) {
       >
         <div>
           <label className="mb-1 block text-xs font-bold text-slate-700">
-            Approved proposal <span className="text-rose-600">*</span>
+            Adopted resolution <span className="text-rose-600">*</span>
           </label>
           <select
-            value={form.proposal}
+            value={form.resolution}
             onChange={(event) =>
               setForm((current) => ({
                 ...current,
-                proposal: event.target.value,
+                resolution: event.target.value,
               }))
             }
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium focus:border-[#4A0E17] focus:outline-none"
           >
-            <option value="">Choose an approved proposal</option>
-            {availableProposals.map((proposal) => (
-              <option key={proposal._id} value={proposal._id}>
-                {proposal.proposalTitle}
+            <option value="">Choose an adopted resolution</option>
+            {availableResolutions.map((resolution) => (
+              <option key={resolution._id} value={resolution._id}>
+                {[
+                  resolution.resolutionNumber,
+                  resolution.activityProposal?.proposalTitle ||
+                    resolution.title,
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
               </option>
             ))}
           </select>
-          {availableProposals.length === 0 && (
+          {availableResolutions.length === 0 && (
             <p className="mt-1.5 text-[11px] text-slate-500">
-              No unused final-approved proposals are available.
+              No unused adopted resolutions are available.
             </p>
           )}
         </div>
 
-        {form.proposal &&
+        {form.resolution &&
           (() => {
-            const proposal = approvedProposals.find(
-              (item) => item._id === form.proposal,
+            const resolution = adoptedResolutions.find(
+              (item) => item._id === form.resolution,
             );
-            return proposal ? (
+            const activity = resolution?.activityProposal;
+            return resolution ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-emerald-900">
-                <p className="font-bold">{proposal.proposalTitle}</p>
-                <p className="mt-1">
-                  Approved schedule:{" "}
-                  {formatDateTime(proposal.requestedStartDateTime)} –{" "}
-                  {formatDateTime(proposal.requestedEndDateTime)}
+                <p className="font-bold">
+                  {activity?.proposalTitle || resolution.title}
                 </p>
-                <p className="mt-1">Venue: {proposal.targetVenue}</p>
+                <p className="mt-1">
+                  Adopted schedule:{" "}
+                  {formatDateTime(activity?.requestedStartDateTime)} –{" "}
+                  {formatDateTime(activity?.requestedEndDateTime)}
+                </p>
+                <p className="mt-1">Venue: {activity?.targetVenue}</p>
               </div>
             ) : null;
           })()}
@@ -533,7 +542,7 @@ export default function SecretaryEvents({ proposals = [] }) {
         )}
         <button
           type="submit"
-          disabled={saving || availableProposals.length === 0}
+          disabled={saving || availableResolutions.length === 0}
           className="rounded-xl bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? "Creating event..." : "Create Event"}

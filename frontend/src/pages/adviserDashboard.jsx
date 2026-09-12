@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
-import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import ResolutionReview from "../component/organization-main/resolutionReview";
 import {
   ActivityPlanIcon,
   AnnualReportIcon,
@@ -92,39 +92,31 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
   const reviewerLabel = isDean ? "Dean" : "Adviser";
   const [activeTab, setActiveTab] = useState("overview");
   const [user, setUser] = useState(null);
-  const [proposals, setProposals] = useState([]);
+  const [resolutions, setResolutions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [actionId, setActionId] = useState("");
+  const [resolutionActionId, setResolutionActionId] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([API.get("/auth/me"), API.get("/proposals")])
-      .then(([currentUser, proposalResponse]) => {
+    Promise.all([API.get("/auth/me"), API.get("/resolutions")])
+      .then(([currentUser, resolutionResponse]) => {
         if (!mounted) return;
         if (currentUser?.role !== portalRole) {
           navigate("/", { replace: true });
           return;
         }
         setUser(currentUser);
-        setProposals(
-          (Array.isArray(proposalResponse.data)
-            ? proposalResponse.data
-            : []
-          ).filter((proposal) =>
-            [
-              pendingStatus,
-              "Pending Dean Review",
-              "Pending OVPSAS Review",
-              "Approved",
-              "Rejected",
-            ].includes(proposal.status),
-          ),
+        // The backend already scopes resolutions to this reviewer's stage.
+        setResolutions(
+          Array.isArray(resolutionResponse.data)
+            ? resolutionResponse.data
+            : [],
         );
       })
       .catch((error) => {
         if (mounted)
-          setNotice(error.message || "Unable to load adviser dashboard.");
+          setNotice(error.message || "Unable to load the dashboard.");
       })
       .finally(() => {
         if (mounted) setIsLoading(false);
@@ -134,26 +126,26 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     };
   }, [navigate, pendingStatus, portalRole]);
 
-  const handleReview = async (proposal, review) => {
-    setActionId(proposal._id);
+  const handleResolutionReview = async (resolution, review) => {
+    setResolutionActionId(resolution._id);
     setNotice("");
     try {
       const response = await API.patch(
-        `/proposals/${proposal._id}/review`,
+        `/resolutions/${resolution._id}/review`,
         review,
       );
-      setProposals((current) =>
+      setResolutions((current) =>
         current.map((item) =>
-          item._id === proposal._id ? response.data : item,
+          item._id === resolution._id ? response.data : item,
         ),
       );
-      setNotice(response.message || "Proposal decision saved.");
+      setNotice(response.message || "Resolution decision saved.");
       return true;
     } catch (error) {
-      setNotice(error.message || "Unable to save the proposal decision.");
+      setNotice(error.message || "Unable to save the resolution decision.");
       return false;
     } finally {
-      setActionId("");
+      setResolutionActionId("");
     }
   };
 
@@ -163,24 +155,24 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     typeof user.organization === "object" ? user.organization : null;
   const orgName = organization?.name || "Student Organization";
   const activePeriod = getEffectiveAcademicPeriod(organization);
-  const pendingCount = proposals.filter(
-    (proposal) => proposal.status === pendingStatus,
+  const pendingResolutionCount = resolutions.filter(
+    (resolution) => resolution.status === pendingStatus,
   ).length;
-  const forwardedStatuses = isDean
-    ? ["Pending OVPSAS Review", "Approved"]
-    : ["Pending Dean Review", "Pending OVPSAS Review", "Approved"];
-  const approvedCount = proposals.filter((proposal) =>
-    forwardedStatuses.includes(proposal.status),
+  const forwardedResolutionStatuses = isDean
+    ? ["Adopted"]
+    : ["Pending Dean Review", "Adopted"];
+  const forwardedResolutionCount = resolutions.filter((resolution) =>
+    forwardedResolutionStatuses.includes(resolution.status),
   ).length;
 
   const navItems = [
     { id: "overview", label: "Overview", icon: <DashboardIcon /> },
     {
-      id: "proposals",
-      label: "Proposal Review",
-      shortLabel: "Proposals",
+      id: "resolutions",
+      label: "Resolution Review",
+      shortLabel: "Resolutions",
       icon: <FileCheckIcon />,
-      count: pendingCount,
+      count: pendingResolutionCount,
     },
     ...(!isDean
       ? [
@@ -251,8 +243,8 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                 </span>
                 <span>
                   {item.label}
-                  {item.id === "proposals" && (
-                    <NavCountBadge count={pendingCount} />
+                  {item.id === "resolutions" && (
+                    <NavCountBadge count={pendingResolutionCount} />
                   )}
                 </span>
               </button>
@@ -324,7 +316,8 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                   {reviewerLabel} Overview
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Monitor proposals forwarded for your validation and approval.
+                  Monitor resolutions forwarded for your validation and
+                  approval.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -333,15 +326,15 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                     Awaiting Review
                   </p>
                   <p className="text-xl font-bold text-[#8B6E10]">
-                    {pendingCount} Proposals
+                    {pendingResolutionCount} Resolutions
                   </p>
                 </div>
                 <div className="p-5 border border-slate-200/80 rounded-2xl bg-white shadow-xs space-y-1.5">
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    Approved and Forwarded
+                    {isDean ? "Adopted" : "Approved and Forwarded"}
                   </p>
                   <p className="text-xl font-bold text-emerald-700">
-                    {approvedCount} Proposals
+                    {forwardedResolutionCount} Resolutions
                   </p>
                 </div>
                 <div className="p-5 border border-slate-200/80 rounded-2xl bg-white shadow-xs space-y-1.5">
@@ -365,16 +358,17 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                       {reviewerLabel} Approval Responsibility
                     </h3>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Only proposals that completed the required earlier reviews
-                      appear in your queue. Your approval records an e-signature
-                      and forwards the proposal to the next reviewer.
+                      Only resolutions that completed the required earlier
+                      reviews appear in your queue. Your approval records an
+                      e-signature and forwards the resolution to the next
+                      reviewer.
                     </p>
                     <button
                       type="button"
-                      onClick={() => setActiveTab("proposals")}
+                      onClick={() => setActiveTab("resolutions")}
                       className="mt-4 rounded-xl bg-[#4A0E17] px-4 py-2 text-xs font-bold text-white hover:bg-[#601520]"
                     >
-                      Open Proposal Review
+                      Open Resolution Review
                     </button>
                   </div>
                 </div>
@@ -382,12 +376,12 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             </div>
           )}
 
-          {activeTab === "proposals" && (
-            <LeaderProposalReview
-              proposals={proposals}
+          {activeTab === "resolutions" && (
+            <ResolutionReview
+              resolutions={resolutions}
               isLoading={isLoading}
-              actionId={actionId}
-              onReview={handleReview}
+              actionId={resolutionActionId}
+              onReview={handleResolutionReview}
               reviewRole={portalRole}
             />
           )}

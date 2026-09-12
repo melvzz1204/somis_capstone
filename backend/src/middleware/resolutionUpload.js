@@ -2,7 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-const uploadDir = path.join(process.cwd(), "uploads", "proposals");
+const uploadDir = path.join(process.cwd(), "uploads", "resolutions");
 const allowedExtensions = new Set([
   ".pdf",
   ".docx",
@@ -21,15 +21,15 @@ const storage = multer.diskStorage({
   filename: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    callback(null, `proposal-${uniqueSuffix}${extension}`);
+    callback(null, `resolution-${uniqueSuffix}${extension}`);
   },
 });
 
-const proposalUpload = multer({
+const resolutionUpload = multer({
   storage,
   limits: {
     fileSize: 10 * 1024 * 1024,
-    files: 5,
+    files: 10,
   },
   fileFilter: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
@@ -45,4 +45,4 @@ const proposalUpload = multer({
   },
 });
 
-module.exports = proposalUpload;
+module.exports = resolutionUpload;

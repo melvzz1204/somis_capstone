@@ -97,7 +97,7 @@ export default function SuborgDashboard() {
             {[
               "Overview",
               "Officers & Members",
-              "Activity Proposals",
+              "Resolutions",
               "Organization Documents",
             ].map((module) => (
               <div

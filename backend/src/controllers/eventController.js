@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const Event = require("../models/Event");
 const EventAttendance = require("../models/EventAttendance");
 const Member = require("../models/MemberOrganization");
-const Proposal = require("../models/Proposal");
+const Resolution = require("../models/Resolution");
 const Organization = require("../models/OrganizationModels");
 const AttendanceFine = require("../models/AttendanceFine");
 const User = require("../models/User");
@@ -219,7 +219,7 @@ const getEvents = async (req, res) => {
 
     const events = await Event.find({ org: req.user.organization })
       .populate("org", "name acronym")
-      .populate("proposal", "proposalTitle status")
+      .populate("resolution", "title resolutionNumber status")
       .populate("createdBy", "name role")
       .sort({ startDateTime: 1, createdAt: -1 });
     const now = Date.now();
@@ -237,32 +237,33 @@ const getEvents = async (req, res) => {
 
 const createEvent = async (req, res) => {
   try {
-    const proposal = await Proposal.findOne({
-      _id: req.body?.proposal,
+    const resolution = await Resolution.findOne({
+      _id: req.body?.resolution,
       org: req.user.organization,
-      status: "Approved",
+      status: "Adopted",
     });
 
-    if (!proposal) {
+    if (!resolution) {
       return res.status(400).json({
         success: false,
-        message: "Only a final approved proposal can be scheduled as an event.",
+        message: "Only an adopted resolution can be scheduled as an event.",
       });
     }
 
     const existingEvent = await Event.findOne({
-      proposal: proposal._id,
+      resolution: resolution._id,
       org: req.user.organization,
     });
     if (existingEvent) {
       return res.status(409).json({
         success: false,
-        message: "An event has already been created for this proposal.",
+        message: "An event has already been created for this resolution.",
       });
     }
 
-    const startDateTime = new Date(proposal.requestedStartDateTime);
-    const endDateTime = new Date(proposal.requestedEndDateTime);
+    const activity = resolution.activityProposal || {};
+    const startDateTime = new Date(activity.requestedStartDateTime);
+    const endDateTime = new Date(activity.requestedEndDateTime);
     const attendanceDays = buildAttendanceDays({
       startDateTime,
       endDateTime,
@@ -270,24 +271,24 @@ const createEvent = async (req, res) => {
     });
     const event = await Event.create({
       org: req.user.organization,
-      proposal: proposal._id,
-      title: proposal.proposalTitle,
-      category: proposal.activityCategory,
-      description: proposal.projectDescription,
+      resolution: resolution._id,
+      title: activity.proposalTitle,
+      category: activity.activityCategory,
+      description: activity.projectDescription,
       startDateTime,
       endDateTime,
-      venue: proposal.targetVenue,
-      targetAudience: proposal.targetAudience,
-      expectedAttendees: proposal.expectedAttendees,
-      projectLeadPerson: proposal.projectLeadPerson,
-      projectLeadContact: proposal.projectLeadContact,
+      venue: activity.targetVenue,
+      targetAudience: activity.targetAudience,
+      expectedAttendees: activity.expectedAttendees,
+      projectLeadPerson: activity.projectLeadPerson,
+      projectLeadContact: activity.projectLeadContact,
       createdBy: req.user._id,
       attendanceDays,
     });
 
     await event.populate([
       { path: "org", select: "name acronym" },
-      { path: "proposal", select: "proposalTitle status" },
+      { path: "resolution", select: "title resolutionNumber status" },
       { path: "createdBy", select: "name role" },
     ]);
     res.status(201).json({

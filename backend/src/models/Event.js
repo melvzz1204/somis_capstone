@@ -8,9 +8,9 @@ const eventSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    proposal: {
+    resolution: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Proposal",
+      ref: "Resolution",
       required: true,
       unique: true,
       index: true,

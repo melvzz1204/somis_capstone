@@ -4,6 +4,7 @@ const Payment = require("../models/Payment");
 const Transaction = require("../models/Transaction");
 const StudentFeeArchive = require("../models/StudentFeeArchive");
 const StudentProfile = require("../models/studentProfile");
+const Resolution = require("../models/Resolution");
 const {
   getCurrentAcademicPeriod,
   getAcademicPeriodFilter,
@@ -295,6 +296,44 @@ const createFee = async (req, res) => {
       });
     }
 
+    // A fee drive must be authorized by an adopted resolution from this org.
+    const resolutionId = req.body.resolutionId || req.body.resolution;
+    if (!resolutionId) {
+      return res.status(409).json({
+        success: false,
+        message: "A fee drive requires an adopted resolution from this organization.",
+      });
+    }
+
+    let resolution = null;
+    try {
+      resolution = await Resolution.findOne({
+        _id: resolutionId,
+        org: targetOrgId,
+      }).select("status resolutionNumber");
+    } catch (_error) {
+      resolution = null;
+    }
+
+    if (!resolution) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "The selected resolution was not found for this organization.",
+      });
+    }
+
+    if (resolution.status !== "Adopted") {
+      return res.status(409).json({
+        success: false,
+        message: `Resolution ${
+          resolution.resolutionNumber || ""
+        } must be adopted before it can fund a fee drive (current status: ${
+          resolution.status
+        }).`.replace(/\s+/g, " ").trim(),
+      });
+    }
+
     const { targetMembers } = await resolveTargetMembers(
       targetOrgId,
       feeFields.targetYearLevel,
@@ -311,6 +350,7 @@ const createFee = async (req, res) => {
     const newFee = await Fee.create({
       org: targetOrgId,
       ...feeFields,
+      resolution: resolution._id,
       targetMembers,
       targetMemberCount: targetMembers.length,
       expectedCollection: targetMembers.length * feeFields.amount,

@@ -5,7 +5,7 @@ import { useToast } from "../util/toastContext";
 import MobileTabBar from "../component/mobileTabBar";
 import NavCountBadge from "../component/navCountBadge";
 import OrganizationMembers from "../component/organization-main/organizationMembers";
-import LeaderProposalReview from "../component/organization-main/leaderProposalReview";
+import ResolutionReview from "../component/organization-main/resolutionReview";
 import MeetingManager from "../component/organization-main/meetingManager";
 import {
   ActivityPlanIcon,
@@ -132,6 +132,22 @@ const UploadCloudIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
+const ResolutionIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+    />
+  </svg>
+);
+
 export default function OrgDashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -147,11 +163,11 @@ export default function OrgDashboard() {
   });
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
-  const [proposals, setProposals] = useState([]);
-  const [isLoadingProposals, setIsLoadingProposals] = useState(true);
   const [organizationMembers, setOrganizationMembers] = useState([]);
-  const [proposalActionId, setProposalActionId] = useState("");
-  const [proposalNotice, setProposalNotice] = useState("");
+  const [resolutions, setResolutions] = useState([]);
+  const [isLoadingResolutions, setIsLoadingResolutions] = useState(true);
+  const [resolutionActionId, setResolutionActionId] = useState("");
+  const [resolutionNotice, setResolutionNotice] = useState("");
   const [isSuborganizationModalOpen, setIsSuborganizationModalOpen] =
     useState(false);
   const [isSuborganizationSubmitting, setIsSuborganizationSubmitting] =
@@ -187,17 +203,17 @@ export default function OrgDashboard() {
     }
   }, [navigate]);
 
-  const loadProposals = useCallback(async () => {
-    setIsLoadingProposals(true);
-    setProposalNotice("");
+  const loadResolutions = useCallback(async () => {
+    setIsLoadingResolutions(true);
+    setResolutionNotice("");
     try {
-      const response = await API.get("/proposals");
-      setProposals(Array.isArray(response.data) ? response.data : []);
+      const response = await API.get("/resolutions");
+      setResolutions(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
-      setProposals([]);
-      setProposalNotice(err.message || "Unable to load activity proposals.");
+      setResolutions([]);
+      setResolutionNotice(err.message || "Unable to load resolutions.");
     } finally {
-      setIsLoadingProposals(false);
+      setIsLoadingResolutions(false);
     }
   }, []);
 
@@ -219,14 +235,14 @@ export default function OrgDashboard() {
 
     const profileRequest = window.setTimeout(() => {
       loadOrganizationProfile();
-      loadProposals();
+      loadResolutions();
       loadOrganizationMembers();
     }, 0);
 
     return () => window.clearTimeout(profileRequest);
   }, [
     loadOrganizationProfile,
-    loadProposals,
+    loadResolutions,
     loadOrganizationMembers,
     navigate,
     user?.role,
@@ -239,31 +255,31 @@ export default function OrgDashboard() {
     (member) => member.role === "Member",
   ).length;
 
-  const handleProposalReview = async (proposal, review) => {
-    setProposalActionId(proposal._id);
-    setProposalNotice("");
+  const handleResolutionReview = async (resolution, review) => {
+    setResolutionActionId(resolution._id);
+    setResolutionNotice("");
     try {
       const response = await API.patch(
-        `/proposals/${proposal._id}/review`,
+        `/resolutions/${resolution._id}/review`,
         review,
       );
-      setProposals((current) =>
+      setResolutions((current) =>
         current.map((item) =>
-          item._id === proposal._id ? response.data : item,
+          item._id === resolution._id ? response.data : item,
         ),
       );
-      const successMessage = response.message || "Proposal decision saved.";
-      setProposalNotice(successMessage);
+      const successMessage = response.message || "Resolution decision saved.";
+      setResolutionNotice(successMessage);
       showToast(successMessage, "success");
       return true;
     } catch (err) {
       const errorMessage =
-        err.message || "Unable to save the proposal decision.";
-      setProposalNotice(errorMessage);
+        err.message || "Unable to save the resolution decision.";
+      setResolutionNotice(errorMessage);
       showToast(errorMessage, "error");
       return false;
     } finally {
-      setProposalActionId("");
+      setResolutionActionId("");
     }
   };
 
@@ -412,22 +428,21 @@ export default function OrgDashboard() {
             </button>
 
             <button
-              onClick={() => setActiveTab("activities")}
+              onClick={() => setActiveTab("resolutions")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
-                activeTab === "activities"
+                activeTab === "resolutions"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
-              <CalendarEventIcon
-                className={`w-4 h-4 ${activeTab === "activities" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              <ResolutionIcon
+                className={`w-4 h-4 ${activeTab === "resolutions" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
-              <span>Activity Proposals</span>
+              <span>Resolutions</span>
               <NavCountBadge
                 count={
-                  proposals.filter(
-                    (proposal) =>
-                      !["Approved", "Rejected"].includes(proposal.status),
+                  resolutions.filter(
+                    (resolution) => resolution.status === "Submitted",
                   ).length
                 }
               />
@@ -553,13 +568,12 @@ export default function OrgDashboard() {
             { id: "officers", label: "Officers", icon: <UserPlusIcon /> },
             { id: "members", label: "Members", icon: <UserGroupIcon /> },
             {
-              id: "activities",
-              label: "Activities",
-              shortLabel: "Events",
-              icon: <CalendarEventIcon />,
-              count: proposals.filter(
-                (proposal) =>
-                  !["Approved", "Rejected"].includes(proposal.status),
+              id: "resolutions",
+              label: "Resolutions",
+              shortLabel: "Resolutions",
+              icon: <ResolutionIcon />,
+              count: resolutions.filter(
+                (resolution) => resolution.status === "Submitted",
               ).length,
             },
             {
@@ -797,19 +811,20 @@ export default function OrgDashboard() {
             </div>
           )}
 
-          {/* TAB CONTENT: ACTIVITIES */}
-          {activeTab === "activities" && (
+          {/* TAB CONTENT: RESOLUTIONS */}
+          {activeTab === "resolutions" && (
             <div className="space-y-4">
-              {proposalNotice && (
+              {resolutionNotice && (
                 <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
-                  {proposalNotice}
+                  {resolutionNotice}
                 </div>
               )}
-              <LeaderProposalReview
-                proposals={proposals}
-                isLoading={isLoadingProposals}
-                actionId={proposalActionId}
-                onReview={handleProposalReview}
+              <ResolutionReview
+                resolutions={resolutions}
+                isLoading={isLoadingResolutions}
+                actionId={resolutionActionId}
+                onReview={handleResolutionReview}
+                reviewRole="president"
               />
             </div>
           )}

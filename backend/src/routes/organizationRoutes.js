@@ -11,7 +11,7 @@ const StudentProfile = require("../models/studentProfile");
 const Fee = require("../models/Fee");
 const Payment = require("../models/Payment");
 const StudentFeeArchive = require("../models/StudentFeeArchive");
-const Proposal = require("../models/Proposal");
+const Resolution = require("../models/Resolution");
 const OrganizationDocument = require("../models/OrganizationDocument");
 const {
   removeOrganizationDocumentFiles,
@@ -659,7 +659,7 @@ router.delete(
         Fee.deleteMany({ org: organization._id }),
         Payment.deleteMany({ organization: organization._id }),
         StudentFeeArchive.deleteMany({ organization: organization._id }),
-        Proposal.deleteMany({ org: organization._id }),
+        Resolution.deleteMany({ org: organization._id }),
         OrganizationDocument.deleteMany({ org: organization._id }),
       ]);
       await organization.deleteOne();

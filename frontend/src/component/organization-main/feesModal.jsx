@@ -158,6 +158,7 @@ export default function FeeModal({
     targetYearLevel: "",
     dueDate: "",
     description: "",
+    resolutionId: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -165,6 +166,8 @@ export default function FeeModal({
   const [targetMembers, setTargetMembers] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [adoptedResolutions, setAdoptedResolutions] = useState([]);
+  const [resolutionsLoading, setResolutionsLoading] = useState(false);
   const unitAmount = Number(formData.amount) || 0;
   const unitBaseCost = Number(formData.baseCost) || 0;
   const marginPerMember = Math.max(0, unitAmount - unitBaseCost);
@@ -198,6 +201,7 @@ export default function FeeModal({
           ? new Date(fee.dueDate).toISOString().slice(0, 10)
           : "",
         description: fee?.description || "",
+        resolutionId: fee?.resolution?._id || fee?.resolution || "",
       });
       setErrorMsg("");
     }, 0);
@@ -247,6 +251,36 @@ export default function FeeModal({
       isCurrentRequest = false;
     };
   }, [isOpen, formData.targetYearLevel]);
+
+  // A fee drive must be authorized by an adopted resolution. Load the options
+  // so the treasurer can attach one (required for new collections).
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    let isCurrentRequest = true;
+
+    Promise.resolve().then(() => {
+      if (isCurrentRequest) setResolutionsLoading(true);
+    });
+
+    API.get("/resolutions/adopted")
+      .then((response) => {
+        if (!isCurrentRequest) return;
+        setAdoptedResolutions(
+          Array.isArray(response?.data) ? response.data : [],
+        );
+      })
+      .catch(() => {
+        if (isCurrentRequest) setAdoptedResolutions([]);
+      })
+      .finally(() => {
+        if (isCurrentRequest) setResolutionsLoading(false);
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -313,6 +347,15 @@ export default function FeeModal({
       return;
     }
 
+    // New fee drives must reference an adopted resolution.
+    if (!fee && !formData.resolutionId) {
+      const resolutionError =
+        "Select an adopted resolution to authorize this dues collection.";
+      setErrorMsg(resolutionError);
+      showToast?.(resolutionError, "error");
+      return;
+    }
+
     setLoading(true);
     const targetOrgId = getOrgId();
 
@@ -336,6 +379,7 @@ export default function FeeModal({
       targetYearLevel: formData.targetYearLevel,
       dueDate: formData.dueDate, // Raw YYYY-MM-DD from input
       description: formData.description.trim(),
+      resolutionId: formData.resolutionId,
     };
 
     try {
@@ -409,6 +453,42 @@ export default function FeeModal({
 
         {/* FORM BODY */}
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+          {/* AUTHORIZING RESOLUTION */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              Authorizing Resolution{" "}
+              {!fee && <span className="text-rose-600">*</span>}
+            </label>
+            <select
+              name="resolutionId"
+              value={formData.resolutionId}
+              onChange={handleChange}
+              disabled={Boolean(fee) || resolutionsLoading}
+              required={!fee}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] bg-white font-medium text-slate-800 disabled:bg-slate-100"
+            >
+              <option value="">
+                {resolutionsLoading
+                  ? "Loading adopted resolutions..."
+                  : "Select an adopted resolution"}
+              </option>
+              {adoptedResolutions.map((resolution) => (
+                <option key={resolution._id} value={resolution._id}>
+                  {[resolution.resolutionNumber, resolution.title]
+                    .filter(Boolean)
+                    .join(" — ")}
+                </option>
+              ))}
+            </select>
+            {!fee && !resolutionsLoading && adoptedResolutions.length === 0 && (
+              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">
+                No adopted resolutions are available. A resolution must be
+                adopted (president → adviser → dean) before a dues collection
+                can be created.
+              </p>
+            )}
+          </div>
+
           {/* CATEGORY SELECTOR */}
           <div>
             <label className="block font-bold text-slate-700 mb-1">
@@ -654,7 +734,8 @@ export default function FeeModal({
                 loading ||
                 previewLoading ||
                 Boolean(previewError) ||
-                targetMembers.length === 0
+                targetMembers.length === 0 ||
+                (!fee && !formData.resolutionId)
               }
               className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1.5"
             >

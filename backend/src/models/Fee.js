@@ -119,6 +119,15 @@ const feeSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    // The adopted resolution that authorizes this fee drive. Kept optional at
+    // the schema level so legacy fees remain valid on save(); enforced for new
+    // documents via the isNew hook below and in the controller.
+    resolution: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Resolution",
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -128,5 +137,15 @@ const feeSchema = new mongoose.Schema(
 feeSchema.index({ org: 1, status: 1, dueDate: 1 });
 feeSchema.index({ org: 1, "targetMembers.member": 1 });
 feeSchema.index({ org: 1, "targetMembers.student": 1 });
+feeSchema.index({ org: 1, resolution: 1 });
+
+feeSchema.pre("validate", function requireResolutionForNewFees() {
+  if (this.isNew && !this.resolution) {
+    this.invalidate(
+      "resolution",
+      "An adopted resolution is required to create a fee drive.",
+    );
+  }
+});
 
 module.exports = mongoose.model("Fee", feeSchema);

@@ -24,16 +24,6 @@ const feeSchema = new mongoose.Schema(
       required: [true, "Amount is required"],
       min: [0, "Amount cannot be negative"],
     },
-    baseCost: {
-      type: Number,
-      min: [0, "Base cost cannot be negative"],
-      default: 0,
-    },
-    marginPerMember: {
-      type: Number,
-      min: [0, "Margin cannot be negative"],
-      default: 0,
-    },
     academicYear: {
       type: String,
       required: [true, "Academic Year is required"],
@@ -86,16 +76,6 @@ const feeSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
-    expectedCost: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
-    expectedMargin: {
-      type: Number,
-      min: 0,
-      default: 0,
-    },
     dueDate: {
       type: Date,
       required: [true, "Due date is required"],
@@ -113,11 +93,26 @@ const feeSchema = new mongoose.Schema(
       enum: ["active", "archived", "closed"],
       default: "active",
     },
-    // Treasurer-only organization view state. This must not hide the fee from students.
+    // President-only organization view state. This must not hide the fee from students.
     treasurerArchived: {
       type: Boolean,
       default: false,
       index: true,
+    },
+    // Dues collection approval: the Organization President initiates the
+    // collection and the Faculty Adviser must approve it before it is
+    // finalized (visible/payable to students).
+    approvalStatus: {
+      type: String,
+      enum: ["pending_adviser", "approved", "rejected"],
+      default: "pending_adviser",
+      index: true,
+    },
+    adviserReview: {
+      decision: { type: String, enum: ["Approved", "Rejected"] },
+      remarks: { type: String, trim: true, maxlength: 500, default: "" },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      reviewedAt: Date,
     },
     // The adopted resolution that authorizes this fee drive. Kept optional at
     // the schema level so legacy fees remain valid on save(); enforced for new

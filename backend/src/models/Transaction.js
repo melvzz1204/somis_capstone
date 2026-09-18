@@ -35,9 +35,6 @@ const transactionSchema = new mongoose.Schema(
       ],
     },
     unitPriceSnapshot: { type: Number, min: 0, default: 0 },
-    baseCostSnapshot: { type: Number, min: 0, default: 0 },
-    estimatedCost: { type: Number, min: 0, default: 0 },
-    netIncome: { type: Number, default: 0 },
     academicYear: {
       type: String,
       required: true,

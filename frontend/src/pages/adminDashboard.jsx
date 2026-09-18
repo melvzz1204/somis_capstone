@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import API from "../api/axios";
 import LogoutButton from "../component/logoutButton";
 import CollegeCatalog from "../component/collegeCatalog";
@@ -7,6 +7,7 @@ import {
   AnnualReportIcon,
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
+import AdminResolutionWorkspace from "../component/organization-main/adminResolutionWorkspace";
 import AcademicPeriodSettings from "../component/organization-main/AcademicPeriodSettings";
 import {
   getEffectiveAcademicPeriod,
@@ -80,6 +81,50 @@ const ShieldCheckIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
+const ChevronDownIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.5"
+      d="M19 9l-7 7-7-7"
+    />
+  </svg>
+);
+
+const GraduationCapIcon = ({ className = "w-5 h-5" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M22 10L12 5 2 10l10 5 10-5z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M6 12v4.5c0 1.38 2.686 2.5 6 2.5s6-1.12 6-2.5V12"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M22 10v5"
+    />
+  </svg>
+);
+
 const UserGroupIcon = ({ className = "w-5 h-5" }) => (
   <svg
     className={className}
@@ -104,6 +149,7 @@ export default function AdminDashboard() {
   const [organizations, setOrganizations] = useState([]);
   const [colleges, setColleges] = useState([]);
   const [editingOrg, setEditingOrg] = useState(null);
+  const [expandedColleges, setExpandedColleges] = useState({});
   const [academicPeriod, setAcademicPeriod] = useState(() =>
     getEffectiveAcademicPeriod(null),
   );
@@ -311,6 +357,134 @@ export default function AdminDashboard() {
     }
   };
 
+  // Group the directory by college so suborganizations can be revealed per
+  // college with a single bottom toggle instead of cluttering the whole list.
+  const organizationGroups = useMemo(() => {
+    const byCollege = new Map();
+    organizations.forEach((org) => {
+      const college = org.college || "Unassigned College";
+      if (!byCollege.has(college)) byCollege.set(college, []);
+      byCollege.get(college).push(org);
+    });
+
+    return Array.from(byCollege.entries())
+      .map(([college, orgs]) => {
+        const parents = orgs
+          .filter((org) => !org.parentOrganization)
+          .sort((left, right) => left.name.localeCompare(right.name));
+        const parentIds = new Set(parents.map((org) => String(org._id)));
+
+        const suborgsByParent = new Map();
+        const orphanSuborgs = [];
+        orgs
+          .filter((org) => org.parentOrganization)
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .forEach((suborg) => {
+            const parentId = String(
+              suborg.parentOrganization?._id || suborg.parentOrganization,
+            );
+            if (!parentIds.has(parentId)) {
+              orphanSuborgs.push(suborg);
+              return;
+            }
+            if (!suborgsByParent.has(parentId)) {
+              suborgsByParent.set(parentId, []);
+            }
+            suborgsByParent.get(parentId).push(suborg);
+          });
+
+        const suborgCount = orgs.length - parents.length;
+
+        return {
+          college,
+          parents,
+          suborgsByParent,
+          orphanSuborgs,
+          suborgCount,
+        };
+      })
+      .sort((left, right) => left.college.localeCompare(right.college));
+  }, [organizations]);
+
+  const toggleCollege = (college) =>
+    setExpandedColleges((current) => ({
+      ...current,
+      [college]: !current[college],
+    }));
+
+  const renderOrganizationRow = (org, isSuborganization = false) => (
+    <div
+      key={org._id || org.id}
+      className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors ${isSuborganization ? "pl-9 border-l-4 border-[#D4AF37]/50" : ""}`}
+    >
+      <div className="space-y-1.5 max-w-xl">
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-bold text-[#4A0E17]">{org.name}</span>
+          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
+            {isSuborganization ? "SUBORGANIZATION" : "PARENT"}
+          </span>
+          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
+            {org.acronym}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          {org.college} <br className="sm:hidden" />
+          {isSuborganization && (
+            <>
+              <span className="mx-1">•</span>
+              Suborganization of{" "}
+              <span className="text-slate-700 font-medium">
+                {org.parentOrganization?.name || "its parent organization"}
+              </span>{" "}
+              <br className="sm:hidden" />
+            </>
+          )}
+          <span className="mx-1">•</span>
+          President:{" "}
+          <span className="text-slate-700 font-medium">
+            {org.president || "N/A"}
+          </span>
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
+        <span
+          className={`px-3 py-1 rounded-full border font-bold text-[11px] flex items-center gap-1.5 ${
+            org.status === "Inactive"
+              ? "bg-slate-100 border-slate-200 text-slate-600"
+              : "bg-emerald-50 border-emerald-200 text-emerald-800"
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${org.status === "Inactive" ? "bg-slate-400" : "bg-emerald-500 animate-pulse"}`}
+          />
+          {org.status || "Active"}
+        </span>
+        <button
+          type="button"
+          onClick={() => openEditModal(org)}
+          className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => handleToggleOrganization(org)}
+          className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+        >
+          {org.status === "Inactive" ? "Activate" : "Deactivate"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleDeleteOrganization(org)}
+          className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
       {/* SIDEBAR */}
@@ -337,9 +511,9 @@ export default function AdminDashboard() {
           <nav className="space-y-1.5 text-xs font-medium">
             <button
               onClick={() => setActiveTab("organizations")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
                 activeTab === "organizations"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
@@ -350,22 +524,22 @@ export default function AdminDashboard() {
             </button>
             <button
               onClick={() => setActiveTab("colleges")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
                 activeTab === "colleges"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
-              <BuildingIcon
+              <GraduationCapIcon
                 className={`w-4 h-4 ${activeTab === "colleges" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Colleges & Programs</span>
             </button>
             <button
               onClick={() => setActiveTab("annual-report")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
                 activeTab === "annual-report"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
@@ -376,9 +550,9 @@ export default function AdminDashboard() {
             </button>
             <button
               onClick={() => setActiveTab("activity-plan")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
                 activeTab === "activity-plan"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
                   : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
               }`}
             >
@@ -386,6 +560,19 @@ export default function AdminDashboard() {
                 className={`w-4 h-4 ${activeTab === "activity-plan" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Organization Plan</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("resolutions")}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
+                activeTab === "resolutions"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <FileCheckIcon
+                className={`w-4 h-4 ${activeTab === "resolutions" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Resolutions</span>
             </button>
           </nav>
         </div>
@@ -435,7 +622,11 @@ export default function AdminDashboard() {
               shortLabel: "Orgs",
               icon: <BuildingIcon />,
             },
-            { id: "colleges", label: "Colleges", icon: <BuildingIcon /> },
+            {
+              id: "colleges",
+              label: "Colleges",
+              icon: <GraduationCapIcon />,
+            },
             {
               id: "annual-report",
               label: "Accomplishment Report",
@@ -448,6 +639,12 @@ export default function AdminDashboard() {
               shortLabel: "Org Plan",
               icon: <ActivityPlanIcon />,
             },
+            {
+              id: "resolutions",
+              label: "Resolutions",
+              shortLabel: "Resolutions",
+              icon: <FileCheckIcon />,
+            },
           ]}
         />
 
@@ -458,14 +655,18 @@ export default function AdminDashboard() {
             <OrganizationDocumentWorkspace
               documentType="Annual Report"
               reviewRole="admin"
+              colleges={colleges}
               academicPeriodKey={`${academicPeriod.academicYear}:${academicPeriod.semester}`}
             />
           ) : activeTab === "activity-plan" ? (
             <OrganizationDocumentWorkspace
               documentType="Activity Plan"
               reviewRole="admin"
+              colleges={colleges}
               academicPeriodKey={`${academicPeriod.academicYear}:${academicPeriod.semester}`}
             />
+          ) : activeTab === "resolutions" ? (
+            <AdminResolutionWorkspace colleges={colleges} />
           ) : (
             <>
               <AcademicPeriodSettings
@@ -547,108 +748,88 @@ export default function AdminDashboard() {
                 <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
                   <span>Organization Directory</span>
                   <span className="text-slate-400 font-normal">
-                    Showing {organizations.length} entry/entries
+                    {organizationGroups.length} college
+                    {organizationGroups.length === 1 ? "" : "s"} · Showing{" "}
+                    {organizations.length} entry/entries
                   </span>
                 </div>
 
-                <div className="divide-y divide-slate-100">
-                  {Array.isArray(organizations) && organizations.length > 0 ? (
-                    [...organizations]
-                      .sort((left, right) => {
-                        const leftParent = left.parentOrganization ? 1 : 0;
-                        const rightParent = right.parentOrganization ? 1 : 0;
-                        return (
-                          leftParent - rightParent ||
-                          left.name.localeCompare(right.name)
-                        );
-                      })
-                      .map((org) => (
-                        <div
-                          key={org._id || org.id}
-                          className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors ${org.parentOrganization ? "pl-9 border-l-4 border-[#D4AF37]/50" : ""}`}
-                        >
-                          <div className="space-y-1.5 max-w-xl">
-                            <div className="flex items-center gap-2.5">
-                              <span className="text-sm font-bold text-[#4A0E17]">
-                                {org.name}
-                              </span>
-                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
-                                {org.parentOrganization
-                                  ? "SUBORGANIZATION"
-                                  : "PARENT"}
-                              </span>
-                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
-                                {org.acronym}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-500 leading-relaxed">
-                              {org.college} <br className="sm:hidden" />
-                              {org.parentOrganization && (
-                                <>
-                                  <span className="mx-1">•</span>
-                                  Suborganization of{" "}
-                                  <span className="text-slate-700 font-medium">
-                                    {org.parentOrganization.name}
-                                  </span>{" "}
-                                  <br className="sm:hidden" />
-                                </>
-                              )}
-                              <span className="mx-1">•</span>
-                              President:{" "}
-                              <span className="text-slate-700 font-medium">
-                                {org.president || "N/A"}
-                              </span>
-                            </p>
+                {Array.isArray(organizations) && organizations.length > 0 ? (
+                  <div className="divide-y divide-slate-200">
+                    {organizationGroups.map((group) => {
+                      const isExpanded = Boolean(
+                        expandedColleges[group.college],
+                      );
+
+                      return (
+                        <div key={group.college}>
+                          <div className="px-6 py-3 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-extrabold uppercase tracking-wide text-[#4A0E17]">
+                              {group.college}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              {group.parents.length} parent ·{" "}
+                              {group.suborgCount} suborganization
+                              {group.suborgCount === 1 ? "" : "s"}
+                            </span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
-                            <span
-                              className={`px-3 py-1 rounded-full border font-bold text-[11px] flex items-center gap-1.5 ${
-                                org.status === "Inactive"
-                                  ? "bg-slate-100 border-slate-200 text-slate-600"
-                                  : "bg-emerald-50 border-emerald-200 text-emerald-800"
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${org.status === "Inactive" ? "bg-slate-400" : "bg-emerald-500 animate-pulse"}`}
-                              />
-                              {org.status || "Active"}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(org)}
-                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleOrganization(org)}
-                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                            >
-                              {org.status === "Inactive"
-                                ? "Activate"
-                                : "Deactivate"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteOrganization(org)}
-                              className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
-                            >
-                              Delete
-                            </button>
+                          <div className="divide-y divide-slate-100">
+                            {group.parents.map((parent) => (
+                              <div key={parent._id || parent.id}>
+                                {renderOrganizationRow(parent)}
+                                {isExpanded &&
+                                  (
+                                    group.suborgsByParent.get(
+                                      String(parent._id),
+                                    ) || []
+                                  ).map((suborg) =>
+                                    renderOrganizationRow(suborg, true),
+                                  )}
+                              </div>
+                            ))}
+
+                            {isExpanded &&
+                              group.orphanSuborgs.map((suborg) =>
+                                renderOrganizationRow(suborg, true),
+                              )}
+
+                            {!isExpanded && group.parents.length === 0 && (
+                              <div className="px-6 py-5 text-center text-xs text-slate-400">
+                                {group.suborgCount} suborganization
+                                {group.suborgCount === 1 ? "" : "s"} in this
+                                college
+                              </div>
+                            )}
                           </div>
+
+                          {group.suborgCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCollege(group.college)}
+                              aria-expanded={isExpanded}
+                              className="w-full flex items-center justify-center gap-2 border-t border-[#D4AF37]/30 bg-[#D4AF37]/10 px-6 py-3 text-xs font-bold text-[#4A0E17] hover:bg-[#D4AF37]/20 transition-colors cursor-pointer"
+                            >
+                              <ChevronDownIcon
+                                className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                              />
+                              {isExpanded ? "Hide" : "Show"} suborganization
+                              {group.suborgCount === 1 ? "" : "s"} (
+                              {group.suborgCount})
+                            </button>
+                          )}
                         </div>
-                      ))
-                  ) : (
-                    <div className="py-16 text-center text-xs text-slate-400 space-y-2">
-                      <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
-                      <p className="font-medium">
-                        No registered student organizations found.
-                      </p>
-                    </div>
-                  )}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-16 text-center text-xs text-slate-400 space-y-2">
+                    <BuildingIcon className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="font-medium">
+                      No registered student organizations found.
+                    </p>
+                  </div>
+                )}
               </section>
             </>
           )}

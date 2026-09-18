@@ -60,6 +60,7 @@ const createPayment = async (req, res) => {
       org: req.user.organization,
       ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
       status: "active",
+      approvalStatus: { $in: ["approved", null] },
       $or: [
         { "targetMembers.student": req.user._id },
         { targetMembers: { $size: 0 } },
@@ -582,6 +583,7 @@ const recordCashPayment = async (req, res) => {
       org: req.user.organization,
       ...getAcademicPeriodFilter(period),
       status: "active",
+      approvalStatus: { $in: ["approved", null] },
       $or: targetQueries,
     }).select("org amount title targetMembers");
     if (!fee)

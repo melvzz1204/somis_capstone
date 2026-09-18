@@ -25,7 +25,7 @@ router
   .route("/")
   .get(
     protect,
-    authorize("secretary", "org_admin", "treasurer", "adviser", "admin"),
+    authorize("secretary", "org_admin", "treasurer", "adviser", "dean", "admin"),
     getOrganizationDocuments,
   )
   .post(
@@ -38,7 +38,7 @@ router
 router.patch(
   "/:id/review",
   protect,
-  authorize("adviser", "admin"),
+  authorize("org_admin", "adviser", "dean", "admin"),
   reviewOrganizationDocument,
 );
 

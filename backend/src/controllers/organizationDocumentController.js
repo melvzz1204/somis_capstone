@@ -3,27 +3,73 @@ const path = require("path");
 const mongoose = require("mongoose");
 const OrganizationDocument = require("../models/OrganizationDocument");
 const { DOCUMENT_TYPES, SEMESTERS } = require("../models/OrganizationDocument");
+const Organization = require("../models/OrganizationModels");
 const { getCurrentAcademicPeriod } = require("../util/academicPeriod");
 const {
   MAX_DOCUMENT_FILES,
 } = require("../middleware/organizationDocumentUpload");
 
 const SUBMITTER_ROLES = new Set(["secretary", "org_admin", "treasurer"]);
+
+// The ordered reviewer roles for each document type. Activity Plans must clear
+// the organization president and the department dean before OVPSAS grants final
+// approval; Annual Reports go straight to the faculty adviser.
+const REVIEW_CHAINS = {
+  "Annual Report": ["adviser", "admin"],
+  "Activity Plan": ["org_admin", "adviser", "dean", "admin"],
+};
+
+// The status a submission holds while each reviewer role holds the pen.
+const REVIEWER_STATUS = {
+  org_admin: "Pending President Review",
+  adviser: "Pending Adviser Review",
+  dean: "Pending Dean Review",
+  admin: "Pending OVPSAS Review",
+};
+
 const REVIEW_RULES = {
+  org_admin: {
+    reviewField: "presidentReview",
+    reviewerLabel: "organization president",
+  },
   adviser: {
-    expectedStatus: "Pending Adviser Review",
-    nextStatus: "Pending OVPSAS Review",
     reviewField: "adviserReview",
     reviewerLabel: "faculty adviser",
-    nextReviewerLabel: "OVPSAS administrator",
+  },
+  dean: {
+    reviewField: "deanReview",
+    reviewerLabel: "department dean",
   },
   admin: {
-    expectedStatus: "Pending OVPSAS Review",
-    nextStatus: "Approved",
     reviewField: "ovpsasReview",
     reviewerLabel: "OVPSAS administrator",
-    nextReviewerLabel: "",
   },
+};
+
+// Document types begin their approval chain at the first reviewer's status.
+const INITIAL_STATUS = {
+  "Annual Report": "Pending Adviser Review",
+  "Activity Plan": "Pending President Review",
+};
+
+const getInitialStatus = (documentType) =>
+  INITIAL_STATUS[documentType] || INITIAL_STATUS["Annual Report"];
+
+// A submission stays editable and removable until a non-first reviewer acts on
+// it (or it is rejected and needs revision).
+const OPEN_STATUSES = [
+  "Pending President Review",
+  "Pending Adviser Review",
+  "Rejected",
+];
+
+const getNextStage = (documentType, role) => {
+  const chain = REVIEW_CHAINS[documentType] || REVIEW_CHAINS["Annual Report"];
+  const nextRole = chain[chain.indexOf(role) + 1];
+  return {
+    nextStatus: nextRole ? REVIEWER_STATUS[nextRole] : "Approved",
+    nextReviewerLabel: nextRole ? REVIEW_RULES[nextRole].reviewerLabel : "",
+  };
 };
 
 const editableFields = ["title"];
@@ -144,14 +190,18 @@ const populateDocument = (query) =>
   query
     .populate("org", "name acronym college")
     .populate("createdBy", "name email role")
+    .populate("presidentReview.reviewedBy", "name email role")
     .populate("adviserReview.reviewedBy", "name email role")
+    .populate("deanReview.reviewedBy", "name email role")
     .populate("ovpsasReview.reviewedBy", "name email role");
 
 const populateSavedDocument = (document) =>
   document.populate([
     { path: "org", select: "name acronym college" },
     { path: "createdBy", select: "name email role" },
+    { path: "presidentReview.reviewedBy", select: "name email role" },
     { path: "adviserReview.reviewedBy", select: "name email role" },
+    { path: "deanReview.reviewedBy", select: "name email role" },
     { path: "ovpsasReview.reviewedBy", select: "name email role" },
   ]);
 
@@ -193,18 +243,23 @@ const createOrganizationDocument = async (req, res) => {
       });
     }
 
+    const initialStatus = getInitialStatus(validation.data.documentType);
     const document = await OrganizationDocument.create({
       ...validation.data,
       ...getDocumentPeriodFilter(activePeriod),
       org: req.user.organization,
       createdBy: req.user._id,
+      status: initialStatus,
       attachments: newAttachments,
     });
     await populateSavedDocument(document);
 
     return res.status(201).json({
       success: true,
-      message: `${document.documentType} submitted for faculty adviser validation.`,
+      message:
+        initialStatus === "Pending President Review"
+          ? `${document.documentType} submitted for organization president review.`
+          : `${document.documentType} submitted for faculty adviser validation.`,
       data: document,
     });
   } catch (error) {
@@ -237,6 +292,17 @@ const getOrganizationDocuments = async (req, res) => {
       });
     }
     if (documentType) query.documentType = documentType;
+
+    // OVPSAS administrators can narrow the directory to a single college.
+    const requestedCollege = req.query.college
+      ? String(req.query.college).trim()
+      : "";
+    if (isOvpsas && requestedCollege) {
+      const orgIds = await Organization.find({ college: requestedCollege })
+        .select("_id")
+        .lean();
+      query.org = { $in: orgIds.map((organization) => organization._id) };
+    }
 
     if (req.user.role === "admin") {
       query.status = { $in: ["Pending OVPSAS Review", "Approved", "Rejected"] };
@@ -282,12 +348,12 @@ const updateOrganizationDocument = async (req, res) => {
       });
     }
 
-    if (!["Pending Adviser Review", "Rejected"].includes(document.status)) {
+    if (!OPEN_STATUSES.includes(document.status)) {
       removeFiles(newAttachments);
       return res.status(409).json({
         success: false,
         message:
-          "Only submissions awaiting faculty adviser review or rejected submissions can be edited.",
+          "Only submissions still awaiting their first reviewers, or rejected submissions, can be edited.",
       });
     }
 
@@ -348,8 +414,10 @@ const updateOrganizationDocument = async (req, res) => {
     );
     document.attachments = [...retainedAttachments, ...newAttachments];
     if (isResubmission) {
-      document.status = "Pending Adviser Review";
+      document.status = getInitialStatus(document.documentType);
+      document.presidentReview = undefined;
       document.adviserReview = undefined;
+      document.deanReview = undefined;
       document.ovpsasReview = undefined;
     }
     await document.save();
@@ -359,7 +427,7 @@ const updateOrganizationDocument = async (req, res) => {
     return res.json({
       success: true,
       message: isResubmission
-        ? `${document.documentType} revised and resubmitted for faculty adviser validation.`
+        ? `${document.documentType} revised and resubmitted for review.`
         : `${document.documentType} updated successfully.`,
       data: document,
     });
@@ -407,12 +475,12 @@ const reviewOrganizationDocument = async (req, res) => {
   }
 
   try {
-    if (req.user.role === "adviser" && !ensureOrganizationContext(req, res)) {
+    if (req.user.role !== "admin" && !ensureOrganizationContext(req, res)) {
       return undefined;
     }
 
     const query = { _id: req.params.id };
-    if (req.user.role === "adviser") query.org = req.user.organization;
+    if (req.user.role !== "admin") query.org = req.user.organization;
 
     const document = await OrganizationDocument.findOne(query);
     if (!document) {
@@ -427,14 +495,28 @@ const reviewOrganizationDocument = async (req, res) => {
         message: "This submission has already received a final decision.",
       });
     }
-    if (document.status !== rule.expectedStatus) {
+
+    const chain =
+      REVIEW_CHAINS[document.documentType] || REVIEW_CHAINS["Annual Report"];
+    if (!chain.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `${rule.reviewerLabel} does not review ${document.documentType.toLowerCase()} submissions.`,
+      });
+    }
+    const expectedStatus = REVIEWER_STATUS[req.user.role];
+    if (document.status !== expectedStatus) {
       return res.status(409).json({
         success: false,
         message: `This submission is not ready for ${rule.reviewerLabel} review.`,
       });
     }
 
-    document.status = decision === "Approved" ? rule.nextStatus : "Rejected";
+    const { nextStatus, nextReviewerLabel } = getNextStage(
+      document.documentType,
+      req.user.role,
+    );
+    document.status = decision === "Approved" ? nextStatus : "Rejected";
     document[rule.reviewField] = {
       decision,
       remarks,
@@ -449,7 +531,7 @@ const reviewOrganizationDocument = async (req, res) => {
         ? `${document.documentType} rejected by the ${rule.reviewerLabel}.`
         : req.user.role === "admin"
           ? `${document.documentType} received final OVPSAS approval.`
-          : `${document.documentType} validated and forwarded to the ${rule.nextReviewerLabel}.`;
+          : `${document.documentType} approved and forwarded to the ${nextReviewerLabel}.`;
 
     return res.json({ success: true, message, data: document });
   } catch (error) {
@@ -478,11 +560,11 @@ const deleteOrganizationDocument = async (req, res) => {
         message: "Organization document not found.",
       });
     }
-    if (!["Pending Adviser Review", "Rejected"].includes(document.status)) {
+    if (!OPEN_STATUSES.includes(document.status)) {
       return res.status(409).json({
         success: false,
         message:
-          "Only submissions awaiting faculty adviser review or rejected submissions can be deleted.",
+          "Only submissions still awaiting their first reviewers, or rejected submissions, can be deleted.",
       });
     }
 
@@ -518,6 +600,12 @@ const removeOrganizationDocumentFiles = async (organizationId) => {
 module.exports = {
   SUBMITTER_ROLES,
   REVIEW_RULES,
+  REVIEW_CHAINS,
+  REVIEWER_STATUS,
+  INITIAL_STATUS,
+  OPEN_STATUSES,
+  getInitialStatus,
+  getNextStage,
   normalizeDocumentType,
   isValidSchoolYear,
   getDocumentPeriodFilter,

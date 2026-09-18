@@ -73,7 +73,7 @@ const listTransactions = async (req, res) => {
           : []),
       ],
     })
-      .populate("fee", "title amount baseCost marginPerMember status")
+      .populate("fee", "title amount status")
       .populate("fundingFee", "title amount status")
       .populate("reviewedBy", "name role")
       .sort({ date: -1, createdAt: -1 });
@@ -119,7 +119,8 @@ const createTransaction = async (req, res) => {
         org: req.user.organization,
         ...getAcademicPeriodFilter(period),
         status: "active",
-      }).select("title amount baseCost marginPerMember");
+        approvalStatus: { $in: ["approved", null] },
+      }).select("title amount");
 
       if (!fee) {
         return res.status(404).json({
@@ -164,15 +165,9 @@ const createTransaction = async (req, res) => {
       }
 
       const unitPrice = Number(fee.amount || 0);
-      const baseCost = Number(fee.baseCost || 0);
-      const estimatedCost =
-        unitPrice > 0 ? (fields.amount / unitPrice) * baseCost : 0;
       collectionFields = {
         fee: fee._id,
         unitPriceSnapshot: unitPrice,
-        baseCostSnapshot: baseCost,
-        estimatedCost,
-        netIncome: fields.amount - estimatedCost,
       };
     } else {
       const fundingFee = await Fee.findOne({
@@ -250,10 +245,7 @@ const createTransaction = async (req, res) => {
       createdBy: req.user._id,
     });
     await Promise.all([
-      transaction.populate(
-        "fee",
-        "title amount baseCost marginPerMember status",
-      ),
+      transaction.populate("fee", "title amount status"),
       transaction.populate("fundingFee", "title amount status"),
     ]);
 

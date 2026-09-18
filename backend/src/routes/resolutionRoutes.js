@@ -51,7 +51,7 @@ router.get("/dean-signature", protect, authorize("dean"), getDeanSignature);
 router.get(
   "/adopted",
   protect,
-  authorize("secretary", "org_admin", "treasurer"),
+  authorize("secretary", "org_admin", "treasurer", "adviser"),
   getAdoptableResolutions,
 );
 

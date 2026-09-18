@@ -206,7 +206,16 @@ function FeeCard({
   handleArchiveFee,
   handleRestoreFee,
   handleDeleteFee,
+  readOnly = false,
 }) {
+  const approvalLabel =
+    fee.approvalStatus === "approved"
+      ? "Adviser Approved"
+      : fee.approvalStatus === "rejected"
+        ? "Adviser Rejected"
+        : fee.approvalStatus === "pending_adviser" || !fee.approvalStatus
+          ? "Pending Adviser Approval"
+          : fee.approvalStatus;
   const feeId = String(fee._id || fee.id || idx);
 
   return (
@@ -261,6 +270,17 @@ function FeeCard({
                 : fee.status === "active"
                   ? "Active"
                   : "Expired"}
+            </span>
+            <span
+              className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                fee.approvalStatus === "approved" || !fee.approvalStatus
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : fee.approvalStatus === "rejected"
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                    : "bg-amber-50 text-amber-800 border-amber-200"
+              }`}
+            >
+              {approvalLabel}
             </span>
           </div>
         </div>
@@ -375,45 +395,47 @@ function FeeCard({
               >
                 View students
               </button>
-              <div className="flex items-center gap-2">
-                {!fee.treasurerArchived ? (
-                  <>
-                    {Number(fee.paidMemberCount || 0) === 0 && (
+              {!readOnly && (
+                <div className="flex items-center gap-2">
+                  {!fee.treasurerArchived ? (
+                    <>
+                      {Number(fee.paidMemberCount || 0) === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => openEditFeeModal(fee)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold text-xs"
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => openEditFeeModal(fee)}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-white font-bold text-xs"
+                        onClick={() => handleArchiveFee(fee)}
+                        className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold text-xs"
                       >
-                        Edit
+                        Archive
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleArchiveFee(fee)}
-                      className="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-800 hover:bg-amber-50 font-bold text-xs"
-                    >
-                      Archive
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleRestoreFee(fee)}
-                      className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold text-xs"
-                    >
-                      Restore
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteFee(fee)}
-                      className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-800 hover:bg-rose-50 font-bold text-xs"
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-              </div>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreFee(fee)}
+                        className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold text-xs"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteFee(fee)}
+                        className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-800 hover:bg-rose-50 font-bold text-xs"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -559,16 +581,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     setActiveTab("fees");
   };
 
-  const openCreateFeeModal = () => {
-    const confirmed = window.confirm(
-      "Once this collection is created and a student or member has paid, it cannot be edited. Do you want to continue?",
-    );
-    if (!confirmed) return;
-
-    setEditingFee(null);
-    setIsFeeModalOpen(true);
-  };
-
   const openEditFeeModal = (fee) => {
     if (fee.status !== "active" || Number(fee.paidMemberCount || 0) > 0) {
       if (Number(fee.paidMemberCount || 0) > 0) {
@@ -597,49 +609,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
       showToast("Dues Collection moved to Archive.", "success");
     } catch (error) {
       showToast(error.message || "Failed to archive Dues Collection.", "error");
-    }
-  };
-  const restoreSelectedArchivedFees = async () => {
-    if (!selectedArchivedFeeIds.length) return;
-
-    try {
-      // 1. Send restore requests for all selected fees concurrently
-      const restoredFees = await Promise.all(
-        selectedArchivedFeeIds.map(async (id) => {
-          const response = await API.patch(`/fees/${id}/restore`);
-          return response.data?.data || response.data;
-        }),
-      );
-
-      // 2. Create a Map for quick ID lookup
-      const restoredMap = new Map(
-        restoredFees.map((item) => [String(item._id), item]),
-      );
-
-      // 3. Update feeDrives state in a single batch
-      setFeeDrives((previous) =>
-        previous.map(
-          (current) => restoredMap.get(String(current._id)) || current,
-        ),
-      );
-
-      // 4. Reset selection list
-      setSelectedArchivedFeeIds([]);
-
-      // 5. Switch tab view to active
-      setFeeView("active");
-
-      // 6. Display a single, clean toast message
-      const count = restoredFees.length;
-      showToast(
-        `${count} Dues Collection${count > 1 ? "s" : ""} restored.`,
-        "success",
-      );
-    } catch (error) {
-      showToast(
-        error.message || "Failed to restore selected Dues Collections.",
-        "error",
-      );
     }
   };
   const handleRestoreFee = async (fee) => {
@@ -715,50 +684,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     });
   };
 
-  const toggleAllArchivedFees = () => {
-    const archiveIds = archivedFeeDrives.map((fee) => String(fee._id));
-    setSelectedArchivedFeeIds((current) =>
-      current.length === archiveIds.length ? [] : archiveIds,
-    );
-  };
-
-  const deleteSelectedArchivedFees = async () => {
-    const selectedFees = archivedFeeDrives.filter((fee) =>
-      selectedArchivedFeeIds.includes(String(fee._id)),
-    );
-    if (!selectedFees.length) return;
-    if (
-      !window.confirm(
-        `Permanently delete ${selectedFees.length} selected collection${selectedFees.length === 1 ? "" : "s"} and all linked payment records?`,
-      )
-    )
-      return;
-
-    const results = await Promise.all(
-      selectedFees.map((fee) =>
-        handleDeleteFee(fee, { confirm: false, notify: false }),
-      ),
-    );
-    const failedIds = selectedFees
-      .filter((_, index) => !results[index])
-      .map((fee) => String(fee._id));
-    setSelectedArchivedFeeIds(failedIds);
-
-    const deletedCount = results.filter(Boolean).length;
-    if (deletedCount) {
-      showToast(
-        `${deletedCount} archived collection${deletedCount === 1 ? "" : "s"} permanently deleted.`,
-        "success",
-      );
-    }
-    if (failedIds.length) {
-      showToast(
-        `${failedIds.length} collection${failedIds.length === 1 ? "" : "s"} could not be deleted.`,
-        "error",
-      );
-    }
-  };
-
   const visibleFeeDrives =
     feeView === "archived" ? archivedFeeDrives : activeFeeDrives;
   const selectedIncomeFee = activeFeeDrives.find(
@@ -775,12 +700,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
     0,
     Number(selectedIncomeFee?.collectedAmount || 0) - selectedFeePostedIncome,
   );
-  const incomeBaseCost = Number(selectedIncomeFee?.baseCost || 0);
-  const incomeUnitPrice = Number(selectedIncomeFee?.amount || 0);
-  const incomeAmount = Number(transactionForm.amount || 0);
-  const incomeEstimatedCost =
-    incomeUnitPrice > 0 ? (incomeAmount / incomeUnitPrice) * incomeBaseCost : 0;
-  const incomeNetAmount = incomeAmount - incomeEstimatedCost;
   const incomeTargetMemberCount = Math.max(
     0,
     Number(
@@ -893,11 +812,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   );
   const totalIncome = approvedIncomeTransactions.reduce(
     (sum, transaction) => sum + Number(transaction.amount || 0),
-    0,
-  );
-  const totalNetIncome = approvedIncomeTransactions.reduce(
-    (sum, transaction) =>
-      sum + Number(transaction.netIncome ?? transaction.amount ?? 0),
     0,
   );
 
@@ -1317,17 +1231,17 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1.5">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Total Net Income
+                  Total Income
                 </p>
                 <div className="flex items-baseline justify-between">
                   <h2 className="text-2xl font-extrabold text-[#4A0E17]">
                     ₱
-                    {totalNetIncome.toLocaleString("en-PH", {
+                    {totalIncome.toLocaleString("en-PH", {
                       minimumFractionDigits: 2,
                     })}
                   </h2>
                   <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold">
-                    Net
+                    Income
                   </span>
                 </div>
               </div>
@@ -1556,18 +1470,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                     const studentPrice = Number(
                       tx.unitPriceSnapshot ?? tx.fee?.amount ?? 0,
                     );
-                    const baseCost = Number(
-                      tx.baseCostSnapshot ?? tx.fee?.baseCost ?? 0,
-                    );
-                    const marginPerStudent = Math.max(
-                      0,
-                      studentPrice - baseCost,
-                    );
-                    const marginPercentage =
-                      studentPrice > 0
-                        ? (marginPerStudent / studentPrice) * 100
-                        : 0;
-                    const netIncome = Number(tx.netIncome ?? tx.amount ?? 0);
+                    const incomeTotal = Number(tx.amount ?? 0);
 
                     return (
                       <div
@@ -1702,34 +1605,21 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                         )}
 
                         {tx.type === "income" && (
-                          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3 sm:grid-cols-5">
-                            {[
-                              ["Student Price", `₱${studentPrice.toFixed(2)}`],
-                              ["Base Cost", `₱${baseCost.toFixed(2)}`],
-                              [
-                                "Margin / Student",
-                                `₱${marginPerStudent.toFixed(2)}`,
-                              ],
-                              ["Margin", `${marginPercentage.toFixed(2)}%`],
-                            ].map(([label, value]) => (
-                              <div
-                                key={label}
-                                className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5"
-                              >
-                                <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
-                                  {label}
-                                </p>
-                                <p className="mt-1 font-black text-slate-800">
-                                  {value}
-                                </p>
-                              </div>
-                            ))}
-                            <div className="col-span-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-white sm:col-span-1">
+                          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3 sm:grid-cols-2">
+                            <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5">
+                              <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
+                                Dues Amount
+                              </p>
+                              <p className="mt-1 font-black text-slate-800">
+                                ₱{studentPrice.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="rounded-xl bg-emerald-600 px-3 py-2.5 text-white">
                               <p className="text-[8px] font-black uppercase tracking-wide text-emerald-100">
-                                Net Income
+                                Total Income
                               </p>
                               <p className="mt-1 text-sm font-black">
-                                ₱{netIncome.toFixed(2)}
+                                ₱{incomeTotal.toFixed(2)}
                               </p>
                             </div>
                           </div>
@@ -1752,18 +1642,11 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                     Organization Dues Collection
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Create and manage official fee requirements for members and
-                    students.
+                    Dues are initiated by the Organization President and
+                    finalized after Faculty Adviser approval. This workspace is
+                    read-only for the treasurer.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={openCreateFeeModal}
-                  className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5"
-                >
-                  <PlusIcon className="w-4 h-4 text-white" />
-                  <span>Add Dues Collection</span>
-                </button>
               </div>
 
               {/* View Tabs */}
@@ -1813,55 +1696,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 </p>
               </div>
 
-              {/* Archived Bulk Selection & Action Bar */}
-              {feeView === "archived" && archivedFeeDrives.length > 0 && (
-                <div
-                  className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-2.5 transition-all ${
-                    selectedArchivedFeeIds.length > 0
-                      ? "border-[#4A0E17]/30 bg-[#4A0E17]/5"
-                      : "border-slate-200 bg-slate-50"
-                  }`}
-                >
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={
-                        archivedFeeDrives.length > 0 &&
-                        selectedArchivedFeeIds.length ===
-                          archivedFeeDrives.length
-                      }
-                      onChange={toggleAllArchivedFees}
-                      className="h-4 w-4 accent-[#4A0E17] cursor-pointer"
-                      aria-label="Select all archived collections"
-                    />
-                    Select all ({archivedFeeDrives.length})
-                  </label>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-xs font-medium text-slate-500">
-                      {selectedArchivedFeeIds.length} selected
-                    </span>
-                    <div className="h-4 w-px bg-slate-300 hidden sm:block" />
-
-                    <button
-                      type="button"
-                      onClick={restoreSelectedArchivedFees}
-                      disabled={!selectedArchivedFeeIds.length}
-                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                    >
-                      Restore selected
-                    </button>
-                    <button
-                      type="button"
-                      onClick={deleteSelectedArchivedFees}
-                      disabled={!selectedArchivedFeeIds.length}
-                      className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                    >
-                      Delete selected
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* Empty State */}
               {visibleFeeDrives.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
@@ -1872,18 +1706,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   </p>
                   <p className="text-xs text-slate-400">
                     {feeView === "archived"
-                      ? "Collections you archive will be stored here for future reference."
-                      : "Click “Add Dues Collection” to create a collection for membership or activities."}
+                      ? "Archived collections will appear here once the president archives them."
+                      : "The Organization President has not published a finalized dues collection yet."}
                   </p>
-                  {feeView === "active" && (
-                    <button
-                      type="button"
-                      onClick={openCreateFeeModal}
-                      className="pt-2 text-xs font-black text-[#7A610D]"
-                    >
-                      Create a collection
-                    </button>
-                  )}
                 </div>
               ) : (
                 /* Collection Cards Grid */
@@ -1906,6 +1731,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                         handleArchiveFee={handleArchiveFee}
                         handleRestoreFee={handleRestoreFee}
                         handleDeleteFee={handleDeleteFee}
+                        readOnly
                       />
                     );
                   })}
@@ -2499,43 +2325,18 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          {[
-                            ["Student Price", selectedIncomeFee.amount],
-                            ["Base Cost", selectedIncomeFee.baseCost],
-                            [
-                              "Margin / Student",
-                              selectedIncomeFee.marginPerMember,
-                            ],
-                            [
-                              "Margin",
-                              `${
-                                Number(selectedIncomeFee.amount || 0) > 0
-                                  ? (
-                                      (Number(
-                                        selectedIncomeFee.marginPerMember || 0,
-                                      ) /
-                                        Number(selectedIncomeFee.amount)) *
-                                      100
-                                    ).toFixed(2)
-                                  : "0.00"
-                              }%`,
-                            ],
-                          ].map(([label, value], index) => (
-                            <div
-                              key={label}
-                              className="rounded-xl border border-emerald-100 bg-white p-2.5"
-                            >
-                              <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
-                                {label}
-                              </p>
-                              <p className="mt-1 font-black text-slate-800">
-                                {index === 3
-                                  ? value
-                                  : `₱${Number(value || 0).toFixed(2)}`}
-                              </p>
-                            </div>
-                          ))}
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-1">
+                          <div className="rounded-xl border border-emerald-100 bg-white p-2.5">
+                            <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
+                              Dues Amount
+                            </p>
+                            <p className="mt-1 font-black text-slate-800">
+                              ₱
+                              {Number(
+                                selectedIncomeFee.amount || 0,
+                              ).toFixed(2)}
+                            </p>
+                          </div>
                         </div>
 
                         <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
@@ -2565,17 +2366,6 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                               </p>
                               <p className="mt-1 text-base font-black">
                                 ₱{selectedFeeAvailableIncome.toFixed(2)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 border-t border-slate-100 bg-slate-50">
-                            {" "}
-                            <div className="border-l border-slate-200 p-3">
-                              <p className="text-[9px] font-black uppercase tracking-wide text-emerald-600">
-                                Net Income
-                              </p>
-                              <p className="mt-1 font-black text-emerald-700">
-                                ₱{incomeNetAmount.toFixed(2)}
                               </p>
                             </div>
                           </div>

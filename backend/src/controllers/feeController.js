@@ -26,6 +26,7 @@ const normalizeEmail = (value) =>
     .toLowerCase();
 
 const getActiveStudentFeeQuery = async (req, extra = {}) => ({
+  approvalStatus: { $in: ["approved", null] },
   ...extra,
   org: req.user.organization,
   ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
@@ -164,21 +165,17 @@ const addCollectionProgress = async (fees) => {
 /**
  * @desc    Create a new Fee Drive
  * @route   POST /api/fees
- * @access  Private (Treasurer)
+ * @access  Private (Organization President)
  */
 const normalizeFeeFields = (body = {}) => {
   const normalizedTitle = String(body.title || "").trim();
   const numericAmount = Number(body.amount);
-  const numericBaseCost = Number(body.baseCost || 0);
   const parsedDueDate = body.dueDate ? new Date(body.dueDate) : null;
 
   if (
     !normalizedTitle ||
     !Number.isFinite(numericAmount) ||
     numericAmount <= 0 ||
-    !Number.isFinite(numericBaseCost) ||
-    numericBaseCost < 0 ||
-    numericBaseCost > numericAmount ||
     !body.academicYear ||
     !body.semester ||
     !parsedDueDate ||
@@ -194,8 +191,6 @@ const normalizeFeeFields = (body = {}) => {
     title: normalizedTitle,
     category: String(body.category || "general").trim(),
     amount: numericAmount,
-    baseCost: numericBaseCost,
-    marginPerMember: numericAmount - numericBaseCost,
     academicYear: body.academicYear,
     semester: body.semester,
     targetYearLevel,
@@ -215,7 +210,7 @@ const archiveExpiredFees = async (orgId) => {
 /**
  * @desc    Preview all roster members except advisers and deans
  * @route   GET /api/v1/fees/target-preview
- * @access  Private (Treasurer)
+ * @access  Private (Organization President)
  */
 const previewFeeTargets = async (req, res) => {
   try {
@@ -258,7 +253,6 @@ const createFee = async (req, res) => {
       title,
       category,
       amount,
-      baseCost,
       academicYear,
       semester,
       targetYearLevel,
@@ -280,7 +274,6 @@ const createFee = async (req, res) => {
       title,
       category,
       amount,
-      baseCost,
       academicYear,
       semester,
       targetYearLevel,
@@ -292,7 +285,7 @@ const createFee = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Provide valid collection pricing (base cost cannot exceed the collection amount), academic details, and due date.",
+          "Provide a valid collection amount, academic details, and due date.",
       });
     }
 
@@ -310,7 +303,7 @@ const createFee = async (req, res) => {
       resolution = await Resolution.findOne({
         _id: resolutionId,
         org: targetOrgId,
-      }).select("status resolutionNumber");
+      }).select("status resolutionNumber adviserReview");
     } catch (_error) {
       resolution = null;
     }
@@ -334,6 +327,19 @@ const createFee = async (req, res) => {
       });
     }
 
+    // The associated resolution must carry an explicit adviser approval.
+    if (resolution.adviserReview?.decision !== "Approved") {
+      return res.status(409).json({
+        success: false,
+        message: `Resolution ${
+          resolution.resolutionNumber || ""
+        } must be approved by the faculty adviser before it can fund a fee drive.`.replace(
+          /\s+/g,
+          " ",
+        ).trim(),
+      });
+    }
+
     const { targetMembers } = await resolveTargetMembers(
       targetOrgId,
       feeFields.targetYearLevel,
@@ -346,7 +352,8 @@ const createFee = async (req, res) => {
     }
 
     // Snapshot the eligible roster members so the collection target stays exact even
-    // when the organization roster changes later.
+    // when the organization roster changes later. The president initiates the
+    // collection; the adviser must approve it before it is finalized.
     const newFee = await Fee.create({
       org: targetOrgId,
       ...feeFields,
@@ -354,8 +361,7 @@ const createFee = async (req, res) => {
       targetMembers,
       targetMemberCount: targetMembers.length,
       expectedCollection: targetMembers.length * feeFields.amount,
-      expectedCost: targetMembers.length * feeFields.baseCost,
-      expectedMargin: targetMembers.length * feeFields.marginPerMember,
+      approvalStatus: "pending_adviser",
       createdBy: req.user._id,
       status: feeFields.dueDate <= new Date() ? "archived" : "active",
     });
@@ -363,7 +369,7 @@ const createFee = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Collection created for ${targetMembers.length} member${targetMembers.length === 1 ? "" : "s"}.`,
+      message: `Collection created for ${targetMembers.length} member${targetMembers.length === 1 ? "" : "s"} and submitted for adviser approval.`,
       data: feeWithProgress,
     });
   } catch (error) {
@@ -395,12 +401,30 @@ const getFees = async (req, res) => {
     const query = { org: orgId };
     const activePeriod = await getCurrentAcademicPeriod();
 
-    if (req.user.role === "treasurer" || req.user.role === "student") {
+    if (
+      req.user.role === "treasurer" ||
+      req.user.role === "student" ||
+      req.user.role === "org_admin" ||
+      req.user.role === "adviser"
+    ) {
       Object.assign(query, getAcademicPeriodFilter(activePeriod));
     }
 
-    if (req.user.role === "treasurer" && req.query.includeArchived !== "true") {
+    if (
+      (req.user.role === "treasurer" ||
+        req.user.role === "org_admin" ||
+        req.user.role === "adviser") &&
+      req.query.includeArchived !== "true"
+    ) {
       query.treasurerArchived = { $ne: true };
+    }
+
+    // Organization staff can filter by adviser approval state.
+    if (
+      ["org_admin", "adviser", "treasurer"].includes(req.user.role) &&
+      req.query.approvalStatus
+    ) {
+      query.approvalStatus = String(req.query.approvalStatus);
     }
 
     if (req.user.role === "student") {
@@ -418,6 +442,10 @@ const getFees = async (req, res) => {
       const hiddenFeeIds = hiddenArchives.map((archive) => archive.fee);
 
       query.status = { $in: ["active", "archived"] };
+      // Students only see finalized (adviser-approved) collections.
+      // `{ $in: ["approved", null] }` keeps legacy fees (no approval field)
+      // visible while new collections require explicit adviser approval.
+      query.approvalStatus = { $in: ["approved", null] };
       if (hiddenFeeIds.length) query._id = { $nin: hiddenFeeIds };
       query.$or = [
         { "targetMembers.student": req.user._id },
@@ -433,8 +461,9 @@ const getFees = async (req, res) => {
     const feeQuery = Fee.find(query).sort({ dueDate: 1, createdAt: -1 });
     if (req.user.role === "student") feeQuery.select("-targetMembers");
     const fees = await feeQuery;
-    const data =
-      req.user.role === "treasurer" ? await addCollectionProgress(fees) : fees;
+    const data = ["treasurer", "org_admin", "adviser"].includes(req.user.role)
+      ? await addCollectionProgress(fees)
+      : fees;
 
     res.status(200).json({
       success: true,
@@ -477,6 +506,7 @@ const getClearanceFees = async (req, res) => {
     ).trim();
     const fees = await Fee.find({
       org: orgId,
+      approvalStatus: { $in: ["approved", null] },
       ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
     })
       .select(
@@ -551,7 +581,15 @@ const updateFee = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Provide valid collection pricing (base cost cannot exceed the collection amount), academic details, and due date.",
+          "Provide a valid collection amount, academic details, and due date.",
+      });
+    }
+
+    if (fee.approvalStatus === "approved") {
+      return res.status(409).json({
+        success: false,
+        message:
+          "An adviser-approved dues collection cannot be edited. Ask the adviser to reject it first if changes are needed.",
       });
     }
 
@@ -567,6 +605,8 @@ const updateFee = async (req, res) => {
       });
     }
 
+    const targetChanged =
+      feeFields.targetYearLevel !== fee.targetYearLevel;
     let targetMembers = fee.targetMembers;
     if (targetChanged || !targetMembers.length) {
       const resolvedTargets = await resolveTargetMembers(
@@ -587,8 +627,9 @@ const updateFee = async (req, res) => {
       targetMembers,
       targetMemberCount: targetMembers.length,
       expectedCollection: targetMembers.length * feeFields.amount,
-      expectedCost: targetMembers.length * feeFields.baseCost,
-      expectedMargin: targetMembers.length * feeFields.marginPerMember,
+      // Editing re-submits the collection for adviser approval.
+      approvalStatus: "pending_adviser",
+      adviserReview: undefined,
       status: feeFields.dueDate <= new Date() ? "archived" : "active",
     });
     await fee.save();
@@ -630,7 +671,7 @@ const archiveFee = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Fee collection archived for the treasurer.",
+      message: "Fee collection archived for the organization president.",
       data: fee,
     });
   } catch (error) {
@@ -680,6 +721,91 @@ const deleteFee = async (req, res) => {
     success: true,
     message: "Fee collection permanently deleted.",
   });
+};
+
+/**
+ * @desc    Adviser approves or rejects a dues collection before it is finalized
+ * @route   PATCH /api/fees/:id/review
+ * @access  Private (Adviser)
+ */
+const reviewFee = async (req, res) => {
+  const { decision, remarks = "" } = req.body;
+
+  if (!["Approved", "Rejected"].includes(decision)) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid approval decision is required.",
+    });
+  }
+
+  try {
+    const fee = await Fee.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+
+    if (!fee) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Fee collection not found." });
+    }
+
+    if (fee.approvalStatus !== "pending_adviser") {
+      return res.status(409).json({
+        success: false,
+        message: "This dues collection has already received a final decision.",
+      });
+    }
+
+    // The associated resolution must itself carry adviser approval.
+    if (fee.resolution) {
+      const linkedResolution = await Resolution.findOne({
+        _id: fee.resolution,
+        org: fee.org,
+      }).select("status adviserReview resolutionNumber");
+      if (!linkedResolution || linkedResolution.status !== "Adopted") {
+        return res.status(409).json({
+          success: false,
+          message:
+            "The linked resolution must be adopted before the dues collection can be approved.",
+        });
+      }
+      if (linkedResolution.adviserReview?.decision !== "Approved") {
+        return res.status(409).json({
+          success: false,
+          message:
+            "The linked resolution must be approved by the faculty adviser before the dues collection can be approved.",
+        });
+      }
+    }
+
+    fee.approvalStatus =
+      decision === "Approved" ? "approved" : "rejected";
+    fee.adviserReview = {
+      decision,
+      remarks: String(remarks).trim(),
+      reviewedBy: req.user._id,
+      reviewedAt: new Date(),
+    };
+    await fee.save();
+    const [feeWithProgress] = await addCollectionProgress([fee]);
+
+    return res.json({
+      success: true,
+      message:
+        decision === "Approved"
+          ? "Dues collection approved and finalized."
+          : "Dues collection rejected by the faculty adviser.",
+      data: feeWithProgress,
+    });
+  } catch (error) {
+    console.error("Error reviewing fee record:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error: Could not review fee record.",
+      error: error.message,
+    });
+  }
 };
 
 const archiveStudentFee = async (req, res) => {
@@ -787,6 +913,7 @@ module.exports = {
   getFees,
   getClearanceFees,
   updateFee,
+  reviewFee,
   archiveFee,
   restoreFee,
   deleteFee,

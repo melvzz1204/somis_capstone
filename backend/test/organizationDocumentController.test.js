@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const {
   SUBMITTER_ROLES,
   REVIEW_RULES,
+  REVIEW_CHAINS,
+  REVIEWER_STATUS,
+  getNextStage,
   normalizeDocumentType,
   isValidSchoolYear,
   getDocumentPeriodFilter,
@@ -116,27 +119,47 @@ test("validateFields rejects invalid metadata", () => {
   );
 });
 
-test("submitter roles and review transitions match the required workflow", () => {
+test("submitter roles and review chains match the required workflow", () => {
   assert.deepEqual([...SUBMITTER_ROLES].sort(), [
     "org_admin",
     "secretary",
     "treasurer",
   ]);
-  assert.deepEqual(REVIEW_RULES.adviser, {
-    expectedStatus: "Pending Adviser Review",
+  assert.deepEqual(REVIEW_CHAINS["Annual Report"], ["adviser", "admin"]);
+  assert.deepEqual(REVIEW_CHAINS["Activity Plan"], [
+    "org_admin",
+    "adviser",
+    "dean",
+    "admin",
+  ]);
+  assert.deepEqual(REVIEWER_STATUS, {
+    org_admin: "Pending President Review",
+    adviser: "Pending Adviser Review",
+    dean: "Pending Dean Review",
+    admin: "Pending OVPSAS Review",
+  });
+  assert.deepEqual(getNextStage("Activity Plan", "org_admin"), {
+    nextStatus: "Pending Adviser Review",
+    nextReviewerLabel: "faculty adviser",
+  });
+  assert.deepEqual(getNextStage("Activity Plan", "adviser"), {
+    nextStatus: "Pending Dean Review",
+    nextReviewerLabel: "department dean",
+  });
+  assert.deepEqual(getNextStage("Activity Plan", "dean"), {
     nextStatus: "Pending OVPSAS Review",
-    reviewField: "adviserReview",
-    reviewerLabel: "faculty adviser",
     nextReviewerLabel: "OVPSAS administrator",
   });
-  assert.deepEqual(REVIEW_RULES.admin, {
-    expectedStatus: "Pending OVPSAS Review",
+  assert.deepEqual(getNextStage("Activity Plan", "admin"), {
     nextStatus: "Approved",
-    reviewField: "ovpsasReview",
-    reviewerLabel: "OVPSAS administrator",
     nextReviewerLabel: "",
   });
-  assert.equal(REVIEW_RULES.dean, undefined);
+  assert.deepEqual(getNextStage("Annual Report", "adviser"), {
+    nextStatus: "Pending OVPSAS Review",
+    nextReviewerLabel: "OVPSAS administrator",
+  });
+  assert.equal(REVIEW_RULES.dean.reviewField, "deanReview");
+  assert.equal(REVIEW_RULES.admin.reviewerLabel, "OVPSAS administrator");
 });
 
 test("upload policy supports required formats with ten files at ten MB each", () => {

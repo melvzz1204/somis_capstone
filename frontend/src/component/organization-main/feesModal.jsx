@@ -152,7 +152,6 @@ export default function FeeModal({
     feeCategory: "",
     customFeeName: "",
     amount: "",
-    baseCost: "",
     academicYear: "",
     semester: "",
     targetYearLevel: "",
@@ -169,12 +168,7 @@ export default function FeeModal({
   const [adoptedResolutions, setAdoptedResolutions] = useState([]);
   const [resolutionsLoading, setResolutionsLoading] = useState(false);
   const unitAmount = Number(formData.amount) || 0;
-  const unitBaseCost = Number(formData.baseCost) || 0;
-  const marginPerMember = Math.max(0, unitAmount - unitBaseCost);
-  const marginPercentage =
-    unitAmount > 0 ? (marginPerMember / unitAmount) * 100 : 0;
   const projectedTotal = targetMembers.length * unitAmount;
-  const projectedMargin = targetMembers.length * marginPerMember;
 
   // Initialize or reset form defaults when modal opens or its source data
   // changes, not on every form value update.
@@ -187,7 +181,6 @@ export default function FeeModal({
         feeCategory: selectedCategory,
         customFeeName: selectedCategory === "others" ? fee?.title || "" : "",
         amount: fee?.amount ?? "",
-        baseCost: fee?.baseCost ?? "",
         academicYear:
           fee?.academicYear ||
           activePeriod.academicYear ||
@@ -253,7 +246,7 @@ export default function FeeModal({
   }, [isOpen, formData.targetYearLevel]);
 
   // A fee drive must be authorized by an adopted resolution. Load the options
-  // so the treasurer can attach one (required for new collections).
+  // so the president can attach one (required for new collections).
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -368,12 +361,11 @@ export default function FeeModal({
       return;
     }
 
-    // The backend derives organization scope from the authenticated treasurer.
+    // The backend derives organization scope from the authenticated president.
     const payload = {
       title: resolveTitle(),
       category: formData.feeCategory,
       amount: Number(formData.amount),
-      baseCost: Number(formData.baseCost) || 0,
       academicYear: formData.academicYear,
       semester: formData.semester,
       targetYearLevel: formData.targetYearLevel,
@@ -531,69 +523,22 @@ export default function FeeModal({
             <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
               Collection pricing
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Base Cost (₱)
-                </label>
-                <input
-                  type="number"
-                  name="baseCost"
-                  min="0"
-                  max={formData.amount || undefined}
-                  step="0.01"
-                  placeholder="80.00"
-                  value={formData.baseCost}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17]"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Student Price (₱) <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="number"
-                  name="amount"
-                  min="0.01"
-                  step="0.01"
-                  required
-                  placeholder="100.00"
-                  value={formData.amount}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17]"
-                />
-              </div>
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <p className="text-[10px] font-bold uppercase text-emerald-700">
-                  Margin per Student
-                </p>
-                <p className="mt-0.5 text-sm font-black text-emerald-900">
-                  ₱
-                  {Number(marginPerMember || 0).toLocaleString("en-PH", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </p>
-              </div>
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <p className="text-[10px] font-bold uppercase text-emerald-700">
-                  Margin (%)
-                </p>
-                <p className="mt-0.5 text-sm font-black text-emerald-900">
-                  {marginPercentage.toFixed(2)}%
-                </p>
-              </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Dues Amount (₱) <span className="text-rose-600">*</span>
+              </label>
+              <input
+                type="number"
+                name="amount"
+                min="0.01"
+                step="0.01"
+                required
+                placeholder="100.00"
+                value={formData.amount}
+                onChange={handleChange}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17]"
+              />
             </div>
-            {unitAmount > 0 && targetMembers.length > 0 && (
-              <p className="mt-2 text-right text-[10px] font-bold text-slate-500">
-                Projected total margin: ₱
-                {Number(projectedMargin || 0).toLocaleString("en-PH", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </p>
-            )}
           </div>
           <div>
             <label className="block font-bold text-slate-700 mb-1">

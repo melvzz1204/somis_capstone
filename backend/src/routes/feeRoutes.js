@@ -6,6 +6,7 @@ const {
   getFees,
   getClearanceFees,
   updateFee,
+  reviewFee,
   archiveFee,
   restoreFee,
   deleteFee,
@@ -17,25 +18,29 @@ const {
 const { protect, authorize } = require("../middleware/authMiddileware");
 
 // Route: /api/v1/fees
+// The Organization President initiates and sets dues; the Faculty Adviser
+// must approve a collection before it is finalized.
 router
   .route("/")
-  .post(protect, authorize("treasurer"), createFee)
+  .post(protect, authorize("org_admin"), createFee)
   .get(protect, getFees);
 
 router.get(
   "/target-preview",
   protect,
-  authorize("treasurer"),
+  authorize("org_admin"),
   previewFeeTargets,
 );
 
 router.get("/clearance", protect, authorize("student"), getClearanceFees);
 
-router.route("/:id").patch(protect, authorize("treasurer"), updateFee);
+router.route("/:id").patch(protect, authorize("org_admin"), updateFee);
 
-router.patch("/:id/archive", protect, authorize("treasurer"), archiveFee);
-router.patch("/:id/restore", protect, authorize("treasurer"), restoreFee);
-router.delete("/:id", protect, authorize("treasurer"), deleteFee);
+router.patch("/:id/review", protect, authorize("adviser"), reviewFee);
+
+router.patch("/:id/archive", protect, authorize("org_admin"), archiveFee);
+router.patch("/:id/restore", protect, authorize("org_admin"), restoreFee);
+router.delete("/:id", protect, authorize("org_admin"), deleteFee);
 
 router.get(
   "/student-archive",

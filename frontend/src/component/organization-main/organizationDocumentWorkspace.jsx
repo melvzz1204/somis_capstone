@@ -19,14 +19,18 @@ const apiOrigin = (
 ).replace(/\/api\/v1\/?$/, "");
 
 const statusClasses = {
+  "Pending President Review": "border-indigo-200 bg-indigo-50 text-indigo-800",
   "Pending Adviser Review": "border-blue-200 bg-blue-50 text-blue-800",
+  "Pending Dean Review": "border-violet-200 bg-violet-50 text-violet-800",
   "Pending OVPSAS Review": "border-amber-200 bg-amber-50 text-amber-800",
   Approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   Rejected: "border-rose-200 bg-rose-50 text-rose-800",
 };
 
 const statusFilterLabels = {
+  "Pending President Review": "President Review",
   "Pending Adviser Review": "Adviser Review",
+  "Pending Dean Review": "Dean Review",
   "Pending OVPSAS Review": "OVPSAS Review",
 };
 
@@ -37,21 +41,33 @@ const documentTypeLabels = {
 
 const submitterStatusOptions = [
   "All",
+  "Pending President Review",
   "Pending Adviser Review",
+  "Pending Dean Review",
   "Pending OVPSAS Review",
   "Approved",
   "Rejected",
 ];
 
 const reviewStages = [
+  ["presidentReview", "Organization President"],
   ["adviserReview", "Faculty adviser"],
+  ["deanReview", "Department dean"],
   ["ovpsasReview", "OVPSAS"],
 ];
 
 const reviewConfig = {
+  president: {
+    expectedStatus: "Pending President Review",
+    pendingLabel: "Awaiting organization president approval",
+  },
   adviser: {
     expectedStatus: "Pending Adviser Review",
     pendingLabel: "Awaiting adviser validation",
+  },
+  dean: {
+    expectedStatus: "Pending Dean Review",
+    pendingLabel: "Awaiting department dean approval",
   },
   admin: {
     expectedStatus: "Pending OVPSAS Review",
@@ -80,12 +96,14 @@ export default function OrganizationDocumentWorkspace({
   documentType,
   reviewRole = null,
   academicPeriodKey = "",
+  colleges = [],
 }) {
   const { showToast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [collegeFilter, setCollegeFilter] = useState("All");
   const [editingDocument, setEditingDocument] = useState(undefined);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState("");
@@ -93,6 +111,7 @@ export default function OrganizationDocumentWorkspace({
   const [reviewRemarks, setReviewRemarks] = useState({});
 
   const isReviewer = Boolean(reviewConfig[reviewRole]);
+  const isOvpsasView = reviewRole === "admin";
   const config = reviewConfig[reviewRole] || null;
   const displayDocumentType = documentTypeLabels[documentType] || documentType;
   const statusOptions = isReviewer
@@ -105,7 +124,11 @@ export default function OrganizationDocumentWorkspace({
     setLoadError("");
     try {
       const response = await API.get("/organization-documents", {
-        params: { documentType, academicPeriodKey },
+        params: {
+          documentType,
+          academicPeriodKey,
+          ...(collegeFilter === "All" ? {} : { college: collegeFilter }),
+        },
       });
       setDocuments(Array.isArray(response.data) ? response.data : []);
     } catch (requestError) {
@@ -116,7 +139,12 @@ export default function OrganizationDocumentWorkspace({
     } finally {
       setIsLoading(false);
     }
-  }, [academicPeriodKey, displayDocumentType, documentType]);
+  }, [
+    academicPeriodKey,
+    collegeFilter,
+    displayDocumentType,
+    documentType,
+  ]);
 
   useEffect(() => {
     const requestId = window.setTimeout(() => {
@@ -144,6 +172,17 @@ export default function OrganizationDocumentWorkspace({
       ),
     [documents],
   );
+
+  const collegeOptions = useMemo(() => {
+    const names = new Set();
+    colleges.forEach((college) => {
+      if (college?.name) names.add(college.name);
+    });
+    documents.forEach((item) => {
+      if (item.org?.college) names.add(item.org.college);
+    });
+    return Array.from(names).sort((left, right) => left.localeCompare(right));
+  }, [colleges, documents]);
 
   const openCreateModal = () => {
     setEditingDocument(undefined);
@@ -262,6 +301,26 @@ export default function OrganizationDocumentWorkspace({
           </div>
 
           <div className="flex flex-col gap-2 sm:items-end">
+            {isOvpsasView && (
+              <label className="flex w-full items-center gap-2 text-[11px] font-bold text-slate-500 sm:w-auto sm:justify-end">
+                <span className="whitespace-nowrap uppercase tracking-wide">
+                  College
+                </span>
+                <select
+                  value={collegeFilter}
+                  onChange={(event) => setCollegeFilter(event.target.value)}
+                  className="min-w-52 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:border-[#4A0E17] focus:outline-none focus:ring-1 focus:ring-[#4A0E17] sm:flex-none"
+                >
+                  <option value="All">All Colleges</option>
+                  {collegeOptions.map((college) => (
+                    <option key={college} value={college}>
+                      {college}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <div
               className="flex w-full max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-auto"
               role="group"
@@ -350,7 +409,9 @@ export default function OrganizationDocumentWorkspace({
                 isReviewer && item.status === config.expectedStatus;
               const canManage =
                 !isReviewer &&
-                ["Pending Adviser Review", "Rejected"].includes(item.status);
+                ["Pending President Review", "Pending Adviser Review", "Rejected"].includes(
+                  item.status,
+                );
               const isActing = actionId === item._id;
 
               return (

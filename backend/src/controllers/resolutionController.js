@@ -327,31 +327,54 @@ const createResolution = async (req, res) => {
 
 const getResolutions = async (req, res) => {
   try {
-    if (!req.user.organization) {
+    // OVPSAS administrators oversee every organization, so they are not tied
+    // to a single organization context the way officers and reviewers are.
+    const isOvpsas = req.user.role === "admin";
+    if (!isOvpsas && !req.user.organization) {
       return res
         .status(400)
         .json({ success: false, message: "Organization context is required." });
     }
 
-    const query = { org: req.user.organization };
-    const visibleStatusesByRole = {
-      adviser: [
-        "Pending Adviser Review",
-        "Pending Dean Review",
-        "Adopted",
-        "Rejected",
-      ],
-      dean: ["Pending Dean Review", "Adopted", "Rejected"],
-    };
-    const roleStatuses = visibleStatusesByRole[req.user.role];
+    const query = isOvpsas ? {} : { org: req.user.organization };
+
+    // Administrators can narrow the directory to a single college.
+    const requestedCollege = req.query.college
+      ? String(req.query.college).trim()
+      : "";
+    if (isOvpsas && requestedCollege) {
+      const orgIds = await Organization.find({ college: requestedCollege })
+        .select("_id")
+        .lean();
+      query.org = { $in: orgIds.map((organization) => organization._id) };
+    }
+
     const requestedStatus = req.query.status
       ? String(req.query.status)
       : null;
 
-    if (requestedStatus && (!roleStatuses || roleStatuses.includes(requestedStatus))) {
-      query.status = requestedStatus;
-    } else if (roleStatuses) {
-      query.status = { $in: roleStatuses };
+    if (isOvpsas) {
+      if (requestedStatus) query.status = requestedStatus;
+    } else {
+      const visibleStatusesByRole = {
+        adviser: [
+          "Pending Adviser Review",
+          "Pending Dean Review",
+          "Adopted",
+          "Rejected",
+        ],
+        dean: ["Pending Dean Review", "Adopted", "Rejected"],
+      };
+      const roleStatuses = visibleStatusesByRole[req.user.role];
+
+      if (
+        requestedStatus &&
+        (!roleStatuses || roleStatuses.includes(requestedStatus))
+      ) {
+        query.status = requestedStatus;
+      } else if (roleStatuses) {
+        query.status = { $in: roleStatuses };
+      }
     }
 
     const resolutions = await Resolution.find(query)

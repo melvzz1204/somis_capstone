@@ -13,6 +13,7 @@ import {
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
 import AcademicPeriodSettings from "../component/organization-main/AcademicPeriodSettings";
+import FeeModal from "../component/organization-main/feesModal";
 import LogoutButton from "../component/logoutButton";
 import {
   formatAcademicPeriod,
@@ -178,6 +179,87 @@ export default function OrgDashboard() {
     president: "",
     email: "",
   });
+  // President-initiated dues collections (require adviser approval).
+  const [feeDrives, setFeeDrives] = useState([]);
+  const [isLoadingFees, setIsLoadingFees] = useState(false);
+  const [feeNotice, setFeeNotice] = useState("");
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+  const [editingFee, setEditingFee] = useState(null);
+  const [feeView, setFeeView] = useState("active");
+
+  const loadFeeDrives = useCallback(async () => {
+    setIsLoadingFees(true);
+    setFeeNotice("");
+    try {
+      const response = await API.get("/fees", {
+        params: { includeArchived: "true" },
+      });
+      const data = response.data || response;
+      setFeeDrives(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setFeeDrives([]);
+      setFeeNotice(err.message || "Unable to load dues collections.");
+    } finally {
+      setIsLoadingFees(false);
+    }
+  }, []);
+
+  const handleFeeSuccess = useCallback(
+    (createdFee) => {
+      if (createdFee?._id && !editingFee) {
+        setFeeDrives((current) => [createdFee, ...current]);
+      } else {
+        loadFeeDrives();
+      }
+      setEditingFee(null);
+      setIsFeeModalOpen(false);
+    },
+    [editingFee, loadFeeDrives],
+  );
+
+  const handleArchiveFee = async (fee) => {
+    try {
+      const response = await API.patch(`/fees/${fee._id}/archive`);
+      const archived = response.data || response;
+      setFeeDrives((current) =>
+        current.map((item) => (item._id === fee._id ? archived : item)),
+      );
+      showToast("Dues collection archived.", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to archive dues collection.", "error");
+    }
+  };
+
+  const handleRestoreFee = async (fee) => {
+    try {
+      const response = await API.patch(`/fees/${fee._id}/restore`);
+      const restored = response.data || response;
+      setFeeDrives((current) =>
+        current.map((item) => (item._id === fee._id ? restored : item)),
+      );
+      showToast("Dues collection restored.", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to restore dues collection.", "error");
+    }
+  };
+
+  const handleDeleteFee = async (fee) => {
+    if (
+      !window.confirm(
+        "Permanently delete this archived collection and its linked payment records?",
+      )
+    )
+      return;
+    try {
+      await API.delete(`/fees/${fee._id}`);
+      setFeeDrives((current) =>
+        current.filter((item) => item._id !== fee._id),
+      );
+      showToast("Archived collection permanently deleted.", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to delete archived collection.", "error");
+    }
+  };
 
   const loadOrganizationProfile = useCallback(async () => {
     setIsProfileLoading(true);
@@ -237,6 +319,7 @@ export default function OrgDashboard() {
       loadOrganizationProfile();
       loadResolutions();
       loadOrganizationMembers();
+      loadFeeDrives();
     }, 0);
 
     return () => window.clearTimeout(profileRequest);
@@ -244,6 +327,7 @@ export default function OrgDashboard() {
     loadOrganizationProfile,
     loadResolutions,
     loadOrganizationMembers,
+    loadFeeDrives,
     navigate,
     user?.role,
   ]);
@@ -349,6 +433,11 @@ export default function OrgDashboard() {
       "Confirm the current president or student leader",
     !organization?.email && "Add an official organization contact email",
   ].filter(Boolean);
+
+  const activeFees = feeDrives.filter((fee) => !fee.treasurerArchived);
+  const archivedFees = feeDrives.filter((fee) => fee.treasurerArchived);
+  const visibleFees = feeView === "archived" ? archivedFees : activeFees;
+
   // Prevent flash of Org Admin content while redirecting
   if (user?.role === "secretary") {
     return null;
@@ -443,6 +532,27 @@ export default function OrgDashboard() {
                 count={
                   resolutions.filter(
                     (resolution) => resolution.status === "Submitted",
+                  ).length
+                }
+              />
+            </button>
+
+            <button
+              onClick={() => setActiveTab("dues")}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                activeTab === "dues"
+                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <ResolutionIcon
+                className={`w-4 h-4 ${activeTab === "dues" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Dues Collection</span>
+              <NavCountBadge
+                count={
+                  feeDrives.filter(
+                    (fee) => fee.approvalStatus === "pending_adviser",
                   ).length
                 }
               />
@@ -574,6 +684,15 @@ export default function OrgDashboard() {
               icon: <ResolutionIcon />,
               count: resolutions.filter(
                 (resolution) => resolution.status === "Submitted",
+              ).length,
+            },
+            {
+              id: "dues",
+              label: "Dues",
+              shortLabel: "Dues",
+              icon: <ResolutionIcon />,
+              count: feeDrives.filter(
+                (fee) => fee.approvalStatus === "pending_adviser",
               ).length,
             },
             {
@@ -829,6 +948,188 @@ export default function OrgDashboard() {
             </div>
           )}
 
+          {/* TAB CONTENT: DUES COLLECTION (President initiates, Adviser approves) */}
+          {activeTab === "dues" && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-[#4A0E17]">
+                      Dues Collection
+                    </h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      As Organization President, set the dues amount. Each
+                      collection requires an adopted resolution and Faculty
+                      Adviser approval before it is finalized for students.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Once this collection is created and a student or member has paid, it cannot be edited. Do you want to continue?",
+                        )
+                      )
+                        return;
+                      setEditingFee(null);
+                      setIsFeeModalOpen(true);
+                    }}
+                    className="shrink-0 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#601520]"
+                  >
+                    Create Dues Collection
+                  </button>
+                </div>
+                {feeNotice && (
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                    {feeNotice}
+                  </p>
+                )}
+              </div>
+
+              <div
+                className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1"
+                role="tablist"
+                aria-label="Dues collection views"
+              >
+                {[
+                  { key: "active", label: "Active", count: activeFees.length },
+                  {
+                    key: "archived",
+                    label: "Archived",
+                    count: archivedFees.length,
+                  },
+                ].map((view) => (
+                  <button
+                    key={view.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={feeView === view.key}
+                    onClick={() => setFeeView(view.key)}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+                      feeView === view.key
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "text-slate-600 hover:bg-white"
+                    }`}
+                  >
+                    {view.label} ({view.count})
+                  </button>
+                ))}
+              </div>
+
+              {isLoadingFees ? (
+                <p className="text-xs text-slate-500">
+                  Loading dues collections...
+                </p>
+              ) : visibleFees.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                  <p className="text-xs font-bold text-slate-700">
+                    {feeView === "archived"
+                      ? "No archived collections"
+                      : "No dues collections yet"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {feeView === "archived"
+                      ? "Collections you archive will be stored here and can be restored anytime."
+                      : "Create the first collection. It will be sent for adviser approval."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {visibleFees.map((fee) => (
+                    <div
+                      key={fee._id}
+                      className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-[#4A0E17]">
+                          {fee.title}
+                        </h4>
+                        <span className="shrink-0 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
+                          ₱
+                          {Number(fee.amount || 0).toLocaleString("en-PH", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+                          {fee.status === "active" ? "Active" : fee.status}
+                        </span>
+                        <span
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
+                            fee.approvalStatus === "approved"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : fee.approvalStatus === "rejected"
+                                ? "border-rose-200 bg-rose-50 text-rose-700"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {fee.approvalStatus === "approved"
+                            ? "Adviser Approved"
+                            : fee.approvalStatus === "rejected"
+                              ? "Adviser Rejected"
+                              : "Pending Adviser Approval"}
+                        </span>
+                      </div>
+                      {fee.description && (
+                        <p className="text-xs text-slate-600 line-clamp-2">
+                          {fee.description}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-500">
+                        {fee.paidMemberCount || 0} of{" "}
+                        {fee.targetMemberCount || 0} paid •{" "}
+                        {fee.collectionPercentage || 0}% collected
+                      </p>
+                      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                        {fee.approvalStatus !== "approved" &&
+                          Number(fee.paidMemberCount || 0) === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingFee(fee);
+                                setIsFeeModalOpen(true);
+                              }}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        {!fee.treasurerArchived ? (
+                          <button
+                            type="button"
+                            onClick={() => handleArchiveFee(fee)}
+                            className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-50"
+                          >
+                            Archive
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreFee(fee)}
+                              className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+                            >
+                              Restore
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFee(fee)}
+                              className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-50"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === "meetings" && (
             <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
               <MeetingManager />
@@ -845,6 +1146,7 @@ export default function OrgDashboard() {
           {activeTab === "activity-plan" && (
             <OrganizationDocumentWorkspace
               documentType="Activity Plan"
+              reviewRole="president"
               academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
             />
           )}
@@ -909,6 +1211,18 @@ export default function OrgDashboard() {
           )}
         </main>
       </div>
+
+      <FeeModal
+        isOpen={isFeeModalOpen}
+        onClose={() => {
+          setIsFeeModalOpen(false);
+          setEditingFee(null);
+        }}
+        onSubmitSuccess={handleFeeSuccess}
+        org={org}
+        user={user}
+        fee={editingFee}
+      />
 
       {isSuborganizationModalOpen && (
         <div className="modal-backdrop">

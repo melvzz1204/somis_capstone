@@ -96,11 +96,21 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
   const [isLoading, setIsLoading] = useState(true);
   const [resolutionActionId, setResolutionActionId] = useState("");
   const [notice, setNotice] = useState("");
+  // Dues collections awaiting adviser approval (president initiates).
+  const [feeDrives, setFeeDrives] = useState([]);
+  const [isLoadingFees, setIsLoadingFees] = useState(false);
+  const [feeActionId, setFeeActionId] = useState("");
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([API.get("/auth/me"), API.get("/resolutions")])
-      .then(([currentUser, resolutionResponse]) => {
+    Promise.all([
+      API.get("/auth/me"),
+      API.get("/resolutions"),
+      API.get("/fees", { params: { includeArchived: "true" } }).catch(() => ({
+        data: [],
+      })),
+    ])
+      .then(([currentUser, resolutionResponse, feesResponse]) => {
         if (!mounted) return;
         if (currentUser?.role !== portalRole) {
           navigate("/", { replace: true });
@@ -113,18 +123,61 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             ? resolutionResponse.data
             : [],
         );
+        const feeData = feesResponse.data || feesResponse || [];
+        setFeeDrives(Array.isArray(feeData) ? feeData : []);
       })
       .catch((error) => {
         if (mounted)
           setNotice(error.message || "Unable to load the dashboard.");
       })
       .finally(() => {
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+          setIsLoadingFees(false);
+        }
       });
     return () => {
       mounted = false;
     };
   }, [navigate, pendingStatus, portalRole]);
+
+  const handleFeeReview = async (fee, decision) => {
+    let remarks = "";
+    if (decision === "Rejected") {
+      const input = window.prompt(
+        `Reason for rejecting "${fee.title || "this dues collection"}":`,
+      );
+      if (input === null) return;
+      remarks = input.trim();
+      if (!remarks) {
+        setNotice("A rejection reason is required.");
+        return;
+      }
+    } else if (
+      !window.confirm(
+        `Approve "${fee.title || "this dues collection"}" for ₱${Number(fee.amount || 0).toFixed(2)}? Students will be able to pay once finalized.`,
+      )
+    ) {
+      return;
+    }
+    setFeeActionId(fee._id);
+    setNotice("");
+    try {
+      const response = await API.patch(`/fees/${fee._id}/review`, {
+        decision,
+        remarks,
+      });
+      const updated = response.data || response;
+      setFeeDrives((current) =>
+        current.map((item) => (item._id === fee._id ? updated : item)),
+      );
+      setNotice(response.message || `Dues collection ${decision.toLowerCase()}.`);
+    } catch (error) {
+      setNotice(error.message || "Unable to save the dues decision.");
+    } finally {
+      setFeeActionId("");
+    }
+  };
 
   const handleResolutionReview = async (resolution, review) => {
     setResolutionActionId(resolution._id);
@@ -165,6 +218,10 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     forwardedResolutionStatuses.includes(resolution.status),
   ).length;
 
+  const pendingFeeCount = feeDrives.filter(
+    (fee) => fee.approvalStatus === "pending_adviser",
+  ).length;
+
   const navItems = [
     { id: "overview", label: "Overview", icon: <DashboardIcon /> },
     {
@@ -177,6 +234,13 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     ...(!isDean
       ? [
           {
+            id: "dues",
+            label: "Dues Approval",
+            shortLabel: "Dues",
+            icon: <FileCheckIcon />,
+            count: pendingFeeCount,
+          },
+          {
             id: "meetings",
             label: "Meetings",
             icon: <MeetingIcon />,
@@ -188,15 +252,15 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             shortLabel: "Accomp. Report",
             icon: <AnnualReportIcon />,
           },
-          {
-            id: "activity-plan",
-            label: "Organization Plan",
-            count: 0,
-            shortLabel: "Org Plan",
-            icon: <ActivityPlanIcon />,
-          },
         ]
       : []),
+    {
+      id: "activity-plan",
+      label: "Organization Plan",
+      count: 0,
+      shortLabel: "Org Plan",
+      icon: <ActivityPlanIcon />,
+    },
   ];
 
   return (
@@ -386,6 +450,106 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             />
           )}
 
+          {!isDean && activeTab === "dues" && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
+                <h3 className="text-sm font-extrabold text-[#4A0E17]">
+                  Dues Collection Approval
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  The Organization President initiates dues collections. Your
+                  approval finalizes a collection so students can pay. Only
+                  collections linked to an adviser-approved adopted resolution
+                  can be approved.
+                </p>
+              </div>
+              {isLoadingFees ? (
+                <p className="text-xs text-slate-500">
+                  Loading dues collections...
+                </p>
+              ) : feeDrives.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                  <p className="text-xs font-bold text-slate-700">
+                    No dues collections submitted
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Collections created by the president will appear here for
+                    approval.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {feeDrives.map((fee) => (
+                    <div
+                      key={fee._id}
+                      className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-bold text-[#4A0E17]">
+                          {fee.title}
+                        </h4>
+                        <span className="shrink-0 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
+                          ₱
+                          {Number(fee.amount || 0).toLocaleString("en-PH", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <span
+                        className={`inline-block rounded-lg border px-2 py-1 text-[10px] font-bold ${
+                          fee.approvalStatus === "approved"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : fee.approvalStatus === "rejected"
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : "border-amber-200 bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        {fee.approvalStatus === "approved"
+                          ? "Adviser Approved"
+                          : fee.approvalStatus === "rejected"
+                            ? "Adviser Rejected"
+                            : "Pending Adviser Approval"}
+                      </span>
+                      {fee.description && (
+                        <p className="text-xs text-slate-600 line-clamp-2">
+                          {fee.description}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-500">
+                        {fee.targetMemberCount || 0} members • Due{" "}
+                        {fee.dueDate
+                          ? new Date(fee.dueDate).toLocaleDateString()
+                          : "N/A"}
+                      </p>
+                      {fee.approvalStatus === "pending_adviser" && (
+                        <div className="flex gap-2 border-t border-slate-100 pt-3">
+                          <button
+                            type="button"
+                            disabled={feeActionId === fee._id}
+                            onClick={() => handleFeeReview(fee, "Approved")}
+                            className="rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-black text-white hover:bg-emerald-800 disabled:opacity-50"
+                          >
+                            {feeActionId === fee._id
+                              ? "Saving..."
+                              : "Approve"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={feeActionId === fee._id}
+                            onClick={() => handleFeeReview(fee, "Rejected")}
+                            className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-[11px] font-black text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {!isDean && activeTab === "annual-report" && (
             <OrganizationDocumentWorkspace
               documentType="Annual Report"
@@ -394,10 +558,10 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             />
           )}
 
-          {!isDean && activeTab === "activity-plan" && (
+          {activeTab === "activity-plan" && (
             <OrganizationDocumentWorkspace
               documentType="Activity Plan"
-              reviewRole="adviser"
+              reviewRole={isDean ? "dean" : "adviser"}
               academicPeriodKey={`${activePeriod.academicYear}:${activePeriod.semester}`}
             />
           )}

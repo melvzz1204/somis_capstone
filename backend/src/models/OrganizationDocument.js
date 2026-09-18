@@ -3,7 +3,9 @@ const mongoose = require("mongoose");
 const DOCUMENT_TYPES = ["Annual Report", "Activity Plan"];
 const SEMESTERS = ["1st Semester", "2nd Semester", "Summer"];
 const DOCUMENT_STATUSES = [
+  "Pending President Review",
   "Pending Adviser Review",
+  "Pending Dean Review",
   "Pending OVPSAS Review",
   "Approved",
   "Rejected",
@@ -97,7 +99,15 @@ const organizationDocumentSchema = new mongoose.Schema(
       default: "Pending Adviser Review",
       index: true,
     },
+    presidentReview: {
+      type: reviewSchema,
+      default: undefined,
+    },
     adviserReview: {
+      type: reviewSchema,
+      default: undefined,
+    },
+    deanReview: {
       type: reviewSchema,
       default: undefined,
     },

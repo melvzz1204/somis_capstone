@@ -674,6 +674,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
         <ResolutionModal
           key={editingResolution?._id || "new-resolution"}
           resolution={editingResolution}
+          currentUser={currentUser}
           onClose={() => {
             setIsResolutionModalOpen(false);
             setEditingResolution(null);

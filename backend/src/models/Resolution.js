@@ -72,7 +72,7 @@ const activityProposalSchema = new mongoose.Schema(
       required: true,
       enum: TARGET_VENUES,
     },
-    expectedAttendees: { type: Number, required: true, min: 1 },
+    expectedAttendees: { type: Number, required: true, min: 0 },
     targetAudience: {
       type: String,
       required: true,
@@ -114,16 +114,9 @@ const resolutionSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true, maxlength: 200 },
     subject: { type: String, trim: true, maxlength: 300, default: "" },
     whereasClauses: { type: [String], default: [] },
-    resolvedClauses: {
-      type: [String],
-      required: true,
-      validate: {
-        validator: (value) =>
-          Array.isArray(value) &&
-          value.filter((clause) => String(clause).trim()).length >= 1,
-        message: "At least one RESOLVED clause is required.",
-      },
-    },
+    // The full resolution text lives in the uploaded attachment; clauses are
+    // kept only for older records and are no longer collected on create.
+    resolvedClauses: { type: [String], default: [] },
     activityProposal: { type: activityProposalSchema, required: true },
     attachments: { type: [attachmentSchema], default: [] },
     createdBy: {

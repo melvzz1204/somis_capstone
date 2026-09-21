@@ -52,13 +52,13 @@ test("embedded proposal end before start is rejected", async () => {
   });
 });
 
-test("a resolution with no RESOLVED clauses is rejected", async () => {
-  const doc = new Resolution(baseResolution({ resolvedClauses: [] }));
+test("a resolution with no clauses is accepted (text lives in the attachment)", async () => {
+  const doc = new Resolution(
+    baseResolution({ resolvedClauses: [], whereasClauses: [] }),
+  );
 
-  await assert.rejects(doc.validate(), (error) => {
-    assert.ok(error.errors.resolvedClauses);
-    return true;
-  });
+  await doc.validate();
+  assert.deepEqual(doc.resolvedClauses, []);
 });
 
 test("blank clauses are trimmed away, leaving only real clauses", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 
@@ -52,6 +52,12 @@ const toLocalDateTime = (value) => {
 
 const toApiDateTime = (value) => (value ? new Date(value).toISOString() : value);
 
+const formatPeso = (value) =>
+  `₱${Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
 const formatMeetingLabel = (meeting) => {
   const when = meeting?.startDateTime
     ? new Date(meeting.startDateTime).toLocaleString("en-PH", {
@@ -62,7 +68,12 @@ const formatMeetingLabel = (meeting) => {
   return `${meeting?.title || "Untitled meeting"} — ${when}`;
 };
 
-export default function ResolutionModal({ resolution, onClose, onSaved }) {
+export default function ResolutionModal({
+  resolution,
+  onClose,
+  onSaved,
+  currentUser = null,
+}) {
   const { showToast } = useToast();
   const isEditing = Boolean(resolution?._id);
 
@@ -70,13 +81,18 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
     resolution?.meeting?._id || resolution?.meeting || "",
   );
   const [title, setTitle] = useState(resolution?.title || "");
-  const [subject, setSubject] = useState(resolution?.subject || "");
-  const [whereasClauses, setWhereasClauses] = useState(() =>
-    resolution?.whereasClauses?.length ? resolution.whereasClauses : [""],
-  );
-  const [resolvedClauses, setResolvedClauses] = useState(() =>
-    resolution?.resolvedClauses?.length ? resolution.resolvedClauses : [""],
-  );
+  // No Subject input — the subject lives in the uploaded attachment.
+  // Existing subjects on older records are preserved as-is.
+  const existingSubject = resolution?.subject || "";
+  // The full resolution text lives in the uploaded attachment, so no
+  // clause inputs are needed. Existing clauses on older records are
+  // preserved as-is.
+  const existingWhereasClauses = Array.isArray(resolution?.whereasClauses)
+    ? resolution.whereasClauses
+    : [];
+  const existingResolvedClauses = Array.isArray(resolution?.resolvedClauses)
+    ? resolution.resolvedClauses
+    : [];
   const [proposal, setProposal] = useState(() =>
     resolution?.activityProposal
       ? {
@@ -112,6 +128,14 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
 
   const [meetings, setMeetings] = useState([]);
   const [duesCollections, setDuesCollections] = useState([]);
+  const [rosterCount, setRosterCount] = useState(null);
+  const attendeesTouchedRef = useRef(false);
+  // Project lead fields prefill from the secretary's account but stay editable.
+  const [secretaryInfo, setSecretaryInfo] = useState({
+    name: currentUser?.name || "",
+    contact: currentUser?.email || "",
+  });
+  const leadTouchedRef = useRef({ person: false, contact: false });
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -152,6 +176,107 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
     };
   }, []);
 
+  useEffect(() => {
+    let isCurrent = true;
+    API.get("/orgmembers")
+      .then((response) => {
+        if (!isCurrent) return;
+        const roster = Array.isArray(response)
+          ? response
+          : response?.data || [];
+        setRosterCount(roster.length);
+      })
+      .catch(() => {
+        if (isCurrent) setRosterCount(null);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  // Prefill attendees from the org roster for new resolutions aimed at
+  // org members only — unless the user has already typed a value.
+  // A roster of 0 is also filled through so an empty group is detected.
+  useEffect(() => {
+    if (isEditing || rosterCount == null) return;
+    if (attendeesTouchedRef.current) return;
+    setProposal((current) => {
+      if (
+        current.targetAudience !== "Org Members Only" ||
+        String(current.expectedAttendees ?? "").trim() !== ""
+      ) {
+        return current;
+      }
+      return { ...current, expectedAttendees: String(rosterCount) };
+    });
+  }, [rosterCount, isEditing]);
+
+  // Resolve the secretary's identity: prefer the parent-provided account,
+  // otherwise refresh from the session (with a localStorage fallback).
+  useEffect(() => {
+    if (currentUser?.name || currentUser?.email) {
+      setSecretaryInfo({
+        name: currentUser.name || "",
+        contact: currentUser.email || "",
+      });
+      return;
+    }
+    let isCurrent = true;
+    API.get("/auth/me")
+      .then((response) => {
+        if (!isCurrent) return;
+        const me = response?.user || response || {};
+        setSecretaryInfo({
+          name: me.name || "",
+          contact: me.email || "",
+        });
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        try {
+          const cached = JSON.parse(localStorage.getItem("user") || "null");
+          setSecretaryInfo({
+            name: cached?.name || "",
+            contact: cached?.email || "",
+          });
+        } catch {
+          // Leave the fields blank for manual entry.
+        }
+      });
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Prefill the project lead fields from the secretary's account for new
+  // resolutions — unless the user has already typed a value.
+  useEffect(() => {
+    if (isEditing) return;
+    if (!secretaryInfo.name && !secretaryInfo.contact) return;
+    setProposal((current) => {
+      const next = { ...current };
+      let changed = false;
+      if (
+        !leadTouchedRef.current.person &&
+        !String(current.projectLeadPerson || "").trim() &&
+        secretaryInfo.name
+      ) {
+        next.projectLeadPerson = secretaryInfo.name;
+        changed = true;
+      }
+      if (
+        !leadTouchedRef.current.contact &&
+        !String(current.projectLeadContact || "").trim() &&
+        secretaryInfo.contact
+      ) {
+        next.projectLeadContact = secretaryInfo.contact;
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [secretaryInfo, isEditing]);
+
   const updateProposalField = (event) => {
     const { name, value, type, checked } = event.target;
     setProposal((current) => ({
@@ -160,20 +285,64 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
     }));
   };
 
-  const updateClause = (setter) => (index, value) =>
-    setter((current) =>
-      current.map((clause, position) =>
-        position === index ? value : clause,
-      ),
+  // Selecting the audience fills attendees from the roster; the field stays
+  // editable so the user can always type a manual count afterwards.
+  const handleAudienceChange = (event) => {
+    const audience = event.target.value;
+    setProposal((current) => ({
+      ...current,
+      targetAudience: audience,
+      ...(audience === "Org Members Only" && rosterCount != null
+        ? { expectedAttendees: String(rosterCount) }
+        : null),
+    }));
+  };
+
+  const handleAttendeesChange = (event) => {
+    attendeesTouchedRef.current = true;
+    updateProposalField(event);
+  };
+
+  const handleLeadPersonChange = (event) => {
+    leadTouchedRef.current.person = true;
+    updateProposalField(event);
+  };
+
+  const handleLeadContactChange = (event) => {
+    leadTouchedRef.current.contact = true;
+    updateProposalField(event);
+  };
+
+  // Picking (or typing) a dues collection fills the budget from its expected
+  // total; the field stays editable so the user can type a manual figure.
+  const handleSourceOfFundsChange = (event) => {
+    const source = event.target.value;
+    setProposal((current) => {
+      const next = { ...current, sourceOfFunds: source };
+      const total = feeExpectedTotal(findFeeForSource(source));
+      if (total != null) next.totalBudgetAllocation = String(total);
+      return next;
+    });
+  };
+
+  const applyFeeBudget = () => {
+    const total = feeExpectedTotal(
+      findFeeForSource(proposal.sourceOfFunds),
     );
-  const addClause = (setter) => () =>
-    setter((current) => [...current, ""]);
-  const removeClause = (setter) => (index) =>
-    setter((current) =>
-      current.length <= 1
-        ? current
-        : current.filter((_, position) => position !== index),
-    );
+    if (total == null) return;
+    setProposal((current) => ({
+      ...current,
+      totalBudgetAllocation: String(total),
+    }));
+  };
+
+  const fillAttendeesFromRoster = () => {
+    if (rosterCount == null) return;
+    setProposal((current) => ({
+      ...current,
+      expectedAttendees: String(rosterCount),
+    }));
+  };
 
   const handleFiles = (event, kind) => {
     const selected = Array.from(event.target.files || []);
@@ -213,11 +382,19 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
       setError("Select the meeting where this resolution was agreed.");
       return;
     }
-    const cleanResolved = resolvedClauses
-      .map((clause) => clause.trim())
-      .filter(Boolean);
-    if (cleanResolved.length < 1) {
-      setError("Add at least one RESOLVED clause.");
+    const attendeeCount = Number(proposal.expectedAttendees);
+    if (
+      String(proposal.expectedAttendees ?? "").trim() === "" ||
+      !Number.isFinite(attendeeCount) ||
+      attendeeCount < 0
+    ) {
+      setError("Enter the expected number of attendees (0 or more).");
+      return;
+    }
+    if (retainedResolutionFiles.length + newResolutionFiles.length < 1) {
+      setError(
+        "Attach the resolution document (at least one file) before saving.",
+      );
       return;
     }
     if (
@@ -240,12 +417,19 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
     const payload = new FormData();
     payload.append("meeting", meetingId);
     payload.append("title", title);
-    payload.append("subject", subject);
+    payload.append("subject", existingSubject);
     payload.append(
       "whereasClauses",
-      JSON.stringify(whereasClauses.map((c) => c.trim()).filter(Boolean)),
+      JSON.stringify(
+        existingWhereasClauses.map((c) => String(c).trim()).filter(Boolean),
+      ),
     );
-    payload.append("resolvedClauses", JSON.stringify(cleanResolved));
+    payload.append(
+      "resolvedClauses",
+      JSON.stringify(
+        existingResolvedClauses.map((c) => String(c).trim()).filter(Boolean),
+      ),
+    );
     payload.append("activityProposal", JSON.stringify(activityProposal));
     payload.append(
       "retainedAttachmentIds",
@@ -281,42 +465,37 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
     "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 outline-none transition focus:border-[#4A0E17] focus:ring-2 focus:ring-[#4A0E17]/10";
   const labelClass = "text-[11px] font-bold text-slate-700";
 
-  const renderClauseEditor = (clauses, setter, legend, placeholder) => (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className={labelClass}>{legend}</p>
-        <button
-          type="button"
-          onClick={addClause(setter)}
-          className="rounded-md border border-[#4A0E17]/30 bg-white px-2.5 py-1 text-[11px] font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
-        >
-          + Add clause
-        </button>
-      </div>
-      {clauses.map((clause, index) => (
-        <div key={index} className="flex items-start gap-2">
-          <textarea
-            className={inputClass}
-            rows={2}
-            value={clause}
-            placeholder={placeholder}
-            onChange={(event) =>
-              updateClause(setter)(index, event.target.value)
-            }
-          />
-          {clauses.length > 1 && (
-            <button
-              type="button"
-              onClick={() => removeClause(setter)(index)}
-              className="mt-1 shrink-0 rounded-md border border-rose-200 px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50"
-            >
-              Remove
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+  // The hint below Expected Attendees reacts to the attendee number itself.
+  const attendeesRaw = String(proposal.expectedAttendees ?? "").trim();
+  const hasZeroAttendees =
+    attendeesRaw !== "" && Number(attendeesRaw) === 0;
+
+  // Link Source of Funds to a created dues collection so the budget can fill
+  // from its expected total. Matching accepts both the dropdown value
+  // ("Dues Collection: <title>") and a plain title typed by hand.
+  const findFeeForSource = (sourceText) => {
+    const normalized = String(sourceText || "").trim().toLowerCase();
+    if (!normalized) return null;
+    return (
+      duesCollections.find((fee) => {
+        const title = String(fee?.title || "").trim().toLowerCase();
+        return (
+          normalized === `dues collection: ${title}` || normalized === title
+        );
+      }) || null
+    );
+  };
+
+  const feeExpectedTotal = (fee) => {
+    if (!fee) return null;
+    const expected = Number(fee.expectedCollection);
+    if (Number.isFinite(expected)) return expected;
+    const amount = Number(fee.amount);
+    return Number.isFinite(amount) ? amount : null;
+  };
+
+  const linkedFee = findFeeForSource(proposal.sourceOfFunds);
+  const linkedFeeTotal = feeExpectedTotal(linkedFee);
 
   const renderFileList = (retained, pending, setRetained, setPending) =>
     (retained.length > 0 || pending.length > 0) && (
@@ -429,7 +608,7 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     </span>
                   )}
                 </label>
-                <label className={labelClass}>
+                <label className={`${labelClass} md:col-span-2`}>
                   Resolution Title <span className="text-rose-600">*</span>
                   <input
                     className={inputClass}
@@ -439,30 +618,6 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     required
                   />
                 </label>
-                <label className={labelClass}>
-                  Subject
-                  <input
-                    className={inputClass}
-                    value={subject}
-                    onChange={(event) => setSubject(event.target.value)}
-                    maxLength={300}
-                    placeholder="A RESOLUTION ..."
-                  />
-                </label>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
-                {renderClauseEditor(
-                  whereasClauses,
-                  setWhereasClauses,
-                  "WHEREAS clauses",
-                  "WHEREAS, ...",
-                )}
-                {renderClauseEditor(
-                  resolvedClauses,
-                  setResolvedClauses,
-                  "RESOLVED clauses *",
-                  "RESOLVED, that ...",
-                )}
               </div>
             </section>
 
@@ -554,32 +709,95 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     ))}
                   </select>
                 </label>
-                <label className={labelClass}>
-                  Expected Attendees <span className="text-rose-600">*</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    className={inputClass}
-                    name="expectedAttendees"
-                    value={proposal.expectedAttendees}
-                    onChange={updateProposalField}
-                    required
-                  />
-                </label>
                 <label className={`${labelClass} md:col-span-2`}>
                   Target Audience <span className="text-rose-600">*</span>
                   <select
                     className={inputClass}
                     name="targetAudience"
                     value={proposal.targetAudience}
-                    onChange={updateProposalField}
+                    onChange={handleAudienceChange}
                     required
                   >
                     {audiences.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
+                </label>
+                <label className={labelClass}>
+                  Expected Attendees <span className="text-rose-600">*</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={inputClass}
+                    name="expectedAttendees"
+                    value={proposal.expectedAttendees}
+                    onChange={handleAttendeesChange}
+                    required
+                  />
+                  {rosterCount != null && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      {hasZeroAttendees ? (
+                        <span className="font-bold text-amber-700">
+                          No attendees in {proposal.targetAudience}.
+                        </span>
+                      ) : proposal.targetAudience === "Org Members Only" ? (
+                        <>
+                          Total members registered in{" "}
+                          {proposal.targetAudience} is {rosterCount}.{" "}
+                          {rosterCount === 0 &&
+                            "No members to invite yet — register members first. "}
+                        </>
+                      ) : (
+                        <>
+                          Enter the expected number of attendees for{" "}
+                          {proposal.targetAudience}.
+                        </>
+                      )}{" "}
+                      {proposal.targetAudience === "Org Members Only" && (
+                        <button
+                          type="button"
+                          onClick={fillAttendeesFromRoster}
+                          className="font-bold text-[#4A0E17] hover:underline"
+                        >
+                          Use roster count
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </label>
+                <label className={labelClass}>
+                  Source of Funds <span className="text-rose-600">*</span>
+                  <input
+                    className={inputClass}
+                    name="sourceOfFunds"
+                    value={proposal.sourceOfFunds}
+                    onChange={handleSourceOfFundsChange}
+                    list="dues-collections"
+                    maxLength={200}
+                    required
+                  />
+                  <datalist id="dues-collections">
+                    {duesCollections.map((fee) => {
+                      const total = feeExpectedTotal(fee);
+                      return (
+                        <option
+                          key={fee._id}
+                          value={`Dues Collection: ${fee.title}`}
+                        >
+                          {total != null
+                            ? `${formatPeso(total)} expected`
+                            : fee.title}
+                        </option>
+                      );
+                    })}
+                  </datalist>
+                  {duesCollections.length === 0 && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      No dues collections created yet — type the fund source
+                      manually.
+                    </span>
+                  )}
                 </label>
                 <label className={labelClass}>
                   Total Budget Allocation (PHP){" "}
@@ -594,25 +812,27 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     onChange={updateProposalField}
                     required
                   />
-                </label>
-                <label className={labelClass}>
-                  Source of Funds <span className="text-rose-600">*</span>
-                  <input
-                    className={inputClass}
-                    name="sourceOfFunds"
-                    value={proposal.sourceOfFunds}
-                    onChange={updateProposalField}
-                    list="dues-collections"
-                    maxLength={200}
-                    required
-                  />
-                  <datalist id="dues-collections">
-                    {duesCollections.map((fee) => (
-                      <option key={fee._id} value={`Dues Collection: ${fee.title}`}>
-                        {`Dues Collection: ${fee.title}`}
-                      </option>
-                    ))}
-                  </datalist>
+                  {linkedFee && (
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      From {linkedFee.title}:{" "}
+                      {linkedFeeTotal != null
+                        ? `${formatPeso(linkedFeeTotal)} expected`
+                        : "no amount set"}
+                      {Number(linkedFee.targetMemberCount) > 0 &&
+                        Number(linkedFee.amount) > 0 &&
+                        ` (${linkedFee.targetMemberCount} members × ${formatPeso(linkedFee.amount)})`}
+                      .{" "}
+                      {linkedFeeTotal != null && (
+                        <button
+                          type="button"
+                          onClick={applyFeeBudget}
+                          className="font-bold text-[#4A0E17] hover:underline"
+                        >
+                          Use expected total
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </label>
                 <label className={labelClass}>
                   Project Lead Person <span className="text-rose-600">*</span>
@@ -620,7 +840,7 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     className={inputClass}
                     name="projectLeadPerson"
                     value={proposal.projectLeadPerson}
-                    onChange={updateProposalField}
+                    onChange={handleLeadPersonChange}
                     required
                   />
                 </label>
@@ -630,7 +850,7 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                     className={inputClass}
                     name="projectLeadContact"
                     value={proposal.projectLeadContact}
-                    onChange={updateProposalField}
+                    onChange={handleLeadContactChange}
                     placeholder="Phone number or email address"
                     required
                   />
@@ -656,9 +876,7 @@ export default function ResolutionModal({ resolution, onClose, onSaved }) {
                 <div>
                   <label className={labelClass}>
                     Resolution Attachments{" "}
-                    <span className="font-normal text-slate-400">
-                      (Optional)
-                    </span>
+                    <span className="text-rose-600">*</span>
                     <input
                       type="file"
                       multiple

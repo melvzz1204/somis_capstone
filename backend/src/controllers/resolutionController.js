@@ -599,16 +599,6 @@ const submitResolution = async (req, res) => {
         .json({ success: false, message: meetingResult.error });
     }
 
-    const resolvedClauseCount = (resolution.resolvedClauses || []).filter(
-      (clause) => String(clause).trim(),
-    ).length;
-    if (resolvedClauseCount < 1) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one RESOLVED clause is required before submitting.",
-      });
-    }
-
     const seriesYear = new Date().getFullYear();
     resolution.status = "Submitted";
     resolution.submittedAt = new Date();

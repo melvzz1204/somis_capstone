@@ -183,18 +183,20 @@ export default function ResolutionDocumentModal({ resolution, onClose }) {
               </DocumentSection>
             )}
 
-            <DocumentSection title="Resolved">
-              <div className="space-y-3">
-                {(resolution.resolvedClauses || []).map((clause, index) => (
-                  <p key={index} className="text-sm leading-6 text-slate-800">
-                    <span className="font-bold">
-                      {index === 0 ? "NOW, THEREFORE, BE IT RESOLVED," : "RESOLVED,"}
-                    </span>{" "}
-                    {clause.replace(/^RESOLVED,?\s*(that)?\s*/i, "")}
-                  </p>
-                ))}
-              </div>
-            </DocumentSection>
+            {resolution.resolvedClauses?.length > 0 && (
+              <DocumentSection title="Resolved">
+                <div className="space-y-3">
+                  {(resolution.resolvedClauses || []).map((clause, index) => (
+                    <p key={index} className="text-sm leading-6 text-slate-800">
+                      <span className="font-bold">
+                        {index === 0 ? "NOW, THEREFORE, BE IT RESOLVED," : "RESOLVED,"}
+                      </span>{" "}
+                      {clause.replace(/^RESOLVED,?\s*(that)?\s*/i, "")}
+                    </p>
+                  ))}
+                </div>
+              </DocumentSection>
+            )}
 
             <DocumentSection title="Embedded Activity Proposal">
               <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">

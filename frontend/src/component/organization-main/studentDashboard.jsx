@@ -2135,27 +2135,6 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               </div>
 
-              <section className="space-y-3">
-                <div className="flex flex-col justify-between gap-3 rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-4 sm:flex-row sm:items-center">
-                  <div>
-                    <h4 className="text-sm font-extrabold text-[#4A0E17]">
-                      Meetings for You ({meetings.length})
-                    </h4>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      Meetings set by your organization leader now live in the
-                      Meetings tab.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("meetings")}
-                    className="self-start rounded-lg bg-[#4A0E17] px-3 py-2 text-xs font-bold text-white hover:bg-[#601520] sm:self-auto"
-                  >
-                    View Meetings
-                  </button>
-                </div>
-              </section>
-
               {eventError && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
                   {eventError}

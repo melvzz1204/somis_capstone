@@ -37,22 +37,6 @@ const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 );
 
-const UserPlusIcon = ({ className = "w-4 h-4" }) => (
-  <svg
-    className={className}
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-    />
-  </svg>
-);
-
 const UserGroupIcon = ({ className = "w-4 h-4" }) => (
   <svg
     className={className}
@@ -153,6 +137,7 @@ export default function OrgDashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
+  const [rosterView, setRosterView] = useState("officers");
   const [user, setUser] = useState(() => {
     try {
       const storedUser = localStorage.getItem("user");
@@ -332,9 +317,6 @@ export default function OrgDashboard() {
     user?.role,
   ]);
 
-  const officerCount = organizationMembers.filter(
-    (member) => member.role !== "Member",
-  ).length;
   const memberCount = organizationMembers.filter(
     (member) => member.role === "Member",
   ).length;
@@ -484,21 +466,6 @@ export default function OrgDashboard() {
                 className={`w-4 h-4 ${activeTab === "overview" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Overview & Profile</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("officers")}
-              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
-                activeTab === "officers"
-                  ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
-                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
-              }`}
-            >
-              <UserPlusIcon
-                className={`w-4 h-4 ${activeTab === "officers" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
-              />
-              <span>Manage Officers</span>
-              <NavCountBadge count={officerCount} />
             </button>
 
             <button
@@ -675,7 +642,6 @@ export default function OrgDashboard() {
               label: "Overview",
               icon: <LayoutDashboardIcon />,
             },
-            { id: "officers", label: "Officers", icon: <UserPlusIcon /> },
             { id: "members", label: "Members", icon: <UserGroupIcon /> },
             {
               id: "resolutions",
@@ -916,17 +882,38 @@ export default function OrgDashboard() {
             </div>
           )}
 
-          {/* TAB CONTENT: OFFICERS */}
-          {activeTab === "officers" && (
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
-              <OrganizationMembers user={user} org={org} />
-            </div>
-          )}
-
           {/* TAB CONTENT: ORGANIZATION MEMBERS */}
           {activeTab === "members" && (
             <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
-              <OrganizationMembers user={user} org={org} view="members" />
+              <div className="mb-5 flex flex-wrap gap-2">
+                {[
+                  { id: "officers", label: "Organization Officers" },
+                  { id: "members", label: "Regular Members" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setRosterView(tab.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      rosterView === tab.id
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {rosterView === "officers" ? (
+                <OrganizationMembers
+                  user={user}
+                  org={org}
+                  view="officers"
+                  readOnly
+                />
+              ) : (
+                <OrganizationMembers user={user} org={org} view="members" />
+              )}
             </div>
           )}
 

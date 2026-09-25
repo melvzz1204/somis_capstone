@@ -9,6 +9,7 @@ import {
 const OFFICER_ROLES = [
   "Faculty Adviser",
   "Department Dean",
+  "President",
   "Vice-President",
   "Secretary",
   "Treasurer",
@@ -135,10 +136,17 @@ const ShieldCheckIcon = ({ className = "w-3 h-3" }) => (
   </svg>
 );
 
-export default function OrganizationMembers({ user, org, view = "officers" }) {
+export default function OrganizationMembers({
+  user,
+  org,
+  view = "officers",
+  readOnly = false,
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const { showToast } = useToast();
   const isMemberDirectory = view === "members";
+  const canManageOfficers =
+    !isMemberDirectory && !readOnly && user?.role === "adviser";
 
   const [officers, setOfficers] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -185,6 +193,9 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       officer.section?.toLowerCase().includes(query)
     );
   });
+  const presidentCount = officers.filter(
+    (officer) => officer.role === "President",
+  ).length;
   const fetchMembers = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
@@ -472,9 +483,12 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       return;
 
     try {
-      await API.delete(`/orgmembers/${id}`);
+      const response = await API.delete(`/orgmembers/${id}`);
       setOfficers((prev) => prev.filter((officer) => officer._id !== id));
-      showToast?.("Officer removed successfully.", "success");
+      showToast?.(
+        response?.message || "Officer removed successfully.",
+        "success",
+      );
     } catch (err) {
       console.error("Failed to delete member:", err);
       showToast?.(err.message || "Failed to remove member.", "error");
@@ -495,6 +509,9 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
 
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
   const isEditingPresident = editingOfficer?.role === "President";
+  const isRoleLocked = ["President", "Faculty Adviser"].includes(
+    editingOfficer?.role,
+  );
   const isFacultySignatory = ["Faculty Adviser", "Department Dean"].includes(
     formData.role,
   );
@@ -512,11 +529,13 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
           <p className="text-xs text-slate-500 mt-0.5">
             {isMemberDirectory
               ? "Regular student members registered under this organization."
-              : "Organization officers registered for the current academic year."}
+              : readOnly
+                ? "Organization officers registered for the current academic year. Managed by your Faculty Adviser."
+                : "Organization officers registered for the current academic year."}
           </p>
         </div>
 
-        {!isMemberDirectory && (
+        {canManageOfficers && (
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={handleOpenAddModal}
@@ -578,6 +597,12 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       {errorMessage && (
         <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
           {errorMessage}
+        </div>
+      )}
+      {canManageOfficers && presidentCount > 1 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-medium">
+          Multiple presidents are registered. Keep the correct president and
+          delete the duplicate record.
         </div>
       )}
 
@@ -644,7 +669,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                       {officer.email}
                     </span>
 
-                    {!isMemberDirectory && (
+                    {canManageOfficers && (
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => handleOpenEditModal(officer)}
@@ -653,7 +678,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                           <EditIcon />
                           Edit
                         </button>
-                        {officer.role !== "President" && (
+                        {officer.role !== "Faculty Adviser" && (
                           <button
                             onClick={() => handleDeleteOfficer(officer._id)}
                             className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
@@ -673,7 +698,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       </div>
 
       {/* MODAL 1: ADD / EDIT OFFICER */}
-      {!isMemberDirectory && isModalOpen && (
+      {canManageOfficers && isModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -728,7 +753,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
                 </label>
                 <select
                   value={formData.role}
-                  disabled={isEditingPresident}
+                  disabled={isRoleLocked}
                   onChange={(e) => {
                     const role = e.target.value;
                     setFormData({
@@ -986,7 +1011,7 @@ export default function OrganizationMembers({ user, org, view = "officers" }) {
       )}
 
       {/* MODAL 2: EMAIL INVITATION SETUP FOR AN OFFICER */}
-      {!isMemberDirectory && isAccountModalOpen && (
+      {canManageOfficers && isAccountModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">

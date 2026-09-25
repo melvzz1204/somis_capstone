@@ -7,6 +7,7 @@ import {
   AnnualReportIcon,
 } from "../component/organization-main/organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "../component/organization-main/organizationDocumentWorkspace";
+import OrganizationMembers from "../component/organization-main/organizationMembers";
 import MeetingList from "../component/organization-main/meetingList";
 import LogoutButton from "../component/logoutButton";
 import NavCountBadge from "../component/navCountBadge";
@@ -28,6 +29,22 @@ const DashboardIcon = ({ className = "w-4 h-4" }) => (
       strokeLinejoin="round"
       strokeWidth="2"
       d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+    />
+  </svg>
+);
+
+const UserPlusIcon = ({ className = "w-4 h-4" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
     />
   </svg>
 );
@@ -234,6 +251,12 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     ...(!isDean
       ? [
           {
+            id: "officers",
+            label: "Manage Organization",
+            shortLabel: "Organization",
+            icon: <UserPlusIcon />,
+          },
+          {
             id: "dues",
             label: "Dues Approval",
             shortLabel: "Dues",
@@ -305,7 +328,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                 >
                   {item.icon}
                 </span>
-                <span>
+                <span className="flex flex-1 items-center gap-2">
                   {item.label}
                   {item.id === "resolutions" && (
                     <NavCountBadge count={pendingResolutionCount} />
@@ -448,6 +471,12 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
               onReview={handleResolutionReview}
               reviewRole={portalRole}
             />
+          )}
+
+          {!isDean && activeTab === "officers" && (
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
+              <OrganizationMembers user={user} org={organization} />
+            </div>
           )}
 
           {!isDean && activeTab === "dues" && (

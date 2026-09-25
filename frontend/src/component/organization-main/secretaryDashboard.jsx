@@ -664,7 +664,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
           {/* TAB CONTENT 4: EXECUTIVE ROSTER & MEMBERS */}
           {activeTab === "roster" && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
-              <OrganizationMembers user={currentUser} org={currentOrg} />
+              <OrganizationMembers user={currentUser} org={currentOrg} readOnly />
             </div>
           )}
         </main>

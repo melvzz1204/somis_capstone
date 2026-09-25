@@ -173,12 +173,12 @@ router.patch(
 // =========================================================
 router.post("/", protect, authorize("admin"), async (req, res) => {
   try {
-    const { name, acronym, president, email } = req.body;
+    const { name, acronym, adviser, email } = req.body;
     const organizationType = String(req.body.organizationType || "parent")
       .trim()
       .toLowerCase();
     const college = String(req.body.college || "").trim();
-    const presidentSurname = String(president || "")
+    const adviserSurname = String(adviser || "")
       .trim()
       .replace(/\s+/g, " ");
 
@@ -197,10 +197,10 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
     }
 
     // 1. Basic validation
-    if (!name || !acronym || !college || !presidentSurname || !email) {
+    if (!name || !acronym || !college || !adviserSurname || !email) {
       return res.status(400).json({
         message:
-          "Organization name, acronym, college, student leader/president surname, and email are required.",
+          "Organization name, acronym, college, faculty adviser surname, and email are required.",
       });
     }
 
@@ -214,15 +214,16 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    // 3. Save Organization record. The organization leader adds the adviser
-    // from the organization dashboard after registration.
+    // 3. Save Organization record with its seeded faculty adviser. The
+    // adviser manages organization officers from the adviser dashboard.
     const organization = new Organization({
       name,
       acronym,
       college,
       organizationType: "parent",
       parentOrganization: null,
-      president: presidentSurname,
+      adviser: adviserSurname,
+      president: "",
       email,
     });
     const savedOrg = await organization.save();
@@ -233,23 +234,23 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
 
     // 5. Save pending User account with setupToken
     const newUser = new User({
-      name: presidentSurname,
+      name: adviserSurname,
       email: email.toLowerCase(),
-      role: "org_admin", // 👈 Works now that 'org_admin' is in the enum
+      role: "adviser",
       organization: savedOrg._id,
       setupToken,
       setupTokenExpires: tokenExpires,
     });
     await newUser.save(); // 👈 Password is no longer required when setupToken is present
 
-    // The president is also part of the official roster. Their surname and
-    // email come from OVPSAS, while they complete the other name fields after
-    // signing in to the organization dashboard.
+    // The adviser is also part of the official roster. Their surname and
+    // email come from OVPSAS, while the adviser manages the remaining officer
+    // records from the adviser dashboard.
     await Member.create({
-      name: presidentSurname,
-      surname: presidentSurname,
+      name: adviserSurname,
+      surname: adviserSurname,
       email: email.toLowerCase().trim(),
-      role: "President",
+      role: "Faculty Adviser",
       organization: savedOrg._id,
       hasAccount: true,
     });

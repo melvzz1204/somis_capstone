@@ -141,6 +141,32 @@ exports.getMembersByOrg = async (req, res) => {
       );
     }
 
+    const adviserAccountEmails = await User.find({
+      organization: orgId,
+      role: "adviser",
+      status: "Active",
+    }).distinct("email");
+
+    if (adviserAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: adviserAccountEmails },
+          role: { $ne: "Faculty Adviser" },
+        },
+        {
+          $set: {
+            role: "Faculty Adviser",
+            idNumber: "",
+            birthday: null,
+            year: "",
+            program: "",
+            section: "",
+          },
+        },
+      );
+    }
+
     // Backfill avatars onto roster records from active student accounts so the
     // organization leader portal shows the student's profile photo even for
     // members whose roster row predates avatar syncing.
@@ -284,15 +310,17 @@ exports.addMember = async (req, res) => {
 
     const avatarPath = getAvatarDataUri(req.file);
 
-    if (normalizedRole === "Department Dean") {
-      const existingDean = await Member.findOne({
+    if (["Department Dean", "President"].includes(normalizedRole)) {
+      const existingLeader = await Member.findOne({
         organization: orgId,
-        role: "Department Dean",
+        role: normalizedRole,
       });
-      if (existingDean) {
+      if (existingLeader) {
         return res.status(409).json({
           message:
-            "A department dean is already registered for this organization.",
+            normalizedRole === "Department Dean"
+              ? "A department dean is already registered for this organization."
+              : "A president is already registered for this organization.",
         });
       }
     }
@@ -324,6 +352,12 @@ exports.addMember = async (req, res) => {
       await syncOrganizationAdviser(orgId);
     }
 
+    if (normalizedRole === "President") {
+      await Organization.findByIdAndUpdate(orgId, {
+        president: newMember.name,
+      });
+    }
+
     return res.status(201).json({
       message: "Officer/Member added successfully!",
       member: newMember,
@@ -340,17 +374,47 @@ exports.addMember = async (req, res) => {
 exports.deleteMember = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedMember = await Member.findByIdAndDelete(id);
+    const memberToDelete = await Member.findById(id);
 
-    if (!deletedMember) {
+    if (!memberToDelete) {
       return res.status(404).json({ message: "Member not found." });
     }
 
-    if (deletedMember.role === "Faculty Adviser") {
-      await syncOrganizationAdviser(deletedMember.organization);
+    if (memberToDelete.role === "Faculty Adviser") {
+      return res.status(403).json({
+        message: "The faculty adviser account cannot be deleted.",
+      });
     }
 
-    return res.status(200).json({ message: "Member removed successfully." });
+    const deletedMember = await Member.findByIdAndDelete(id);
+
+    if (deletedMember.role === "President") {
+      const normalizedEmail = String(deletedMember.email || "")
+        .toLowerCase()
+        .trim();
+      if (normalizedEmail) {
+        await User.deleteOne({
+          email: normalizedEmail,
+          organization: deletedMember.organization,
+          role: "org_admin",
+        });
+      }
+
+      const remainingPresident = await Member.findOne({
+        organization: deletedMember.organization,
+        role: "President",
+      }).sort({ createdAt: -1 });
+      await Organization.findByIdAndUpdate(deletedMember.organization, {
+        president: remainingPresident?.name || "",
+      });
+    }
+
+    return res.status(200).json({
+      message:
+        deletedMember.role === "President"
+          ? "President and linked account removed successfully."
+          : "Member removed successfully.",
+    });
   } catch (error) {
     console.error("Error deleting member:", error);
     return res.status(500).json({ message: "Failed to delete member." });
@@ -436,18 +500,28 @@ exports.updateMember = async (req, res) => {
     if (role && !isPresident) {
       const normalizedRole = String(role).trim();
       if (
-        normalizedRole === "Department Dean" &&
-        member.role !== "Department Dean"
+        previousRole === "Faculty Adviser" &&
+        normalizedRole !== "Faculty Adviser"
       ) {
-        const existingDean = await Member.findOne({
+        return res.status(403).json({
+          message: "The faculty adviser roster role cannot be changed.",
+        });
+      }
+      if (
+        ["Department Dean", "President"].includes(normalizedRole) &&
+        member.role !== normalizedRole
+      ) {
+        const existingLeader = await Member.findOne({
           organization: member.organization,
-          role: "Department Dean",
+          role: normalizedRole,
           _id: { $ne: member._id },
         });
-        if (existingDean) {
+        if (existingLeader) {
           return res.status(409).json({
             message:
-              "A department dean is already registered for this organization.",
+              normalizedRole === "Department Dean"
+                ? "A department dean is already registered for this organization."
+                : "A president is already registered for this organization.",
           });
         }
       }

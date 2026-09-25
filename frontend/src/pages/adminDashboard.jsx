@@ -168,6 +168,7 @@ export default function AdminDashboard() {
     organizationType: "parent",
     parentOrganization: "",
     president: "",
+    adviser: "",
     email: "",
   });
 
@@ -230,6 +231,7 @@ export default function AdminDashboard() {
       organizationType: "parent",
       parentOrganization: "",
       president: "",
+      adviser: "",
       email: "",
     });
 
@@ -249,6 +251,7 @@ export default function AdminDashboard() {
       parentOrganization:
         org.parentOrganization?._id || org.parentOrganization || "",
       president: org.president || "",
+      adviser: org.adviser || "",
       email: org.email || "",
     });
     setIsModalOpen(true);
@@ -264,11 +267,14 @@ export default function AdminDashboard() {
   const handleSaveOrganization = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    const normalizedAdviser = newOrg.adviser.trim().replace(/\s+/g, " ");
+    const normalizedPresident = newOrg.president.trim().replace(/\s+/g, " ");
     const payload = {
       ...newOrg,
       organizationType: "parent",
       parentOrganization: null,
-      president: newOrg.president.trim().replace(/\s+/g, " "),
+      adviser: normalizedAdviser,
+      president: editingOrg ? normalizedPresident : "",
     };
 
     try {
@@ -932,24 +938,45 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[#4A0E17] font-bold mb-1">
-                  Surname of Student Leader / President
-                </label>
-                <input
-                  type="text"
-                  name="president"
-                  required
-                  placeholder="e.g. Dela Cruz"
-                  value={newOrg.president}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
-                />
-                <p className="mt-1 text-[10px] font-medium text-slate-500">
-                  Enter the surname only. The leader will complete their first
-                  name, M.I., and suffix in the organization dashboard.
-                </p>
-              </div>
+              {editingOrg ? (
+                <div>
+                  <label className="block text-[#4A0E17] font-bold mb-1">
+                    Surname of Student Leader / President
+                  </label>
+                  <input
+                    type="text"
+                    name="president"
+                    required
+                    placeholder="e.g. Dela Cruz"
+                    value={newOrg.president}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                  />
+                  <p className="mt-1 text-[10px] font-medium text-slate-500">
+                    Enter the surname only. The leader will complete their first
+                    name, M.I., and suffix in the organization dashboard.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[#4A0E17] font-bold mb-1">
+                    Surname of Faculty Adviser
+                  </label>
+                  <input
+                    type="text"
+                    name="adviser"
+                    required
+                    placeholder="e.g. Dela Cruz"
+                    value={newOrg.adviser}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                  />
+                  <p className="mt-1 text-[10px] font-medium text-slate-500">
+                    Enter the surname only. The adviser will receive the account
+                    invitation and will manage the organization officers.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[#4A0E17] font-bold mb-1">

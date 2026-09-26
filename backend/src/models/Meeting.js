@@ -39,6 +39,14 @@ const meetingSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Members who already opened the meeting details. A newly created (or
+    // materially updated) meeting starts unseen except by its author, which
+    // drives the "new meeting" notification badge.
+    viewedBy: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+      index: true,
+    },
   },
   { timestamps: true },
 );

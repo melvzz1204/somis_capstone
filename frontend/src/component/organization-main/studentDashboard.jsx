@@ -474,9 +474,6 @@ export default function StudentDashboard({ user: propsUser }) {
   const [attendanceFines, setAttendanceFines] = useState([]);
   const [attendanceFineTotal, setAttendanceFineTotal] = useState(0);
   const [feeError, setFeeError] = useState("");
-  const [studentFeeArchive, setStudentFeeArchive] = useState([]);
-  const [selectedArchivedFeeIds, setSelectedArchivedFeeIds] = useState([]);
-  const [feeView, setFeeView] = useState("active");
   const [clearanceFees, setClearanceFees] = useState([]);
   const [clearanceFeeError, setClearanceFeeError] = useState("");
   const [payments, setPayments] = useState([]);
@@ -538,7 +535,6 @@ export default function StudentDashboard({ user: propsUser }) {
       setFees([]);
       setClearanceFees([]);
       setPayments([]);
-      setStudentFeeArchive([]);
       setUpcomingEvents([]);
       setMeetings([]);
       setAttendance([]);
@@ -569,7 +565,6 @@ export default function StudentDashboard({ user: propsUser }) {
             feeResult,
             clearanceFeeResult,
             paymentResult,
-            studentArchiveResult,
             eventResult,
             meetingResult,
             announcementResult,
@@ -579,7 +574,6 @@ export default function StudentDashboard({ user: propsUser }) {
             API.get("/fees"),
             API.get("/fees/clearance"),
             API.get("/payments/mine"),
-            API.get("/fees/student-archive"),
             API.get("/events"),
             API.get("/meetings"),
             API.get("/announcements"),
@@ -628,12 +622,6 @@ export default function StudentDashboard({ user: propsUser }) {
             setPaymentLoadError(
               paymentResult.reason.message || "Unable to load your payments.",
             );
-          }
-
-          if (studentArchiveResult.status === "fulfilled") {
-            setStudentFeeArchive(studentArchiveResult.value.data || []);
-          } else {
-            setStudentFeeArchive([]);
           }
 
           if (eventResult.status === "fulfilled") {
@@ -691,7 +679,6 @@ export default function StudentDashboard({ user: propsUser }) {
           setFees([]);
           setClearanceFees([]);
           setPayments([]);
-          setStudentFeeArchive([]);
           setUpcomingEvents([]);
           setMeetings([]);
           setAttendance([]);
@@ -860,103 +847,6 @@ export default function StudentDashboard({ user: propsUser }) {
     }
   };
 
-  const archiveStudentFee = async (fee) => {
-    try {
-      const response = await API.patch(`/fees/${fee._id}/student-archive`);
-      setFees((current) => current.filter((item) => item._id !== fee._id));
-      setStudentFeeArchive((current) => [
-        { ...response.data, fee },
-        ...current.filter(
-          (item) => String(item.fee?._id || item.fee) !== String(fee._id),
-        ),
-      ]);
-    } catch (error) {
-      setFeeError(error.message || "Unable to archive this fee.");
-    }
-  };
-
-  const restoreStudentFee = async (archive) => {
-    const feeId = archive.fee?._id || archive.fee;
-    try {
-      await API.patch(`/fees/${feeId}/student-restore`);
-      setStudentFeeArchive((current) =>
-        current.filter(
-          (item) => String(item.fee?._id || item.fee) !== String(feeId),
-        ),
-      );
-      setSelectedArchivedFeeIds((current) =>
-        current.filter((id) => id !== String(archive._id)),
-      );
-      setFees((current) => [archive.fee, ...current]);
-      setFeeView("active");
-    } catch (error) {
-      setFeeError(error.message || "Unable to restore this fee.");
-    }
-  };
-
-  const deleteStudentFee = async (archive, { confirm = true } = {}) => {
-    const feeId = archive.fee?._id || archive.fee;
-    if (
-      confirm &&
-      !window.confirm("Permanently remove this fee from your archive?")
-    )
-      return false;
-    try {
-      await API.delete(`/fees/${feeId}/student-archive`);
-      setStudentFeeArchive((current) =>
-        current.filter(
-          (item) => String(item.fee?._id || item.fee) !== String(feeId),
-        ),
-      );
-      setSelectedArchivedFeeIds((current) =>
-        current.filter((id) => id !== String(archive._id)),
-      );
-      return true;
-    } catch (error) {
-      setFeeError(error.message || "Unable to delete this archived fee.");
-      return false;
-    }
-  };
-
-  const toggleArchivedFeeSelection = (feeId) => {
-    setSelectedArchivedFeeIds((current) =>
-      current.includes(feeId)
-        ? current.filter((id) => id !== feeId)
-        : [...current, feeId],
-    );
-  };
-
-  const toggleAllArchivedFees = () => {
-    const archiveIds = studentFeeArchive.map((archive) => String(archive._id));
-    setSelectedArchivedFeeIds((current) =>
-      current.length === archiveIds.length ? [] : archiveIds,
-    );
-  };
-
-  const deleteSelectedStudentFees = async () => {
-    const selectedArchives = studentFeeArchive.filter((archive) =>
-      selectedArchivedFeeIds.includes(String(archive._id)),
-    );
-    if (!selectedArchives.length) return;
-    if (
-      !window.confirm(
-        `Permanently remove ${selectedArchives.length} selected fee${selectedArchives.length === 1 ? "" : "s"} from your archive?`,
-      )
-    )
-      return;
-
-    const results = await Promise.all(
-      selectedArchives.map((archive) =>
-        deleteStudentFee(archive, { confirm: false }),
-      ),
-    );
-    setSelectedArchivedFeeIds(
-      selectedArchives
-        .filter((_, index) => !results[index])
-        .map((archive) => String(archive._id)),
-    );
-  };
-
   const resetPaymentDialog = () => {
     setSelectedFee(null);
     setPaymentMethod("GCASH");
@@ -1111,8 +1001,20 @@ export default function StudentDashboard({ user: propsUser }) {
   ).length;
   const upcomingMeetingCount = meetings.filter((meeting) => {
     const end = new Date(meeting.endDateTime).getTime();
-    return !Number.isNaN(end) && end >= now;
+    // Unopened, still-attendable meetings drive the notification badge. The
+    // badge clears the moment the member opens the meeting details.
+    return (
+      !meeting.viewed && !Number.isNaN(end) && end >= now
+    );
   }).length;
+  const handleMeetingViewed = (meetingId) =>
+    setMeetings((current) =>
+      current.map((meeting) =>
+        String(meeting._id) === String(meetingId)
+          ? { ...meeting, viewed: true }
+          : meeting,
+      ),
+    );
   const activeFeeCount = fees.filter((fee) => fee.status === "active").length;
   const pendingPaymentCount = payments.filter(
     (payment) => payment.status === "PENDING_MANUAL_REVIEW",
@@ -1754,38 +1656,9 @@ export default function StudentDashboard({ user: propsUser }) {
                       "Organization"}{" "}
                     Fees
                   </h3>
-                  <div
-                    className="inline-flex rounded-lg bg-slate-200/70 p-1"
-                    role="tablist"
-                    aria-label="Student fee view"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={feeView === "active"}
-                      onClick={() => setFeeView("active")}
-                      className={`rounded-md px-3 py-1.5 text-xs font-black transition-all ${
-                        feeView === "active"
-                          ? "bg-white text-[#4A0E17] shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Active {fees.length}
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={feeView === "archived"}
-                      onClick={() => setFeeView("archived")}
-                      className={`rounded-md px-3 py-1.5 text-xs font-black transition-all ${
-                        feeView === "archived"
-                          ? "bg-white text-[#4A0E17] shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Archive {studentFeeArchive.length}
-                    </button>
-                  </div>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    {fees.length} active
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Fees created by your organization secretary and applicable to
@@ -1833,129 +1706,7 @@ export default function StudentDashboard({ user: propsUser }) {
                 </div>
               )}
 
-              {feeView === "archived" ? (
-                studentFeeArchive.length === 0 ? (
-                  <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
-                    <p className="text-xs font-bold text-slate-700">
-                      Archive is empty
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Fees you archive will be stored here for your records.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Top Bulk Selection & Action Bar */}
-                    <div
-                      className={`mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 transition-all ${
-                        selectedArchivedFeeIds.length > 0
-                          ? "border-[#4A0E17]/30 bg-[#4A0E17]/5"
-                          : "border-slate-200 bg-slate-50"
-                      }`}
-                    >
-                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={
-                            studentFeeArchive.length > 0 &&
-                            selectedArchivedFeeIds.length ===
-                              studentFeeArchive.length
-                          }
-                          onChange={toggleAllArchivedFees}
-                          className="h-4 w-4 rounded border-slate-300 accent-[#4A0E17] cursor-pointer"
-                          aria-label="Select all archived fees"
-                        />
-                        Select all ({studentFeeArchive.length})
-                      </label>
-
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <span className="text-xs font-medium text-slate-500">
-                          {selectedArchivedFeeIds.length} selected
-                        </span>
-                        <div className="h-4 w-px bg-slate-300 hidden sm:block" />
-
-                        {/* Batch Actions */}
-                        <button
-                          type="button"
-                          onClick={restoreStudentFee}
-                          disabled={!selectedArchivedFeeIds.length}
-                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                        >
-                          Restore selected
-                        </button>
-                        <button
-                          type="button"
-                          onClick={deleteSelectedStudentFees}
-                          disabled={!selectedArchivedFeeIds.length}
-                          className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                        >
-                          Delete selected
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Archived Cards Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                      {studentFeeArchive.map((archive) => {
-                        const fee = archive.fee;
-                        const isSelected = selectedArchivedFeeIds.includes(
-                          String(archive._id),
-                        );
-
-                        return (
-                          <article
-                            key={archive._id}
-                            onClick={() =>
-                              toggleArchivedFeeSelection(String(archive._id))
-                            }
-                            className={`p-5 rounded-2xl border transition-all cursor-pointer select-none ${
-                              isSelected
-                                ? "border-[#4A0E17] bg-white ring-2 ring-[#4A0E17]/20 shadow-xs"
-                                : "border-slate-200 bg-slate-50/60 hover:border-slate-300 hover:bg-white"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-3 flex-1">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => {}} // Selection handled by parent article onClick
-                                  className="mt-0.5 h-4 w-4 accent-[#4A0E17] cursor-pointer"
-                                  aria-label={`Select ${fee?.title || "archived fee"}`}
-                                />
-                                <div>
-                                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-                                    Archived fee
-                                  </p>
-                                  <h4 className="font-bold text-[#4A0E17] text-sm mt-0.5">
-                                    {fee?.title || "Organization fee"}
-                                  </h4>
-                                  {fee?.description && (
-                                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                                      {fee.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-
-                              <span className="text-sm font-black text-[#7A610D] bg-[#D4AF37]/10 border border-[#D4AF37]/30 px-2.5 py-1 rounded-lg shrink-0">
-                                ₱
-                                {Number(fee?.amount || 0).toLocaleString(
-                                  "en-PH",
-                                  {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  },
-                                )}
-                              </span>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </>
-                )
-              ) : fees.length === 0 ? (
+              {fees.length === 0 ? (
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center space-y-2">
                   <p className="text-xs font-bold text-slate-700">
                     No active fees available
@@ -2060,13 +1811,6 @@ export default function StudentDashboard({ user: propsUser }) {
                                 : fee.status !== "active"
                                   ? "Collection expired"
                                   : "Pay Now"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => archiveStudentFee(fee)}
-                            className="flex-1 border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-colors"
-                          >
-                            Move to archive
                           </button>
                         </div>
                       </article>
@@ -2412,7 +2156,11 @@ export default function StudentDashboard({ user: propsUser }) {
 
           {/* TAB: ORGANIZATION MEETINGS */}
           {activeTab === "meetings" && (
-            <MeetingList meetings={meetings} isLoading={isLoading} />
+            <MeetingList
+              meetings={meetings}
+              isLoading={isLoading}
+              onMeetingViewed={handleMeetingViewed}
+            />
           )}
 
           {/* TAB: ACCOUNT */}
@@ -2780,6 +2528,31 @@ export default function StudentDashboard({ user: propsUser }) {
                     cash received.
                   </div>
                 )}
+                {paymentMethod === "GCASH" &&
+                  (organization?.gcashNumber ||
+                    organization?.paymayaNumber ||
+                    organization?.gcashQrImage) && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                      <p className="font-bold">Send your payment here:</p>
+                      <div className="mt-2 flex items-center gap-3">
+                        {organization?.gcashQrImage && (
+                          <img
+                            src={organization.gcashQrImage}
+                            alt="GCash QR code"
+                            className="h-24 w-24 shrink-0 rounded-lg border border-emerald-200 bg-white object-contain"
+                          />
+                        )}
+                        <div className="space-y-1 font-semibold">
+                          {organization?.gcashNumber && (
+                            <p>GCash: {organization.gcashNumber}</p>
+                          )}
+                          {organization?.paymayaNumber && (
+                            <p>PayMaya: {organization.paymayaNumber}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 {paymentError && (
                   <div
                     className="flex items-start gap-2 border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"

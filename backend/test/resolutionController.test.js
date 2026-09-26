@@ -7,6 +7,8 @@ const {
   buildActivityProposal,
   parseJsonArray,
   parseJsonObject,
+  formatResubmissionNumber,
+  stripResubmissionSuffix,
 } = require("../src/controllers/resolutionController");
 
 test("REVIEW_RULES defines the president, adviser, dean, director, and OVPSAS stages", () => {
@@ -102,4 +104,22 @@ test("buildActivityProposal defaults requiresFeeCollection to false", () => {
   const proposal = buildActivityProposal({ proposalTitle: "Summit" });
   assert.equal(proposal.requiresFeeCollection, false);
   assert.deepEqual(proposal.attachments, []);
+});
+
+test("resubmissions keep the original number with an -REn suffix", () => {
+  assert.equal(
+    formatResubmissionNumber("RES-2026-005", 1),
+    "RES-2026-005-RE1",
+  );
+  assert.equal(
+    formatResubmissionNumber("RES-2026-005", 2),
+    "RES-2026-005-RE2",
+  );
+});
+
+test("stripResubmissionSuffix recovers the base number", () => {
+  assert.equal(stripResubmissionSuffix("RES-2026-005-RE1"), "RES-2026-005");
+  assert.equal(stripResubmissionSuffix("RES-2026-005-re2"), "RES-2026-005");
+  assert.equal(stripResubmissionSuffix("RES-2026-005"), "RES-2026-005");
+  assert.equal(stripResubmissionSuffix(""), "");
 });

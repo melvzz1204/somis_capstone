@@ -20,6 +20,7 @@ import {
   formatAcademicPeriod,
   getEffectiveAcademicPeriod,
 } from "../../util/academicPeriod";
+import { useUnreadMeetings } from "../../util/useUnreadMeetings";
 
 // --- INLINE SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
@@ -146,6 +147,9 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
 
+  // New-meeting notification badge; clears when the meeting is opened.
+  const { unreadCount: unreadMeetingCount } = useUnreadMeetings();
+
   // Resolution workflow state
   const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
   const [editingResolution, setEditingResolution] = useState(null);
@@ -153,6 +157,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
   const [isLoadingResolutions, setIsLoadingResolutions] = useState(true);
   const [deletingResolutionId, setDeletingResolutionId] = useState("");
   const [submittingResolutionId, setSubmittingResolutionId] = useState("");
+  const [resubmittingResolutionId, setResubmittingResolutionId] = useState("");
   const [resolutionNotice, setResolutionNotice] = useState("");
 
   const [stats, setStats] = useState({
@@ -272,8 +277,38 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
     }
   };
 
-  const handleDeleteResolution = async (resolution) => {
+  const handleResubmitResolution = async (resolution) => {
     if (
+      !window.confirm(
+        `Reopen "${resolution.title}" for revision? It returns to Draft and will be submitted as a resubmission (RE) of the original filing.`,
+      )
+    )
+      return;
+    setResubmittingResolutionId(resolution._id);
+    setResolutionNotice("");
+    try {
+      const response = await API.patch(
+        `/resolutions/${resolution._id}/resubmit`,
+      );
+      setResolutions((current) =>
+        current.map((item) =>
+          item._id === resolution._id ? response.data : item,
+        ),
+      );
+      const message =
+        response.message || "Resolution reopened for revision.";
+      setResolutionNotice(message);
+      showToast(message, "success");
+    } catch (err) {
+      const errorMessage = err.message || "Unable to resubmit the resolution.";
+      setResolutionNotice(errorMessage);
+      showToast(errorMessage, "error");
+    } finally {
+      setResubmittingResolutionId("");
+    }
+  };
+
+  const handleDeleteResolution = async (resolution) => {    if (
       !window.confirm(
         `Delete "${resolution.title}"? This cannot be undone.`,
       )
@@ -413,6 +448,9 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 className={`w-4 h-4 ${activeTab === "meetings" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Meetings</span>
+              {unreadMeetingCount > 0 && (
+                <NavCountBadge count={unreadMeetingCount} />
+              )}
             </button>
 
             <button
@@ -518,6 +556,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
               id: "meetings",
               label: "Meetings",
               icon: <MeetingIcon />,
+              count: unreadMeetingCount > 0 ? unreadMeetingCount : undefined,
             },
             { id: "roster", label: "Roster", icon: <UsersIcon />, count: 0 },
           ]}
@@ -631,9 +670,11 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
                 isLoading={isLoadingResolutions}
                 deletingId={deletingResolutionId}
                 submittingId={submittingResolutionId}
+                resubmittingId={resubmittingResolutionId}
                 onCreate={openCreateResolution}
                 onEdit={openEditResolution}
                 onSubmit={handleSubmitResolution}
+                onResubmit={handleResubmitResolution}
                 onDelete={handleDeleteResolution}
               />
             </div>

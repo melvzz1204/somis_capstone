@@ -168,6 +168,16 @@ const parseRetainedAttachmentIds = (value) => {
   }
 };
 
+// A resubmission keeps the original number with an -REn suffix so the
+// revision stays visibly related instead of looking like a new resolution.
+const formatResubmissionNumber = (baseNumber, count) =>
+  `${String(baseNumber || "").trim()}-RE${count}`;
+
+const stripResubmissionSuffix = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/-RE\d+$/i, "");
+
 const buildActivityProposal = (raw = {}, attachments = []) => {
   const proposal = {};
   PROPOSAL_FIELDS.forEach((field) => {
@@ -651,6 +661,26 @@ const submitResolution = async (req, res) => {
     resolution.status = "Submitted";
     resolution.submittedAt = new Date();
 
+    // A resubmission reuses its original number with an -REn suffix so the
+    // revision stays related instead of consuming a new sequence number.
+    const effectiveBase =
+      resolution.baseResolutionNumber ||
+      stripResubmissionSuffix(resolution.resolutionNumber);
+    if (resolution.resubmissionOf && effectiveBase) {
+      resolution.baseResolutionNumber = effectiveBase;
+      resolution.seriesYear = resolution.seriesYear || seriesYear;
+      resolution.resolutionNumber = formatResubmissionNumber(
+        effectiveBase,
+        resolution.resubmitCount || 1,
+      );
+      const savedResubmission = await resolution.save();
+      return res.json({
+        success: true,
+        message: `Resubmission ${savedResubmission.resolutionNumber} sent for president approval.`,
+        data: savedResubmission,
+      });
+    }
+
     // Assign a unique per-org, per-year number, retrying once on a race.
     let saved = null;
     for (let attempt = 0; attempt < 2 && !saved; attempt += 1) {
@@ -668,6 +698,11 @@ const submitResolution = async (req, res) => {
       }
     }
 
+    if (saved && !saved.baseResolutionNumber) {
+      saved.baseResolutionNumber = saved.resolutionNumber;
+      saved = await saved.save();
+    }
+
     return res.json({
       success: true,
       message: "Resolution submitted for president approval.",
@@ -681,6 +716,68 @@ const submitResolution = async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Could not submit resolution." });
+  }
+};
+
+// Reopens a rejected resolution for revision so the secretary resubmits the
+// same record (with an -REn number on the next submit) instead of recreating
+// the proposal from scratch.
+const resubmitResolution = async (req, res) => {
+  try {
+    const resolution = await Resolution.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+
+    if (!resolution) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Resolution not found." });
+    }
+
+    if (resolution.status !== "Rejected") {
+      return res.status(409).json({
+        success: false,
+        message: "Only rejected resolutions can be resubmitted.",
+      });
+    }
+
+    // Keep the lineage rooted at the original record across multiple rounds.
+    if (!resolution.resubmissionOf) {
+      resolution.resubmissionOf = resolution._id;
+    }
+    resolution.resubmitCount = (resolution.resubmitCount || 0) + 1;
+    if (!resolution.baseResolutionNumber) {
+      resolution.baseResolutionNumber =
+        stripResubmissionSuffix(resolution.resolutionNumber) ||
+        resolution.resolutionNumber;
+    }
+
+    // Back to draft for revision with a clean review slate for the new cycle.
+    resolution.status = "Draft";
+    resolution.submittedAt = undefined;
+    resolution.adoptedAt = undefined;
+    resolution.adoptedBy = undefined;
+    resolution.presidentReview = undefined;
+    resolution.adviserReview = undefined;
+    resolution.deanReview = undefined;
+    resolution.directorReview = undefined;
+    resolution.ovpsasReview = undefined;
+
+    const saved = await resolution.save();
+    return res.json({
+      success: true,
+      message: `Resolution reopened for revision. It will be submitted as ${formatResubmissionNumber(saved.baseResolutionNumber, saved.resubmitCount)}.`,
+      data: saved,
+    });
+  } catch (error) {
+    if (error.name === "ValidationError" || error.name === "CastError") {
+      return sendValidationError(res, error);
+    }
+    console.error("Error resubmitting resolution:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Could not resubmit resolution." });
   }
 };
 
@@ -945,6 +1042,7 @@ module.exports = {
   getResolution,
   updateResolution,
   submitResolution,
+  resubmitResolution,
   reviewResolution,
   getPresidentSignature,
   getAdviserSignature,
@@ -962,4 +1060,6 @@ module.exports = {
   parseJsonObject,
   parseRetainedAttachmentIds,
   formatMemberSignature,
+  formatResubmissionNumber,
+  stripResubmissionSuffix,
 };

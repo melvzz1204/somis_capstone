@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import PasswordInput from "./passwordInput";
+import PortalChooserModal from "./portalChooserModal";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import {
+  MEMBER_PORTAL_PATH,
+  resolveOfficerPortalPath,
+  shouldOfferPortalChoice,
+} from "../util/portalChoice";
 import { useToast } from "../util/toastContext";
 
 // Inline SVG Icons
@@ -46,6 +52,8 @@ export default function Login({ onForgotPassword }) {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Dual officer+member accounts pick a workspace instead of auto-redirect.
+  const [chooserUser, setChooserUser] = useState(null);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -90,6 +98,13 @@ export default function Login({ onForgotPassword }) {
       );
       localStorage.setItem("somis_user_role", actualRole);
       localStorage.setItem("somis_onboarding_completed", "true");
+
+      const signedInUser = { ...user, role: actualRole };
+      if (shouldOfferPortalChoice(signedInUser)) {
+        setChooserUser(signedInUser);
+        showToast("Signed in successfully. Choose your portal.", "success");
+        return;
+      }
 
       const redirectPath = getRedirectPathByRole(actualRole);
       showToast("Signed in successfully.", "success");
@@ -233,6 +248,21 @@ export default function Login({ onForgotPassword }) {
         <p className="text-center text-[10px] text-slate-400 pt-2 border-t border-slate-100 font-medium">
           New organization? Check email for OVPSAS invite link.
         </p>
+      )}
+
+      {chooserUser && (
+        <PortalChooserModal
+          user={chooserUser}
+          onOfficerSelect={() => {
+            const target = resolveOfficerPortalPath(chooserUser);
+            setChooserUser(null);
+            navigate(target, { replace: true });
+          }}
+          onMemberSelect={() => {
+            setChooserUser(null);
+            navigate(MEMBER_PORTAL_PATH, { replace: true });
+          }}
+        />
       )}
     </div>
   );

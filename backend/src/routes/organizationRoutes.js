@@ -18,6 +18,10 @@ const {
 } = require("../controllers/organizationDocumentController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 const sendOrgInviteEmail = require("../util/sendEmail");
+const upload = require("../middleware/upload");
+const {
+  getEffectiveClassRoster,
+} = require("../controllers/orgMemberController");
 const { createSetupUrl } = require("../config/frontendUrl");
 const {
   SEMESTERS,
@@ -42,7 +46,7 @@ router.get("/", async (req, res) => {
 
     const organizations = await Organization.find(filter)
       .select(
-        "name acronym college adviser president email status organizationType parentOrganization",
+        "name acronym college adviser president email status organizationType parentOrganization section program gcashNumber paymayaNumber gcashQrImage",
       )
       .populate("parentOrganization", "name acronym college organizationType")
       .sort({ college: 1, name: 1 });
@@ -347,9 +351,10 @@ router.post(
 
       // Mongoose's default collation is not available on every local MongoDB
       // setup, so validate the parent relationship explicitly before writing.
-      if (parentOrganization.organizationType === "suborganization") {
+      if (parentOrganization.organizationType !== "parent") {
         return res.status(403).json({
-          message: "A suborganization cannot register another suborganization.",
+          message:
+            "Only a parent organization can register a suborganization.",
         });
       }
 
@@ -422,6 +427,323 @@ router.post(
 );
 
 // =========================================================
+// POST /v1/organizations/classes - Org leader class registration
+// Registers a class (e.g. BSIT 3B) under the leader's parent organization
+// together with its class president and class treasurer accounts.
+// Officer names follow the roster format: Surname, First Name, M.I., Suffix.
+// =========================================================
+router.post(
+  "/classes",
+  protect,
+  authorize("org_admin"),
+  async (req, res) => {
+    try {
+      const parentOrganizationId =
+        req.user.organization?._id || req.user.organization;
+      const parentOrganization =
+        await Organization.findById(parentOrganizationId);
+
+      if (
+        !parentOrganization ||
+        parentOrganization.status !== "Active" ||
+        parentOrganization.organizationType !== "parent"
+      ) {
+        return res.status(403).json({
+          message: "Only an active parent organization can register a class.",
+        });
+      }
+
+      const cleanPart = (value = "") =>
+        String(value).trim().replace(/\s+/g, " ");
+      const middleInitial = (value = "") => {
+        const initial = cleanPart(value).replace(/\./g, "").charAt(0).toUpperCase();
+        return initial ? `${initial}.` : "";
+      };
+      const formatOfficerName = ({ surname, firstName, middleInitial: mi, suffix }) => {
+        const cleanSurname = cleanPart(surname);
+        const cleanFirstName = cleanPart(firstName);
+        const cleanMi = middleInitial(mi);
+        const cleanSuffix = cleanPart(suffix);
+        const givenName = [cleanFirstName, cleanMi].filter(Boolean).join(" ");
+        const baseName =
+          cleanSurname && givenName ? `${cleanSurname}, ${givenName}` : "";
+        return [baseName, cleanSuffix].filter(Boolean).join(", ");
+      };
+
+      const normalizedSection = String(req.body.section || "").trim();
+      const normalizedProgram = String(req.body.program || "").trim();
+      const normalizedName =
+        String(req.body.name || "").trim() ||
+        [normalizedProgram, normalizedSection].filter(Boolean).join(" ") ||
+        normalizedSection;
+      const normalizedAcronym =
+        String(req.body.acronym || "").trim().toUpperCase() ||
+        [normalizedProgram, normalizedSection]
+          .join("")
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "") ||
+        normalizedSection.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const president = {
+        surname: cleanPart(req.body.presidentSurname || req.body.president),
+        firstName: cleanPart(req.body.presidentFirstName),
+        middleInitial: middleInitial(req.body.presidentMiddleInitial),
+        suffix: cleanPart(req.body.presidentSuffix),
+        email: String(req.body.presidentEmail || "").trim().toLowerCase(),
+      };
+      const treasurer = {
+        surname: cleanPart(req.body.treasurerSurname || req.body.treasurer),
+        firstName: cleanPart(req.body.treasurerFirstName),
+        middleInitial: middleInitial(req.body.treasurerMiddleInitial),
+        suffix: cleanPart(req.body.treasurerSuffix),
+        email: String(req.body.treasurerEmail || "").trim().toLowerCase(),
+      };
+      const presidentName = formatOfficerName(president);
+      const treasurerName = formatOfficerName(treasurer);
+
+      if (
+        !normalizedProgram ||
+        !normalizedSection ||
+        !normalizedName ||
+        !normalizedAcronym ||
+        !president.surname ||
+        !president.firstName ||
+        !president.email ||
+        !treasurer.surname ||
+        !treasurer.firstName ||
+        !treasurer.email
+      ) {
+        return res.status(400).json({
+          message:
+            "Program, section, and each officer's surname, first name, and email are required.",
+        });
+      }
+
+      if (president.email === treasurer.email) {
+        return res.status(400).json({
+          message:
+            "The president and treasurer must use different email addresses.",
+        });
+      }
+
+      const escapeRegex = (value) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const duplicate = await Organization.findOne({
+        $or: [
+          { name: new RegExp(`^${escapeRegex(normalizedName)}$`, "i") },
+          { acronym: new RegExp(`^${escapeRegex(normalizedAcronym)}$`, "i") },
+        ],
+      });
+      if (duplicate) {
+        return res.status(409).json({
+          message: "An organization with this name or code already exists.",
+        });
+      }
+
+      // Emails that never finished setup can simply be re-invited into the
+      // class role. Only an already-active account blocks registration.
+      const findReusableAccount = async (email) => {
+        const owner = await User.findOne({ email });
+        if (!owner || owner.status === "Pending") return { reusable: true, user: owner };
+        return { reusable: false, user: owner };
+      };
+      const [presidentSlot, treasurerSlot] = await Promise.all([
+        findReusableAccount(president.email),
+        findReusableAccount(treasurer.email),
+      ]);
+      const blockingSlot = [presidentSlot, treasurerSlot].find(
+        (slot) => !slot.reusable,
+      );
+      if (blockingSlot) {
+        return res.status(409).json({
+          code: "EMAIL_HAS_ACCOUNT",
+          message: `${blockingSlot.user.email} already has an active account. Pick someone without an account, or have them use their existing login.`,
+        });
+      }
+
+      const organization = await Organization.create({
+        name: normalizedName,
+        acronym: normalizedAcronym,
+        college: parentOrganization.college,
+        organizationType: "class",
+        parentOrganization: parentOrganization._id,
+        section: normalizedSection,
+        program: normalizedProgram,
+        president: presidentName,
+        email: president.email,
+        status: "Active",
+      });
+
+      const tokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+      const presidentToken = crypto.randomBytes(32).toString("hex");
+      const treasurerToken = crypto.randomBytes(32).toString("hex");
+
+      // Adopt the account when one is already pending for the email (e.g. a
+      // roster member invited before); otherwise create it fresh. Either way
+      // the officer gets a new setup invite for the class role.
+      const adoptOfficerAccount = async (slot, displayName, email, role, token) => {
+        if (slot.user) {
+          slot.user.name = displayName;
+          slot.user.role = role;
+          slot.user.organization = organization._id;
+          slot.user.status = "Pending";
+          slot.user.setupToken = token;
+          slot.user.setupTokenExpires = tokenExpires;
+          await slot.user.save();
+          return slot.user;
+        }
+        return User.create({
+          name: displayName,
+          email,
+          role,
+          organization: organization._id,
+          setupToken: token,
+          setupTokenExpires: tokenExpires,
+        });
+      };
+
+      const [presidentUser, treasurerUser] = await Promise.all([
+        adoptOfficerAccount(presidentSlot, presidentName, president.email, "org_admin", presidentToken),
+        adoptOfficerAccount(treasurerSlot, treasurerName, treasurer.email, "treasurer", treasurerToken),
+      ]);
+
+      await Member.create([
+        {
+          name: presidentName,
+          surname: president.surname,
+          firstName: president.firstName,
+          middleInitial: president.middleInitial,
+          suffix: president.suffix,
+          email: president.email,
+          role: "President",
+          organization: organization._id,
+          hasAccount: true,
+        },
+        {
+          name: treasurerName,
+          surname: treasurer.surname,
+          firstName: treasurer.firstName,
+          middleInitial: treasurer.middleInitial,
+          suffix: treasurer.suffix,
+          email: treasurer.email,
+          role: "Treasurer",
+          organization: organization._id,
+          hasAccount: true,
+        },
+      ]);
+
+      // Invite delivery is best-effort; the setup links are always returned
+      // so the org leader can share them manually when email fails.
+      const invites = [
+        { email: president.email, token: presidentToken, label: "president" },
+        { email: treasurer.email, token: treasurerToken, label: "treasurer" },
+      ];
+      let emailStatus = "sent";
+      const setupLinks = {};
+      for (const invite of invites) {
+        setupLinks[invite.label] = createSetupUrl(invite.token);
+        try {
+          await sendOrgInviteEmail(invite.email, normalizedName, invite.token, {
+            registeredBy: parentOrganization.name,
+            organizationType: "class",
+          });
+        } catch (emailErr) {
+          emailStatus = "failed";
+          console.error(
+            `Class invite failed for ${invite.email}:`,
+            emailErr.message,
+          );
+        }
+      }
+
+      return res.status(201).json({
+        ...organization.toObject(),
+        demoSetupLinks: setupLinks,
+        emailStatus,
+        presidentUserId: presidentUser._id,
+        treasurerUserId: treasurerUser._id,
+      });
+    } catch (error) {
+      console.error("Error creating class:", error);
+      if (error.code === 11000) {
+        return res.status(409).json({
+          message: "That email address is already assigned to another account.",
+        });
+      }
+      return res.status(500).json({
+        message:
+          process.env.NODE_ENV === "development"
+            ? `Failed to create class: ${error.message}`
+            : "Failed to create class.",
+      });
+    }
+  },
+);
+
+// =========================================================
+// PATCH /v1/organizations/e-wallet - Treasurer e-wallet settings
+// Sets the GCash / PayMaya numbers (and optional GCash QR image) members
+// send dues payments to. Declared before "/:organizationId" so the path is
+// not mistaken for an organization id.
+// =========================================================
+router.patch(
+  "/e-wallet",
+  protect,
+  authorize("treasurer", "org_admin"),
+  upload.single("gcashQr"),
+  async (req, res) => {
+    try {
+      const orgId = req.user.organization?._id || req.user.organization;
+      if (!orgId) {
+        return res.status(400).json({
+          message: "Organization context is required.",
+        });
+      }
+
+      const normalizeNumber = (value) => {
+        const digits = String(value || "").replace(/\D/g, "");
+        if (!digits) return "";
+        if (!/^09\d{9}$/.test(digits)) return null;
+        return digits;
+      };
+
+      const gcashNumber = normalizeNumber(req.body.gcashNumber);
+      const paymayaNumber = normalizeNumber(req.body.paymayaNumber);
+      if (gcashNumber === null || paymayaNumber === null) {
+        return res.status(400).json({
+          message:
+            "E-wallet numbers must be valid 11-digit mobile numbers starting with 09 (e.g. 09171234567).",
+        });
+      }
+
+      const organization = await Organization.findById(orgId);
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found." });
+      }
+
+      organization.gcashNumber = gcashNumber;
+      organization.paymayaNumber = paymayaNumber;
+      if (req.file?.buffer && req.file?.mimetype) {
+        organization.gcashQrImage = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+      } else if (String(req.body.removeQr || "") === "true") {
+        organization.gcashQrImage = null;
+      }
+      await organization.save();
+
+      return res.status(200).json({
+        gcashNumber: organization.gcashNumber,
+        paymayaNumber: organization.paymayaNumber,
+        gcashQrImage: organization.gcashQrImage,
+      });
+    } catch (error) {
+      console.error("Error updating e-wallet details:", error);
+      return res
+        .status(500)
+        .json({ message: "Failed to update e-wallet details." });
+    }
+  },
+);
+
+// =========================================================
 // PUT /v1/organizations/:organizationId - Edit organization
 // =========================================================
 router.put(
@@ -442,6 +764,8 @@ router.put(
         .trim()
         .toUpperCase();
       let college = String(req.body.college || "").trim();
+      const section = String(req.body.section ?? organization.section ?? "").trim();
+      const program = String(req.body.program ?? organization.program ?? "").trim();
       const organizationType = String(
         req.body.organizationType || organization.organizationType || "parent",
       )
@@ -454,19 +778,22 @@ router.put(
         .trim()
         .toLowerCase();
 
-      if (!["parent", "suborganization"].includes(organizationType)) {
+      if (!["parent", "suborganization", "class"].includes(organizationType)) {
         return res.status(400).json({
-          message: "Organization type must be parent or suborganization.",
+          message: "Organization type must be parent, suborganization, or class.",
         });
       }
 
       let parentOrganization = null;
-      if (organizationType === "suborganization") {
+      if (["suborganization", "class"].includes(organizationType)) {
         const parentId =
           req.body.parentOrganization || organization.parentOrganization;
         if (!parentId) {
           return res.status(400).json({
-            message: "A parent organization is required for a suborganization.",
+            message:
+              organizationType === "class"
+                ? "A parent organization is required for a class."
+                : "A parent organization is required for a suborganization.",
           });
         }
         parentOrganization = await Organization.findById(parentId);
@@ -532,6 +859,8 @@ router.put(
         name,
         acronym,
         college,
+        section,
+        program,
         organizationType,
         parentOrganization: parentOrganization?._id || null,
         president,
@@ -622,6 +951,131 @@ router.patch(
       return res
         .status(500)
         .json({ message: "Failed to change organization status." });
+    }
+  },
+);
+
+// =========================================================
+// GET /v1/organizations/classes - Leader's classes with roster counts
+// =========================================================
+router.get("/classes", protect, authorize("org_admin"), async (req, res) => {
+  try {
+    const parentId = req.user.organization?._id || req.user.organization;
+    if (!parentId) {
+      return res.status(400).json({ message: "Organization context is required." });
+    }
+
+    const classes = await Organization.find({
+      organizationType: "class",
+      parentOrganization: parentId,
+    })
+      .select("_id name acronym section program college status president email createdAt")
+      .sort({ name: 1 })
+      .lean();
+
+    // Effective rosters: manual class rows plus onboarded parent members
+    // auto-matched by section, deduped by getEffectiveClassRoster.
+    const counted = await Promise.all(
+      classes.map(async (item) => {
+        const effective = await getEffectiveClassRoster(item._id);
+        const roster = effective ? effective.members : [];
+        const members = roster.filter((member) => member.role === "Member").length;
+        const officers = roster.length - members;
+        return { ...item, total: roster.length, members, officers };
+      }),
+    );
+
+    return res.status(200).json(counted);
+  } catch (error) {
+    console.error("Error fetching classes:", error);
+    return res.status(500).json({ message: "Failed to fetch classes." });
+  }
+});
+
+// =========================================================
+// GET /v1/organizations/classes/:classId - Class detail with roster
+// =========================================================
+router.get(
+  "/classes/:classId",
+  protect,
+  authorize("org_admin"),
+  async (req, res) => {
+    try {
+      const parentId = req.user.organization?._id || req.user.organization;
+      const classOrg = await Organization.findOne({
+        _id: req.params.classId,
+        organizationType: "class",
+        parentOrganization: parentId,
+      })
+        .populate("parentOrganization", "name acronym college")
+        .lean();
+      if (!classOrg) {
+        return res.status(404).json({
+          message: "Class not found under your organization.",
+        });
+      }
+
+      const effective = await getEffectiveClassRoster(classOrg._id);
+      const roster = effective ? effective.members : [];
+      const officers = roster.filter((member) => member.role !== "Member");
+      const members = roster.filter((member) => member.role === "Member");
+
+      return res.status(200).json({
+        ...classOrg,
+        officers,
+        members,
+        totalCount: roster.length,
+        memberCount: members.length,
+        officerCount: officers.length,
+      });
+    } catch (error) {
+      console.error("Error fetching class detail:", error);
+      return res.status(500).json({ message: "Failed to fetch class detail." });
+    }
+  },
+);
+
+// =========================================================
+// DELETE /v1/organizations/classes/:classId - Org leader class removal
+// =========================================================
+router.delete(
+  "/classes/:classId",
+  protect,
+  authorize("org_admin"),
+  async (req, res) => {
+    try {
+      const parentOrganizationId =
+        req.user.organization?._id || req.user.organization;
+      const classOrg = await Organization.findOne({
+        _id: req.params.classId,
+        organizationType: "class",
+        parentOrganization: parentOrganizationId,
+      });
+      if (!classOrg) {
+        return res.status(404).json({
+          message: "Class not found under your organization.",
+        });
+      }
+
+      await removeOrganizationDocumentFiles(classOrg._id);
+      await Promise.all([
+        User.deleteMany({ organization: classOrg._id }),
+        Member.deleteMany({ organization: classOrg._id }),
+        StudentProfile.deleteMany({ organization: classOrg._id }),
+        Fee.deleteMany({ org: classOrg._id }),
+        Payment.deleteMany({ organization: classOrg._id }),
+        StudentFeeArchive.deleteMany({ organization: classOrg._id }),
+        Resolution.deleteMany({ org: classOrg._id }),
+        OrganizationDocument.deleteMany({ org: classOrg._id }),
+      ]);
+      await classOrg.deleteOne();
+
+      return res.status(200).json({
+        message: "Class and its related records were deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Error deleting class:", error);
+      return res.status(500).json({ message: "Failed to delete class." });
     }
   },
 );

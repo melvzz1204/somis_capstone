@@ -141,12 +141,35 @@ export default function OrganizationMembers({
   org,
   view = "officers",
   readOnly = false,
+  // Class mode: the president of a class-type organization manages the
+  // classmate (Member) directory from this component.
+  manageMembers = false,
+  // Prefill program/section for new classmate rows (from the class record).
+  defaultProgram = "",
+  defaultSection = "",
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const { showToast } = useToast();
   const isMemberDirectory = view === "members";
   const canManageOfficers =
     !isMemberDirectory && !readOnly && user?.role === "adviser";
+  const orgType =
+    org?.organizationType || user?.organization?.organizationType || "";
+  const canManageMembers =
+    manageMembers &&
+    !readOnly &&
+    isMemberDirectory &&
+    user?.role === "org_admin" &&
+    orgType === "class";
+  // Class rosters merge auto-listed parent members; only rows owned by the
+  // class itself can be edited or deleted here.
+  const ownOrgId = String(
+    org?._id || user?.organization?._id || user?.organization || "",
+  );
+  const canRowManage = (row) =>
+    canManageOfficers ||
+    (canManageMembers && String(row.organization) === ownOrgId);
+  const recordLabel = isMemberDirectory ? "Member" : "Officer";
 
   const [officers, setOfficers] = useState([]);
   const [programs, setPrograms] = useState([]);
@@ -277,9 +300,9 @@ export default function OrganizationMembers({
       email: "",
       birthday: "",
       year: "1st Year",
-      program: "",
-      section: "",
-      role: OFFICER_ROLES[0],
+      program: isMemberDirectory ? defaultProgram : "",
+      section: isMemberDirectory ? defaultSection : "",
+      role: isMemberDirectory ? "Member" : OFFICER_ROLES[0],
     });
     setAvatarFile(null);
     setAvatarPreview(null);
@@ -370,7 +393,13 @@ export default function OrganizationMembers({
       payload.append("middleInitial", formData.middleInitial.trim());
       payload.append("suffix", formData.suffix.trim());
       payload.append("email", formData.email.trim());
-      payload.append("role", formData.role || OFFICER_ROLES[0]);
+      // Class roster rows are always regular members.
+      payload.append(
+        "role",
+        isMemberDirectory && canManageMembers
+          ? "Member"
+          : formData.role || OFFICER_ROLES[0],
+      );
       payload.append(
         "idNumber",
         isFacultySignatory ? "" : formData.idNumber || "",
@@ -417,14 +446,14 @@ export default function OrganizationMembers({
           prev.map((off) => (off._id === editingOfficer._id ? updated : off)),
         );
 
-        showToast?.("Officer updated successfully!", "success");
+        showToast?.(`${recordLabel} updated successfully!`, "success");
       } else {
         const response = await API.post("/orgmembers", payload, config);
         const created = response.data?.member || response.member || response;
 
         setOfficers((prev) => [created, ...prev]);
 
-        showToast?.("New officer saved successfully!", "success");
+        showToast?.(`New ${recordLabel.toLowerCase()} saved successfully!`, "success");
       }
 
       setIsModalOpen(false);
@@ -479,19 +508,23 @@ export default function OrganizationMembers({
 
   // Delete Member
   const handleDeleteOfficer = async (id) => {
-    if (!window.confirm("Are you sure you want to remove this officer?"))
+    if (
+      !window.confirm(
+        `Are you sure you want to remove this ${recordLabel.toLowerCase()}?`,
+      )
+    )
       return;
 
     try {
       const response = await API.delete(`/orgmembers/${id}`);
       setOfficers((prev) => prev.filter((officer) => officer._id !== id));
       showToast?.(
-        response?.message || "Officer removed successfully.",
+        response?.message || `${recordLabel} removed successfully.`,
         "success",
       );
     } catch (err) {
       console.error("Failed to delete member:", err);
-      showToast?.(err.message || "Failed to remove member.", "error");
+      showToast?.(err.message || `Failed to remove ${recordLabel.toLowerCase()}.`, "error");
     }
   };
 
@@ -550,6 +583,18 @@ export default function OrganizationMembers({
             >
               <MailIcon className="w-4 h-4" />
               Send Officer Invite
+            </button>
+          </div>
+        )}
+
+        {canManageMembers && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleOpenAddModal}
+              className="px-3.5 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+            >
+              <UserPlusIcon className="w-4 h-4" />
+              Add Classmate
             </button>
           </div>
         )}
@@ -660,6 +705,11 @@ export default function OrganizationMembers({
                           {officer.role}
                         </span>
                         {officer.section ? ` • ${officer.section}` : ""}
+                        {isMemberDirectory && officer.autoListed && (
+                          <span className="ml-1.5 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                            Auto-listed
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -669,7 +719,7 @@ export default function OrganizationMembers({
                       {officer.email}
                     </span>
 
-                    {canManageOfficers && (
+                    {canRowManage(officer) ? (
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => handleOpenEditModal(officer)}
@@ -688,7 +738,7 @@ export default function OrganizationMembers({
                           </button>
                         )}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               );
@@ -698,7 +748,7 @@ export default function OrganizationMembers({
       </div>
 
       {/* MODAL 1: ADD / EDIT OFFICER */}
-      {canManageOfficers && isModalOpen && (
+      {(canManageOfficers || canManageMembers) && isModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -708,8 +758,8 @@ export default function OrganizationMembers({
                 </div>
                 <h3 className="text-sm font-extrabold text-[#4A0E17]">
                   {editingOfficer
-                    ? `Edit ${isFacultySignatory ? signatoryLabel : "Officer"} Details`
-                    : `Add ${isFacultySignatory ? signatoryLabel : "Officer"}`}
+                    ? `Edit ${isMemberDirectory ? "Classmate" : isFacultySignatory ? signatoryLabel : "Officer"} Details`
+                    : `${isMemberDirectory ? "Add Classmate" : `Add ${isFacultySignatory ? signatoryLabel : "Officer"}`}`}
                 </h3>
               </div>
               <button
@@ -751,6 +801,11 @@ export default function OrganizationMembers({
                 <label className="block font-bold text-slate-700 mb-1">
                   Position / Role
                 </label>
+                {isMemberDirectory && canManageMembers ? (
+                  <div className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 font-bold text-slate-700">
+                    Member
+                  </div>
+                ) : (
                 <select
                   value={formData.role}
                   disabled={isRoleLocked}
@@ -781,6 +836,7 @@ export default function OrganizationMembers({
                     </option>
                   ))}
                 </select>
+                )}
               </div>
               <div>
                 {isEditingPresident && (
@@ -998,11 +1054,7 @@ export default function OrganizationMembers({
                   disabled={isSubmitting}
                   className="px-4 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-xl disabled:opacity-50 transition-all shadow-sm cursor-pointer"
                 >
-                  {isSubmitting
-                    ? "Saving..."
-                    : editingOfficer
-                      ? `Update ${isFacultySignatory ? signatoryLabel : "Officer"}`
-                      : `Save ${isFacultySignatory ? signatoryLabel : "Officer"}`}
+                  {isSubmitting ? "Saving..." : "Save"}
                 </button>
               </div>
             </form>

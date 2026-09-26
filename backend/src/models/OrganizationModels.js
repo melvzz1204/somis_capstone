@@ -20,13 +20,41 @@ const organizationSchema = new mongoose.Schema(
     },
     organizationType: {
       type: String,
-      enum: ["parent", "suborganization"],
+      enum: ["parent", "suborganization", "class"],
       default: "parent",
       required: true,
     },
     parentOrganization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
+      default: null,
+    },
+    // Class sections (e.g. BSIT 3B). Only used by class-type organizations.
+    section: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    // Class program (e.g. BSIT). Only used by class-type organizations.
+    program: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    // E-wallet channels where members send dues payments. Maintained by the
+    // organization treasurer.
+    gcashNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    paymayaNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    gcashQrImage: {
+      type: String,
       default: null,
     },
     adviser: {
@@ -87,17 +115,22 @@ organizationSchema.index({ parentOrganization: 1, status: 1, name: 1 });
 organizationSchema.index({ organizationType: 1, college: 1 });
 
 organizationSchema.pre("validate", function validateHierarchy() {
-  if (this.organizationType === "suborganization" && !this.parentOrganization) {
+  const isChildType = ["suborganization", "class"].includes(
+    this.organizationType,
+  );
+  if (isChildType && !this.parentOrganization) {
     this.invalidate(
       "parentOrganization",
-      "A suborganization must have a parent organization.",
+      this.organizationType === "class"
+        ? "A class must belong to a parent organization."
+        : "A suborganization must have a parent organization.",
     );
   }
 
-  if (this.organizationType !== "suborganization" && this.parentOrganization) {
+  if (!isChildType && this.parentOrganization) {
     this.invalidate(
       "parentOrganization",
-      "Only suborganizations may have a parent organization.",
+      "Only suborganizations and classes may have a parent organization.",
     );
   }
 

@@ -40,6 +40,45 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
   const [payments, setPayments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionId, setActionId] = useState("");
+  const [actionError, setActionError] = useState("");
+
+  const handleVerify = async (payment, decision) => {
+    let remarks = "";
+    if (decision === "Rejected") {
+      const input = window.prompt(
+        `Reason for rejecting the ${formatCurrency(payment.claimedAmount)} payment:`,
+      );
+      if (input === null) return;
+      remarks = input.trim();
+      if (!remarks) {
+        setActionError("A rejection reason is required.");
+        return;
+      }
+    } else if (
+      !window.confirm(
+        `Verify the ${formatCurrency(payment.claimedAmount)} payment as received?`,
+      )
+    ) {
+      return;
+    }
+    setActionId(payment._id);
+    setActionError("");
+    try {
+      const response = await API.patch(`/payments/${payment._id}/verify`, {
+        decision,
+        remarks,
+      });
+      const updated = response.data || response;
+      setPayments((current) =>
+        current.map((item) => (item._id === payment._id ? updated : item)),
+      );
+    } catch (requestError) {
+      setActionError(requestError.message || "Unable to save the decision.");
+    } finally {
+      setActionId("");
+    }
+  };
 
   const loadPayments = useCallback(
     async (signal) => {
@@ -170,8 +209,17 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
         </div>
       )}
 
+      {actionError && (
+        <div
+          className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800"
+          role="alert"
+        >
+          {actionError}
+        </div>
+      )}
+
       <div className="max-h-[520px] overflow-auto border border-slate-200 rounded-xl relative">
-        <table className="min-w-[760px] w-full text-left text-xs">
+        <table className="min-w-[860px] w-full text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold uppercase text-slate-500 shadow-xs">
             <tr>
               <th className="px-4 py-3">Student</th>
@@ -180,13 +228,14 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Method</th>
               <th className="px-4 py-3">Verified date</th>
+              <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {isLoading ? (
               <tr>
                 <td
-                  colSpan="6"
+                  colSpan="7"
                   className="px-4 py-10 text-center font-medium text-slate-500"
                 >
                   Loading payment verification audit...
@@ -195,7 +244,7 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
             ) : filteredPayments.length === 0 ? (
               <tr>
                 <td
-                  colSpan="6"
+                  colSpan="7"
                   className="px-4 py-10 text-center font-medium text-slate-500"
                 >
                   {searchQuery
@@ -208,10 +257,14 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
                 <tr key={payment._id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">
                     <p className="font-bold text-slate-800">
-                      {payment.student?.name || "Unknown student"}
+                      {payment.student?.name ||
+                        payment.member?.name ||
+                        "Unknown student"}
                     </p>
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      {payment.student?.email || "No email"}
+                      {payment.student?.email ||
+                        payment.member?.email ||
+                        "No email"}
                     </p>
                   </td>
                   <td className="px-4 py-3 font-bold text-slate-700">
@@ -241,9 +294,38 @@ export default function TreasurerPaymentAudit({ academicPeriodKey = "" }) {
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-700">
                     {formatMethod(payment.verificationMethod)}
+                    {payment.remitted && (
+                      <span className="ml-1.5 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                        Remitted
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-600">
                     {formatDateTime(payment.verifiedAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {payment.status === "PENDING_MANUAL_REVIEW" ? (
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          disabled={actionId === payment._id}
+                          onClick={() => handleVerify(payment, "Approved")}
+                          className="rounded-md bg-emerald-700 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-emerald-800 disabled:opacity-50"
+                        >
+                          {actionId === payment._id ? "..." : "Verify"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionId === payment._id}
+                          onClick={() => handleVerify(payment, "Rejected")}
+                          className="rounded-md border border-rose-300 bg-white px-2.5 py-1.5 text-[10px] font-black text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">—</span>
+                    )}
                   </td>
                 </tr>
               ))

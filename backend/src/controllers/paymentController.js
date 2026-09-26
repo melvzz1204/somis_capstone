@@ -15,7 +15,7 @@ const {
 } = require("../models/Payment");
 
 const PAYMENT_PUBLIC_FIELDS =
-  "student member organization fee event claimedAmount extractedAmount paymentMethod referenceNumber cashReceiptNumber cashNotes recordedBy paidAt receiptImageUrl status failureReason verificationMethod verifiedAt createdAt updatedAt";
+  "student member organization fee event claimedAmount extractedAmount paymentMethod referenceNumber cashReceiptNumber cashNotes recordedBy paidAt receiptImageUrl status failureReason verificationMethod verifiedAt remitted remittedAt createdAt updatedAt";
 
 /**
  * @param {unknown} value
@@ -658,4 +658,83 @@ module.exports = {
   getMyPayment,
   listMyPayments,
   listPaymentAudit,
+  verifyPayment,
 };
+
+/**
+ * Verifies or rejects a single pending payment. Scoped to the treasurer's
+ * own organization, so class-collected payments can only be decided by the
+ * organization treasurer they were remitted to.
+ *
+ * @route PATCH /api/v1/payments/:id/verify
+ * @access Treasurer
+ */
+async function verifyPayment(req, res) {
+  const decision = String(req.body?.decision || "");
+  const remarks = String(req.body?.remarks || "").trim();
+
+  if (!isObjectId(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid payment identifier.",
+    });
+  }
+  if (!["Approved", "Rejected"].includes(decision)) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid approval decision is required.",
+    });
+  }
+  if (decision === "Rejected" && !remarks) {
+    return res.status(400).json({
+      success: false,
+      message: "A rejection reason is required.",
+    });
+  }
+
+  try {
+    const payment = await Payment.findOne({
+      _id: req.params.id,
+      organization: req.user.organization,
+    });
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment not found for your organization.",
+      });
+    }
+    if (payment.status !== "PENDING_MANUAL_REVIEW") {
+      return res.status(409).json({
+        success: false,
+        message: "This payment has already received a final decision.",
+      });
+    }
+
+    if (decision === "Approved") {
+      payment.status = "VERIFIED";
+      payment.verifiedAt = new Date();
+      payment.failureReason = undefined;
+    } else {
+      payment.status = "REJECTED";
+      payment.failureReason = remarks;
+    }
+    await payment.save();
+    await payment.populate("member", "name email idNumber role");
+    await payment.populate("fee", "title dueDate academicYear semester");
+
+    return res.status(200).json({
+      success: true,
+      message:
+        decision === "Approved"
+          ? "Payment verified successfully."
+          : "Payment rejected.",
+      data: payment,
+    });
+  } catch (error) {
+    console.error("Payment verification failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to save the payment decision.",
+    });
+  }
+}

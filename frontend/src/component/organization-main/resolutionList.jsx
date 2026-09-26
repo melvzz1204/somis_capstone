@@ -35,9 +35,11 @@ export default function ResolutionList({
   isLoading,
   deletingId,
   submittingId,
+  resubmittingId,
   onCreate,
   onEdit,
   onSubmit,
+  onResubmit,
   onDelete,
 }) {
   const [view, setView] = useState("all");
@@ -160,6 +162,7 @@ export default function ResolutionList({
             const proposal = resolution.activityProposal || {};
             const editable = ["Draft", "Submitted"].includes(resolution.status);
             const isDraft = resolution.status === "Draft";
+            const isRejected = resolution.status === "Rejected";
             const pendingReviewer =
               PENDING_REVIEWER_BY_STATUS[resolution.status];
 
@@ -176,6 +179,11 @@ export default function ResolutionList({
                           {resolution.resolutionNumber}
                         </span>
                       )}
+                      {(resolution.resubmitCount || 0) > 0 && (
+                        <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                          RE{resolution.resubmitCount}
+                        </span>
+                      )}
                       <span
                         className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${getStatusClass(
                           resolution.status,
@@ -189,6 +197,15 @@ export default function ResolutionList({
                         {resolution.subject}
                       </p>
                     )}
+                    {resolution.resubmissionOf &&
+                      (resolution.resubmitCount || 0) > 0 && (
+                        <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                          Resubmission of{" "}
+                          {resolution.baseResolutionNumber ||
+                            "the original filing"}{" "}
+                          · Revision {resolution.resubmitCount}
+                        </p>
+                      )}
                     <p className="mt-2 text-xs leading-5 text-slate-600">
                       Embeds:{" "}
                       <span className="font-semibold text-slate-700">
@@ -238,10 +255,22 @@ export default function ResolutionList({
                         </button>
                       </>
                     )}
+                    {isRejected && (
+                      <button
+                        type="button"
+                        onClick={() => onResubmit(resolution)}
+                        disabled={resubmittingId === resolution._id}
+                        className="rounded-lg border border-amber-600 bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+                      >
+                        {resubmittingId === resolution._id
+                          ? "Reopening..."
+                          : "Revise & Resubmit"}
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-y border-slate-100 py-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-y border-slate-100 py-4 text-xs sm:grid-cols-2 lg:grid-cols-3">
                   <div>
                     <dt className="font-semibold text-slate-400">Basis Meeting</dt>
                     <dd className="mt-0.5 font-bold text-slate-700">
@@ -261,13 +290,6 @@ export default function ResolutionList({
                     <dt className="font-semibold text-slate-400">Budget</dt>
                     <dd className="mt-0.5 font-bold text-slate-700">
                       {formatCurrency(proposal.totalBudgetAllocation)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-slate-400">Clauses</dt>
-                    <dd className="mt-0.5 font-bold text-slate-700">
-                      {(resolution.resolvedClauses || []).length} resolved ·{" "}
-                      {(resolution.whereasClauses || []).length} whereas
                     </dd>
                   </div>
                 </dl>

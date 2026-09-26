@@ -18,6 +18,7 @@ import LogoutButton from "../logoutButton";
 import MobileTabBar from "../mobileTabBar";
 import NavCountBadge from "../navCountBadge";
 import MeetingList from "./meetingList";
+import { useUnreadMeetings } from "../../util/useUnreadMeetings";
 
 const EMPTY_FORM = {
   title: "",
@@ -63,6 +64,8 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
     currentUser?.organization ||
     JSON.parse(localStorage.getItem("org") || "null");
   const [activeTab, setActiveTab] = useState("overview");
+  // New-meeting notification badge; clears when the meeting is opened.
+  const { unreadCount: unreadMeetingCount } = useUnreadMeetings();
   const [announcements, setAnnouncements] = useState([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -233,6 +236,7 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
       id: "meetings",
       label: "Meetings",
       icon: <Users size={16} />,
+      count: unreadMeetingCount > 0 ? unreadMeetingCount : undefined,
     },
   ];
 

@@ -78,6 +78,67 @@ const syncOrganizationAdviser = async (organizationId) => {
   });
 };
 
+// Roster managers: faculty advisers everywhere, plus the president of a
+// class-type organization (scoped to their own class only).
+const isClassRosterManager = async (req) => {
+  if (req.user.role === "adviser") return true;
+  if (req.user.role !== "org_admin" || !req.user.organization) return false;
+  const orgId = req.user.organization?._id || req.user.organization;
+  const org = await Organization.findById(orgId).select("organizationType");
+  return org?.organizationType === "class";
+};
+
+const ownOrganizationId = (req) =>
+  String(req.user.organization?._id || req.user.organization || "");
+
+const isOwnOrganizationRecord = (req, member) =>
+  req.user.role === "adviser" ||
+  String(member.organization) === ownOrganizationId(req);
+
+// Effective class roster: manually added class rows plus parent-organization
+// members whose section matches the class section (onboarded students are
+// counted automatically). Class rows win ties by email.
+const getEffectiveClassRoster = async (classOrgId) => {
+  const classOrg = await Organization.findById(classOrgId).select(
+    "organizationType parentOrganization section name",
+  );
+  if (!classOrg || classOrg.organizationType !== "class") return null;
+
+  const classMembers = await Member.find({ organization: classOrg._id }).lean();
+  const merged = classMembers.map((member) => ({ ...member }));
+  const seen = new Set(
+    merged.map((member) => String(member.email || "").toLowerCase()),
+  );
+
+  if (classOrg.parentOrganization && classOrg.section) {
+    const sectionKey = String(classOrg.section).trim().toLowerCase();
+    const parentMembers = await Member.find({
+      organization: classOrg.parentOrganization,
+      role: "Member",
+    }).lean();
+    parentMembers.forEach((member) => {
+      if (String(member.section || "").trim().toLowerCase() !== sectionKey) {
+        return;
+      }
+      const key = String(member.email || "").toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      merged.push({ ...member, autoListed: true });
+    });
+  }
+
+  merged.sort((left, right) => {
+    if (left.role !== right.role) return left.role < right.role ? -1 : 1;
+    return (
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    );
+  });
+  return { classOrg, members: merged };
+};
+
+// Exported for reuse by class-scoped routes.
+exports.getEffectiveClassRoster = getEffectiveClassRoster;
+
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
 // ==========================================
@@ -176,6 +237,16 @@ exports.getMembersByOrg = async (req, res) => {
       role: 1,
       createdAt: -1,
     });
+
+    // Class presidents see the effective roster: manual class rows plus
+    // onboarded parent members auto-matched by section.
+    if (req.user?.role === "org_admin") {
+      const effective = await getEffectiveClassRoster(orgId);
+      if (effective) {
+        await syncOrganizationAdviser(orgId);
+        return res.status(200).json(effective.members);
+      }
+    }
 
     // Repair organizations created before adviser synchronization was added,
     // and keep the profile value consistent with the official roster.
@@ -285,11 +356,25 @@ exports.addMember = async (req, res) => {
       role,
     } = req.body;
 
+    // Class presidents manage only their own class roster.
     const orgId =
-      req.user?.orgId ||
-      req.user?.organization ||
-      req.body.organization ||
-      req.user?._id;
+      req.user?.role === "org_admin"
+        ? ownOrganizationId(req)
+        : req.user?.orgId ||
+          req.user?.organization ||
+          req.body.organization ||
+          req.user?._id;
+
+    if (!orgId) {
+      return res.status(400).json({
+        message: "Organization context is required.",
+      });
+    }
+    if (!(await isClassRosterManager(req))) {
+      return res.status(403).json({
+        message: "Only the faculty adviser or class president can manage the roster.",
+      });
+    }
     const normalizedRole = String(role || "").trim();
     const isFacultySignatory = ["Faculty Adviser", "Department Dean"].includes(
       normalizedRole,
@@ -306,6 +391,45 @@ exports.addMember = async (req, res) => {
       return res.status(400).json({
         message: "Surname, first name, email, and position are required.",
       });
+    }
+
+    // Class rosters auto-include onboarded parent members by section, so
+    // reject rows that would duplicate an existing listing.
+    if (req.user?.role === "org_admin") {
+      const normalizedEmail = String(email).toLowerCase().trim();
+      const dupInClass = await Member.findOne({
+        organization: orgId,
+        email: normalizedEmail,
+      });
+      if (dupInClass) {
+        return res.status(409).json({
+          message: "This email is already listed in the class roster.",
+        });
+      }
+      const classDoc = await Organization.findById(orgId).select(
+        "organizationType parentOrganization section",
+      );
+      if (
+        classDoc?.organizationType === "class" &&
+        classDoc.parentOrganization &&
+        classDoc.section
+      ) {
+        const sectionKey = String(classDoc.section).trim().toLowerCase();
+        const parentMatch = await Member.findOne({
+          organization: classDoc.parentOrganization,
+          role: "Member",
+          email: normalizedEmail,
+        });
+        if (
+          parentMatch &&
+          String(parentMatch.section || "").trim().toLowerCase() === sectionKey
+        ) {
+          return res.status(409).json({
+            message:
+              "This member is already listed in the class via their section.",
+          });
+        }
+      }
     }
 
     const avatarPath = getAvatarDataUri(req.file);
@@ -380,6 +504,17 @@ exports.deleteMember = async (req, res) => {
       return res.status(404).json({ message: "Member not found." });
     }
 
+    if (!(await isClassRosterManager(req))) {
+      return res.status(403).json({
+        message: "Only the faculty adviser or class president can manage the roster.",
+      });
+    }
+    if (!isOwnOrganizationRecord(req, memberToDelete)) {
+      return res.status(403).json({
+        message: "You can only manage members of your own class.",
+      });
+    }
+
     if (memberToDelete.role === "Faculty Adviser") {
       return res.status(403).json({
         message: "The faculty adviser account cannot be deleted.",
@@ -445,6 +580,17 @@ exports.updateMember = async (req, res) => {
     const member = await Member.findById(id);
     if (!member) {
       return res.status(404).json({ message: "Member not found." });
+    }
+
+    if (!(await isClassRosterManager(req))) {
+      return res.status(403).json({
+        message: "Only the faculty adviser or class president can manage the roster.",
+      });
+    }
+    if (!isOwnOrganizationRecord(req, member)) {
+      return res.status(403).json({
+        message: "You can only manage members of your own class.",
+      });
     }
 
     if (idNumber !== undefined) member.idNumber = idNumber;
@@ -671,6 +817,17 @@ exports.sendMemberInvite = async (req, res) => {
         .json({ message: `Member with ID ${id} was not found.` });
     }
 
+    if (!(await isClassRosterManager(req))) {
+      return res.status(403).json({
+        message: "Only the faculty adviser or class president can send invitations.",
+      });
+    }
+    if (!isOwnOrganizationRecord(req, member)) {
+      return res.status(403).json({
+        message: "You can only manage members of your own class.",
+      });
+    }
+
     if (member.role === "Member") {
       return res.status(400).json({
         message:
@@ -733,8 +890,89 @@ exports.sendMemberInvite = async (req, res) => {
   }
 };
 
-exports.setupAccount = async (req, res) => {
+// ==========================================
+// 7. LOOK UP A REGISTERED STUDENT (class roster prefill)
+// Finds a student onboarded through landing registration by email or
+// student ID so the class president can fetch their details instead of
+// typing everything manually.
+// ==========================================
+exports.lookupStudent = async (req, res) => {
   try {
+    if (!(await isClassRosterManager(req))) {
+      return res.status(403).json({
+        message: "Only the faculty adviser or class president can search students.",
+      });
+    }
+
+    const email = String(req.query.email || "").toLowerCase().trim();
+    const idNumber = String(
+      req.query.idNumber || req.query.studentIdNumber || "",
+    ).trim();
+
+    if (!email && !idNumber) {
+      return res.status(400).json({
+        success: false,
+        found: false,
+        message: "Provide an email address or student ID number to search.",
+      });
+    }
+
+    let profile = null;
+    if (idNumber) {
+      profile = await StudentProfile.findOne({
+        studentIdNumber: idNumber,
+      }).populate("user", "name email");
+    }
+    if (!profile && email) {
+      const user = await User.findOne({ email }).select("_id name email");
+      if (user) {
+        profile = await StudentProfile.findOne({ user: user._id }).populate(
+          "user",
+          "name email",
+        );
+      }
+    }
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        found: false,
+        message:
+          "No registered student found. Fill the details manually below.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      found: true,
+      data: {
+        firstName: profile.firstName || "",
+        middleInitial: profile.middleInitial || "",
+        lastName: profile.lastName || "",
+        suffix: profile.suffix || "",
+        studentIdNumber: profile.studentIdNumber || "",
+        contactNumber: profile.contactNumber || "",
+        birthDate: profile.birthDate || null,
+        college: profile.college || "",
+        program: profile.program || "",
+        section: profile.section || "",
+        yearLevel: profile.yearLevel || "",
+        email: profile.user?.email || email,
+        name: profile.user?.name || "",
+        hasAccount: Boolean(profile.user),
+      },
+    });
+  } catch (error) {
+    console.error("Error looking up student:", error);
+    return res.status(500).json({
+      success: false,
+      found: false,
+      message: "Failed to search for the student.",
+    });
+  }
+};
+
+exports.setupAccount = async (req, res) => {  try {
     const { token, password } = req.body;
 
     if (!token || !password) {

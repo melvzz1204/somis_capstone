@@ -23,7 +23,9 @@ export const getRedirectPathByRole = (roleOrUser) => {
 
     case "treasurer":
     case "org_treasurer":
-      return "/org-treasurer";
+      return organizationType === "class"
+        ? "/class-treasurer-dashboard"
+        : "/org-treasurer";
 
     case "pio":
     case "p.i.o":
@@ -46,9 +48,9 @@ export const getRedirectPathByRole = (roleOrUser) => {
     case "org_officer":
     case "student_officer":
     case "president":
-      return organizationType === "suborganization"
-        ? "/suborg-dashboard"
-        : "/org-dashboard";
+      if (organizationType === "suborganization") return "/suborg-dashboard";
+      if (organizationType === "class") return "/class-dashboard";
+      return "/org-dashboard";
 
     // Regular Student Member Route
     case "student":

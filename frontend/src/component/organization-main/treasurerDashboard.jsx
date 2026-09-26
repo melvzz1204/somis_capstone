@@ -18,6 +18,8 @@ import {
 } from "./organizationDocumentIcons";
 import OrganizationDocumentWorkspace from "./organizationDocumentWorkspace";
 import MeetingList from "./meetingList";
+import EWalletSettings from "./eWalletSettings";
+import { useUnreadMeetings } from "../../util/useUnreadMeetings";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -197,6 +199,7 @@ const BUDGET_LIMITS = {
 function FeeCard({
   fee,
   idx,
+  feeId,
   isSelected,
   isExpanded,
   toggleFeeDetails,
@@ -216,13 +219,16 @@ function FeeCard({
         : fee.approvalStatus === "pending_adviser" || !fee.approvalStatus
           ? "Pending Adviser Approval"
           : fee.approvalStatus;
-  const feeId = String(fee._id || fee.id || idx);
+  // Unique per rendered card: falls back to the list position when an id is
+  // missing, so toggles never leak across cards.
+  const cardFeeId =
+    feeId || String(fee._id || fee.id || `fee-${idx ?? "unknown"}`);
 
   return (
     <div
-      key={feeId}
+      key={cardFeeId}
       onClick={() => {
-        if (fee.treasurerArchived) toggleArchivedFeeSelection(feeId);
+        if (fee.treasurerArchived) toggleArchivedFeeSelection(cardFeeId);
       }}
       className={`p-5 rounded-2xl border transition-all space-y-3 flex flex-col justify-between ${
         fee.treasurerArchived
@@ -235,7 +241,7 @@ function FeeCard({
       }`}
     >
       <div className="space-y-2">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex min-w-0 items-start gap-2">
             {fee.treasurerArchived && (
               <input
@@ -246,9 +252,11 @@ function FeeCard({
                 aria-label={`Select ${fee.title || "archived collection"}`}
               />
             )}
-            <h4 className="font-bold text-[#4A0E17] text-sm">{fee.title}</h4>
+            <h4 className="font-bold text-[#4A0E17] text-sm leading-snug">
+              {fee.title}
+            </h4>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-black text-[#7A610D] bg-[#D4AF37]/20 border border-[#D4AF37]/40 px-2.5 py-1 rounded-lg">
               ₱
               {Number(fee.amount || 0).toLocaleString("en-PH", {
@@ -337,10 +345,10 @@ function FeeCard({
 
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFeeDetails(feeId);
-          }}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFeeDetails(cardFeeId);
+            }}
           aria-expanded={isExpanded}
           className="flex items-center justify-between w-full pt-1 font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
         >
@@ -470,6 +478,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
 
+  // New-meeting notification badge; clears when the meeting is opened.
+  const { unreadCount: unreadMeetingCount } = useUnreadMeetings();
+
   // Modals & Form State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
@@ -482,6 +493,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reviewingTransactionId, setReviewingTransactionId] = useState("");
   const [isRefreshingCollections, setIsRefreshingCollections] = useState(false);
+  const [isEWalletModalOpen, setIsEWalletModalOpen] = useState(false);
 
   // Dynamic Data States
   const [transactions, setTransactions] = useState([]);
@@ -1078,6 +1090,9 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                 className={`w-4 h-4 ${activeTab === "meetings" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Meetings</span>
+              {unreadMeetingCount > 0 && (
+                <NavCountBadge count={unreadMeetingCount} />
+              )}
             </button>
 
             <button
@@ -1192,6 +1207,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
               id: "meetings",
               label: "Meetings",
               icon: <MeetingIcon />,
+              count: unreadMeetingCount > 0 ? unreadMeetingCount : undefined,
             },
             {
               id: "annual-report",
@@ -1636,7 +1652,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
           {activeTab === "fees" && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
                 <div>
                   <h3 className="text-base font-bold text-[#4A0E17]">
                     Organization Dues Collection
@@ -1647,6 +1663,13 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                     read-only for the treasurer.
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEWalletModalOpen(true)}
+                  className="shrink-0 rounded-xl bg-[#4A0E17] px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#601520] cursor-pointer"
+                >
+                  Set E-Wallet Number
+                </button>
               </div>
 
               {/* View Tabs */}
@@ -1722,6 +1745,7 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                       <FeeCard
                         key={feeId}
                         fee={fee}
+                        feeId={feeId}
                         isSelected={isSelected}
                         isExpanded={expandedFeeIds.has(feeId)}
                         toggleFeeDetails={toggleFeeDetails}
@@ -1737,6 +1761,47 @@ export default function OrgTreasurerPage({ user: propsUser, org: propsOrg }) {
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* MODAL: SET E-WALLET NUMBER */}
+          {isEWalletModalOpen && (
+            <div className="modal-backdrop">
+              <div className="modal-panel max-w-md p-5 sm:p-6 space-y-5">
+                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-[#4A0E17]">
+                      Set E-Wallet Number
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Members send e-money dues payments to these channels.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEWalletModalOpen(false)}
+                    className="text-slate-400 hover:text-[#4A0E17] text-sm font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <EWalletSettings
+                  org={
+                    currentOrg && typeof currentOrg === "object"
+                      ? currentOrg
+                      : null
+                  }
+                />
+                <div className="pt-1 flex items-center justify-end border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsEWalletModalOpen(false)}
+                    className="px-4 py-2.5 border border-[#4A0E17]/30 bg-white rounded-xl text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-semibold text-xs"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

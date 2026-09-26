@@ -16,6 +16,25 @@ import {
   formatAcademicPeriod,
   getEffectiveAcademicPeriod,
 } from "../util/academicPeriod";
+import { useUnreadMeetings } from "../util/useUnreadMeetings";
+
+const formatDueDate = (dateString) => {
+  if (!dateString) return "N/A";
+
+  // Take only the YYYY-MM-DD part to prevent timezone offset shifts
+  const cleanDateStr = String(dateString).split("T")[0];
+  const [year, month, day] = cleanDateStr.split("-");
+
+  if (!year || !month || !day) return String(dateString);
+
+  const dateObj = new Date(Number(year), Number(month) - 1, Number(day));
+
+  return dateObj.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
 
 const DashboardIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -117,6 +136,15 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
   const [feeDrives, setFeeDrives] = useState([]);
   const [isLoadingFees, setIsLoadingFees] = useState(false);
   const [feeActionId, setFeeActionId] = useState("");
+  const [expandedFeeIds, setExpandedFeeIds] = useState({});
+
+  const toggleFeeDetails = (feeId) =>
+    setExpandedFeeIds((current) => ({
+      ...current,
+      [feeId]: !current[feeId],
+    }));
+  // New-meeting notification badge; clears when the meeting is opened.
+  const { unreadCount: unreadMeetingCount } = useUnreadMeetings();
 
   useEffect(() => {
     let mounted = true;
@@ -267,6 +295,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
             id: "meetings",
             label: "Meetings",
             icon: <MeetingIcon />,
+            count: unreadMeetingCount > 0 ? unreadMeetingCount : undefined,
           },
           {
             id: "annual-report",
@@ -332,6 +361,12 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                   {item.label}
                   {item.id === "resolutions" && (
                     <NavCountBadge count={pendingResolutionCount} />
+                  )}
+                  {item.id === "meetings" && unreadMeetingCount > 0 && (
+                    <NavCountBadge count={unreadMeetingCount} />
+                  )}
+                  {item.id === "dues" && pendingFeeCount > 0 && (
+                    <NavCountBadge count={pendingFeeCount} />
                   )}
                 </span>
               </button>
@@ -507,49 +542,156 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {feeDrives.map((fee) => (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
+                  {feeDrives.map((fee, idx) => {
+                    // Unique per rendered card so one toggle can never open
+                    // another card, even if an id is missing.
+                    const cardFeeId = fee._id || `dues-${idx}`;
+                    return (
                     <div
-                      key={fee._id}
+                      key={cardFeeId}
                       className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-bold text-[#4A0E17]">
+                      <div className="flex flex-col gap-2">
+                        <h4 className="text-sm font-bold leading-snug text-[#4A0E17]">
                           {fee.title}
                         </h4>
-                        <span className="shrink-0 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
-                          ₱
-                          {Number(fee.amount || 0).toLocaleString("en-PH", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
+                            ₱
+                            {Number(fee.amount || 0).toLocaleString("en-PH", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </span>
+                          <span
+                            className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
+                              fee.approvalStatus === "approved"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : fee.approvalStatus === "rejected"
+                                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                                  : "border-amber-200 bg-amber-50 text-amber-800"
+                            }`}
+                          >
+                            {fee.approvalStatus === "approved"
+                              ? "Adviser Approved"
+                              : fee.approvalStatus === "rejected"
+                                ? "Adviser Rejected"
+                                : "Pending Adviser Approval"}
+                          </span>
+                        </div>
                       </div>
-                      <span
-                        className={`inline-block rounded-lg border px-2 py-1 text-[10px] font-bold ${
-                          fee.approvalStatus === "approved"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : fee.approvalStatus === "rejected"
-                              ? "border-rose-200 bg-rose-50 text-rose-700"
-                              : "border-amber-200 bg-amber-50 text-amber-800"
-                        }`}
-                      >
-                        {fee.approvalStatus === "approved"
-                          ? "Adviser Approved"
-                          : fee.approvalStatus === "rejected"
-                            ? "Adviser Rejected"
-                            : "Pending Adviser Approval"}
-                      </span>
                       {fee.description && (
                         <p className="text-xs text-slate-600 line-clamp-2">
                           {fee.description}
                         </p>
                       )}
-                      <p className="text-[11px] text-slate-500">
-                        {fee.targetMemberCount || 0} members • Due{" "}
-                        {fee.dueDate
-                          ? new Date(fee.dueDate).toLocaleDateString()
-                          : "N/A"}
-                      </p>
+                      <div className="pt-3 border-t border-slate-200/80 space-y-2 text-[11px] text-slate-500">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="rounded-lg bg-white p-2 border border-slate-200">
+                            <p className="text-[9px] font-bold uppercase text-slate-400">
+                              Target
+                            </p>
+                            <p className="font-black text-slate-800">
+                              ₱
+                              {Number(
+                                fee.expectedCollection || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200">
+                            <p className="text-[9px] font-bold uppercase text-emerald-600">
+                              Received
+                            </p>
+                            <p className="font-black text-emerald-800">
+                              ₱
+                              {Number(
+                                fee.collectedAmount || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-amber-50 p-2 border border-amber-200">
+                            <p className="text-[9px] font-bold uppercase text-amber-600">
+                              Balance
+                            </p>
+                            <p className="font-black text-amber-900">
+                              ₱
+                              {Number(
+                                fee.remainingAmount || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-1 flex items-center justify-between font-bold">
+                            <span>
+                              {fee.paidMemberCount || 0} of{" "}
+                              {fee.targetMemberCount || 0} paid
+                            </span>
+                            <span>{fee.collectionPercentage || 0}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-emerald-600 transition-all"
+                              style={{
+                                width: `${fee.collectionPercentage || 0}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleFeeDetails(cardFeeId)}
+                          aria-expanded={Boolean(expandedFeeIds[cardFeeId])}
+                          className="flex items-center justify-between w-full pt-1 font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                        >
+                          <span>
+                            {expandedFeeIds[cardFeeId]
+                              ? "Hide details"
+                              : "Show details"}
+                          </span>
+                          <svg
+                            className={`w-4 h-4 transition-transform duration-200 ${
+                              expandedFeeIds[cardFeeId] ? "rotate-180" : ""
+                            }`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+
+                        {expandedFeeIds[cardFeeId] && (
+                          <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                            <div className="flex items-center justify-between">
+                              <span>Applies To:</span>
+                              <span className="font-bold text-slate-700">
+                                {fee.targetYearLevel === "All"
+                                  ? "All Students"
+                                  : fee.targetYearLevel}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Academic Term:</span>
+                              <span className="font-bold text-slate-700">
+                                {fee.academicYear}{" "}
+                                {fee.semester ? `(${fee.semester})` : ""}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-amber-700 font-bold">
+                              <span>Due Date:</span>
+                              <span>{formatDueDate(fee.dueDate)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       {fee.approvalStatus === "pending_adviser" && (
                         <div className="flex gap-2 border-t border-slate-100 pt-3">
                           <button
@@ -573,7 +715,8 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

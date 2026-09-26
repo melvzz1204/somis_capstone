@@ -20,6 +20,24 @@ import {
   getEffectiveAcademicPeriod,
 } from "../util/academicPeriod";
 
+const formatDueDate = (dateString) => {
+  if (!dateString) return "N/A";
+
+  // Take only the YYYY-MM-DD part to prevent timezone offset shifts
+  const cleanDateStr = String(dateString).split("T")[0];
+  const [year, month, day] = cleanDateStr.split("-");
+
+  if (!year || !month || !day) return String(dateString);
+
+  const dateObj = new Date(Number(year), Number(month) - 1, Number(day));
+
+  return dateObj.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
 // --- SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -164,6 +182,184 @@ export default function OrgDashboard() {
     president: "",
     email: "",
   });
+  // Class registration (president + treasurer accounts).
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [isClassSubmitting, setIsClassSubmitting] = useState(false);
+  const [classForm, setClassForm] = useState({
+    program: "",
+    section: "",
+    presidentSurname: "",
+    presidentFirstName: "",
+    presidentMiddleInitial: "",
+    presidentSuffix: "",
+    presidentEmail: "",
+    treasurerSurname: "",
+    treasurerFirstName: "",
+    treasurerMiddleInitial: "",
+    treasurerSuffix: "",
+    treasurerEmail: "",
+  });
+  const resetClassForm = () =>
+    setClassForm({
+      program: "",
+      section: "",
+      presidentSurname: "",
+      presidentFirstName: "",
+      presidentMiddleInitial: "",
+      presidentSuffix: "",
+      presidentEmail: "",
+      treasurerSurname: "",
+      treasurerFirstName: "",
+      treasurerMiddleInitial: "",
+      treasurerSuffix: "",
+      treasurerEmail: "",
+    });
+  // Organization roster options for picking class officers.
+  const [rosterOptions, setRosterOptions] = useState([]);
+  const [isLoadingRosterOptions, setIsLoadingRosterOptions] = useState(false);
+  // OVPSAS program catalog for the org's college (class program dropdown).
+  const [collegePrograms, setCollegePrograms] = useState([]);
+  // Live search state per officer slot (president / treasurer).
+  const [officerSearch, setOfficerSearch] = useState({
+    president: "",
+    treasurer: "",
+  });
+  const [openOfficerSearch, setOpenOfficerSearch] = useState(null);
+
+  const filterRosterOptions = (query) => {
+    const q = String(query || "").trim().toLowerCase();
+    const matches = (member) =>
+      [member.name, member.email, member.idNumber, member.section].some(
+        (value) => String(value || "").toLowerCase().includes(q),
+      );
+    const list = q ? rosterOptions.filter(matches) : rosterOptions;
+    return list.slice(0, 8);
+  };
+
+  const openClassModal = async () => {
+    resetClassForm();
+    setOfficerSearch({ president: "", treasurer: "" });
+    setOpenOfficerSearch(null);
+    setIsClassModalOpen(true);
+    setIsLoadingRosterOptions(true);
+    try {
+      const [rosterResponse, collegesResponse] = await Promise.all([
+        API.get("/orgmembers"),
+        API.get("/colleges").catch(() => []),
+      ]);
+      const list = Array.isArray(rosterResponse) ? rosterResponse : [];
+      setRosterOptions(
+        list
+          // Only regular members can be picked: existing officers already
+          // serve and cannot take a class post.
+          .filter((member) => member.role === "Member")
+          .sort((a, b) =>
+            String(a.name || "").localeCompare(String(b.name || "")),
+          ),
+      );
+      // Program options come from the OVPSAS catalog for this org's
+      // college, so the class program tallies with Add Classmate.
+      const colleges = Array.isArray(collegesResponse) ? collegesResponse : [];
+      const orgCollege = String(user?.organization?.college || "")
+        .trim()
+        .toLowerCase();
+      const matched = colleges.find(
+        (college) =>
+          String(college.name || "").trim().toLowerCase() === orgCollege,
+      );
+      setCollegePrograms(
+        Array.isArray(matched?.programs) ? matched.programs : [],
+      );
+    } catch {
+      setRosterOptions([]);
+      setCollegePrograms([]);
+    } finally {
+      setIsLoadingRosterOptions(false);
+    }
+  };
+
+  const applyRosterPick = (memberId, prefix) => {
+    const picked = rosterOptions.find(
+      (member) => String(member._id) === String(memberId),
+    );
+    if (!picked) return;
+    setClassForm((current) => ({
+      ...current,
+      [`${prefix}Surname`]: picked.surname || "",
+      [`${prefix}FirstName`]: picked.firstName || "",
+      [`${prefix}MiddleInitial`]: picked.middleInitial || "",
+      [`${prefix}Suffix`]: picked.suffix || "",
+      [`${prefix}Email`]: picked.email || "",
+    }));
+    setOfficerSearch((current) => ({ ...current, [prefix]: picked.name || "" }));
+    setOpenOfficerSearch(null);
+  };
+
+  const renderOfficerSearch = (prefix, title) => {
+    const query = officerSearch[prefix] || "";
+    const results = filterRosterOptions(query);
+    const isOpen = openOfficerSearch === prefix;
+    return (
+      <div className="relative">
+        <input
+          type="text"
+          aria-label={`Search ${title} from organization roster`}
+          placeholder={
+            isLoadingRosterOptions
+              ? "Loading organization roster..."
+              : `Search registered members for ${title}...`
+          }
+          disabled={isLoadingRosterOptions}
+          value={query}
+          onChange={(event) => {
+            setOfficerSearch((current) => ({
+              ...current,
+              [prefix]: event.target.value,
+            }));
+            setOpenOfficerSearch(prefix);
+          }}
+          onFocus={() => setOpenOfficerSearch(prefix)}
+          onBlur={() => setOpenOfficerSearch(null)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none bg-white disabled:bg-slate-100"
+        />
+        {isOpen && !isLoadingRosterOptions && (
+          <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+            {results.length === 0 ? (
+              <p className="px-3 py-2.5 text-[11px] text-slate-400">
+                {query.trim()
+                  ? "No matching members. Fill the fields manually below."
+                  : "No roster members available. Fill the fields manually below."}
+              </p>
+            ) : (
+              results.map((member) => (
+                <button
+                  key={member._id}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyRosterPick(member._id, prefix)}
+                  className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-[#4A0E17]/5 cursor-pointer"
+                >
+                  <span className="text-xs font-bold text-slate-800">
+                    {member.name}
+                    <span className="ml-1.5 font-semibold text-slate-400">
+                      {member.hasAccount ? "Has account" : "No account yet"}
+                    </span>
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {[member.role, member.email].filter(Boolean).join(" — ")}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const [classSetupLinks, setClassSetupLinks] = useState(null);
+  // Classes registered under this organization (parent orgs only).
+  const [classes, setClasses] = useState([]);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
   // President-initiated dues collections (require adviser approval).
   const [feeDrives, setFeeDrives] = useState([]);
   const [isLoadingFees, setIsLoadingFees] = useState(false);
@@ -171,6 +367,13 @@ export default function OrgDashboard() {
   const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
   const [editingFee, setEditingFee] = useState(null);
   const [feeView, setFeeView] = useState("active");
+  const [expandedFeeIds, setExpandedFeeIds] = useState({});
+
+  const toggleFeeDetails = (feeId) =>
+    setExpandedFeeIds((current) => ({
+      ...current,
+      [feeId]: !current[feeId],
+    }));
 
   const loadFeeDrives = useCallback(async () => {
     setIsLoadingFees(true);
@@ -258,6 +461,20 @@ export default function OrgDashboard() {
         return;
       }
 
+      // Class accounts have their own slim portals; never serve them the
+      // full organization workspace (stale sessions, bookmarks, manual URLs).
+      const authOrgType =
+        typeof authenticatedUser?.organization === "object"
+          ? authenticatedUser.organization?.organizationType
+          : null;
+      if (
+        authenticatedUser?.role === "org_admin" &&
+        authOrgType === "class"
+      ) {
+        navigate("/class-dashboard", { replace: true });
+        return;
+      }
+
       setUser(authenticatedUser);
       localStorage.setItem("user", JSON.stringify(authenticatedUser));
     } catch (err) {
@@ -294,6 +511,44 @@ export default function OrgDashboard() {
     }
   }, []);
 
+  const loadClasses = useCallback(async () => {
+    setIsLoadingClasses(true);
+    try {
+      const response = await API.get("/organizations/classes");
+      setClasses(Array.isArray(response) ? response : []);
+    } catch {
+      setClasses([]);
+    } finally {
+      setIsLoadingClasses(false);
+    }
+  }, []);
+
+  // Class detail modal (view officers + roster per class).
+  const [viewingClassId, setViewingClassId] = useState(null);
+  const [classDetail, setClassDetail] = useState(null);
+  const [isLoadingClassDetail, setIsLoadingClassDetail] = useState(false);
+
+  const openClassDetail = async (classOrg) => {
+    setViewingClassId(classOrg._id);
+    setClassDetail(null);
+    setIsLoadingClassDetail(true);
+    try {
+      const response = await API.get(
+        `/organizations/classes/${classOrg._id}`,
+      );
+      setClassDetail(response || null);
+    } catch {
+      setClassDetail(null);
+    } finally {
+      setIsLoadingClassDetail(false);
+    }
+  };
+
+  const closeClassDetail = () => {
+    setViewingClassId(null);
+    setClassDetail(null);
+  };
+
   useEffect(() => {
     if (user?.role === "secretary") {
       navigate("/org-secretary", { replace: true });
@@ -316,6 +571,18 @@ export default function OrgDashboard() {
     navigate,
     user?.role,
   ]);
+
+  // Load classes registered under this organization once the profile resolves.
+  useEffect(() => {
+    const orgRef = user?.organization;
+    const orgId = orgRef?._id || orgRef;
+    const orgType = orgRef?.organizationType;
+    if (!user || !orgId || orgType === "suborganization" || orgType === "class") {
+      if (user) setClasses([]);
+      return;
+    }
+    loadClasses();
+  }, [user, loadClasses]);
 
   const memberCount = organizationMembers.filter(
     (member) => member.role === "Member",
@@ -354,8 +621,7 @@ export default function OrgDashboard() {
     setSuborganizationForm((current) => ({ ...current, [name]: value }));
   };
 
-  const handleSuborganizationSubmit = async (event) => {
-    event.preventDefault();
+  const handleSuborganizationSubmit = async (event) => {    event.preventDefault();
     setIsSuborganizationSubmitting(true);
     try {
       const response = await API.post("/organizations/suborganizations", {
@@ -384,6 +650,63 @@ export default function OrgDashboard() {
       showToast(errorMessage, "error", 15000);
     } finally {
       setIsSuborganizationSubmitting(false);
+    }
+  };
+
+  const handleClassInput = (event) => {
+    const { name, value } = event.target;
+    setClassForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleClassSubmit = async (event) => {
+    event.preventDefault();
+    setIsClassSubmitting(true);
+    setClassSetupLinks(null);
+    try {
+      const response = await API.post("/organizations/classes", classForm);
+      setIsClassModalOpen(false);
+      resetClassForm();
+      if (response?._id) {
+        setClasses((current) => [response, ...current]);
+      } else {
+        loadClasses();
+      }
+      if (response.emailStatus === "failed" && response.demoSetupLinks) {
+        setClassSetupLinks(response.demoSetupLinks);
+      }
+      showToast(
+        response.emailStatus === "failed"
+          ? "Class registered, but invitation emails could not be sent. Share the setup links below."
+          : "Class registered and invitations sent to president and treasurer.",
+        response.emailStatus === "failed" ? "warning" : "success",
+      );
+    } catch (err) {
+      const errorMessage =
+        err.message ||
+        err.response?.data?.message ||
+        "Unable to register class.";
+      console.error("Class registration failed:", err);
+      showToast(errorMessage, "error", 15000);
+    } finally {
+      setIsClassSubmitting(false);
+    }
+  };
+
+  const handleDeleteClass = async (classOrg) => {
+    if (
+      !window.confirm(
+        `Delete class ${classOrg.name}? This permanently removes its users and roster.`,
+      )
+    )
+      return;
+    try {
+      await API.delete(`/organizations/classes/${classOrg._id}`);
+      setClasses((current) =>
+        current.filter((item) => item._id !== classOrg._id),
+      );
+      showToast("Class deleted successfully.", "success");
+    } catch (err) {
+      showToast(err.message || "Unable to delete class.", "error");
     }
   };
 
@@ -525,6 +848,23 @@ export default function OrgDashboard() {
               />
             </button>
 
+            {org.organizationType === "parent" && (
+              <button
+                onClick={() => setActiveTab("classes")}
+                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
+                  activeTab === "classes"
+                    ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
+                    : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+                }`}
+              >
+                <UserGroupIcon
+                  className={`w-4 h-4 ${activeTab === "classes" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+                />
+                <span>Manage Classes</span>
+                {classes.length > 0 && <NavCountBadge count={classes.length} />}
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab("annual-report")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
@@ -661,6 +1001,18 @@ export default function OrgDashboard() {
                 (fee) => fee.approvalStatus === "pending_adviser",
               ).length,
             },
+            ...(org.organizationType === "parent"
+              ? [
+                  {
+                    id: "classes",
+                    label: "Manage Classes",
+                    shortLabel: "Classes",
+                    icon: <UserGroupIcon />,
+                    count:
+                      classes.length > 0 ? classes.length : undefined,
+                  },
+                ]
+              : []),
             {
               id: "annual-report",
               label: "Accomplishment Report",
@@ -1022,98 +1374,341 @@ export default function OrgDashboard() {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {visibleFees.map((fee) => (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-start">
+                  {visibleFees.map((fee, idx) => {
+                    // Unique per rendered card so one toggle can never open
+                    // another card, even if an id is missing.
+                    const cardFeeId = fee._id || `dues-${idx}`;
+                    return (
                     <div
-                      key={fee._id}
+                      key={cardFeeId}
                       className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-bold text-[#4A0E17]">
+                      <div className="flex flex-col gap-2">
+                        <h4 className="text-sm font-bold leading-snug text-[#4A0E17]">
                           {fee.title}
                         </h4>
-                        <span className="shrink-0 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
-                          ₱
-                          {Number(fee.amount || 0).toLocaleString("en-PH", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
-                          {fee.status === "active" ? "Active" : fee.status}
-                        </span>
-                        <span
-                          className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
-                            fee.approvalStatus === "approved"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/20 px-2.5 py-1 text-xs font-black text-[#7A610D]">
+                            ₱
+                            {Number(fee.amount || 0).toLocaleString("en-PH", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </span>
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+                            {fee.status === "active" ? "Active" : fee.status}
+                          </span>
+                          <span
+                            className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
+                              fee.approvalStatus === "approved"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : fee.approvalStatus === "rejected"
+                                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                                  : "border-amber-200 bg-amber-50 text-amber-800"
+                            }`}
+                          >
+                            {fee.approvalStatus === "approved"
+                              ? "Adviser Approved"
                               : fee.approvalStatus === "rejected"
-                                ? "border-rose-200 bg-rose-50 text-rose-700"
-                                : "border-amber-200 bg-amber-50 text-amber-800"
-                          }`}
-                        >
-                          {fee.approvalStatus === "approved"
-                            ? "Adviser Approved"
-                            : fee.approvalStatus === "rejected"
-                              ? "Adviser Rejected"
-                              : "Pending Adviser Approval"}
-                        </span>
+                                ? "Adviser Rejected"
+                                : "Pending Adviser Approval"}
+                          </span>
+                        </div>
                       </div>
                       {fee.description && (
                         <p className="text-xs text-slate-600 line-clamp-2">
                           {fee.description}
                         </p>
                       )}
-                      <p className="text-[11px] text-slate-500">
-                        {fee.paidMemberCount || 0} of{" "}
-                        {fee.targetMemberCount || 0} paid •{" "}
-                        {fee.collectionPercentage || 0}% collected
-                      </p>
-                      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                        {fee.approvalStatus !== "approved" &&
-                          Number(fee.paidMemberCount || 0) === 0 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingFee(fee);
-                                setIsFeeModalOpen(true);
+                      <div className="pt-3 border-t border-slate-200/80 space-y-2 text-[11px] text-slate-500">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="rounded-lg bg-white p-2 border border-slate-200">
+                            <p className="text-[9px] font-bold uppercase text-slate-400">
+                              Target
+                            </p>
+                            <p className="font-black text-slate-800">
+                              ₱
+                              {Number(
+                                fee.expectedCollection || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200">
+                            <p className="text-[9px] font-bold uppercase text-emerald-600">
+                              Received
+                            </p>
+                            <p className="font-black text-emerald-800">
+                              ₱
+                              {Number(
+                                fee.collectedAmount || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-amber-50 p-2 border border-amber-200">
+                            <p className="text-[9px] font-bold uppercase text-amber-600">
+                              Balance
+                            </p>
+                            <p className="font-black text-amber-900">
+                              ₱
+                              {Number(
+                                fee.remainingAmount || 0,
+                              ).toLocaleString("en-PH")}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-1 flex items-center justify-between font-bold">
+                            <span>
+                              {fee.paidMemberCount || 0} of{" "}
+                              {fee.targetMemberCount || 0} paid
+                            </span>
+                            <span>{fee.collectionPercentage || 0}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-emerald-600 transition-all"
+                              style={{
+                                width: `${fee.collectionPercentage || 0}%`,
                               }}
-                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                            >
-                              Edit
-                            </button>
-                          )}
-                        {!fee.treasurerArchived ? (
-                          <button
-                            type="button"
-                            onClick={() => handleArchiveFee(fee)}
-                            className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-50"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleFeeDetails(cardFeeId)}
+                          aria-expanded={Boolean(expandedFeeIds[cardFeeId])}
+                          className="flex items-center justify-between w-full pt-1 font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                        >
+                          <span>
+                            {expandedFeeIds[cardFeeId]
+                              ? "Hide details"
+                              : "Show details"}
+                          </span>
+                          <svg
+                            className={`w-4 h-4 transition-transform duration-200 ${
+                              expandedFeeIds[cardFeeId] ? "rotate-180" : ""
+                            }`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                           >
-                            Archive
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleRestoreFee(fee)}
-                              className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
-                            >
-                              Restore
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteFee(fee)}
-                              className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-50"
-                            >
-                              Delete
-                            </button>
-                          </>
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+
+                        {expandedFeeIds[cardFeeId] && (
+                          <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                            <div className="flex items-center justify-between">
+                              <span>Applies To:</span>
+                              <span className="font-bold text-slate-700">
+                                {fee.targetYearLevel === "All"
+                                  ? "All Students"
+                                  : fee.targetYearLevel}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Academic Term:</span>
+                              <span className="font-bold text-slate-700">
+                                {fee.academicYear}{" "}
+                                {fee.semester ? `(${fee.semester})` : ""}
+                              </span>
+                            </div>
+                            {fee.dueDate && (
+                              <div className="flex items-center justify-between text-amber-700 font-bold">
+                                <span>Due Date:</span>
+                                <span>{formatDueDate(fee.dueDate)}</span>
+                              </div>
+                            )}
+                            <div className="pt-2 flex items-center justify-end gap-2">
+                              {fee.approvalStatus !== "approved" &&
+                                Number(fee.paidMemberCount || 0) === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingFee(fee);
+                                      setIsFeeModalOpen(true);
+                                    }}
+                                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                              {!fee.treasurerArchived ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveFee(fee)}
+                                  className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-50"
+                                >
+                                  Archive
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRestoreFee(fee)}
+                                    className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+                                  >
+                                    Restore
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFee(fee)}
+                                    className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-50"
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
+                    );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB CONTENT: MANAGE CLASSES */}
+          {activeTab === "classes" && org.organizationType === "parent" && (
+            <div className="space-y-6">
+              {classSetupLinks && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs font-extrabold text-emerald-800">
+                      Class registered — share these single-use setup links
+                      (expire in 24 hours):
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setClassSetupLinks(null)}
+                      className="text-emerald-600 hover:text-emerald-800 text-sm font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {Object.entries(classSetupLinks).map(([label, link]) => (
+                    <p
+                      key={label}
+                      className="text-[11px] text-emerald-700 break-all select-all"
+                    >
+                      <span className="font-bold capitalize">{label}:</span>{" "}
+                      {link}
+                    </p>
                   ))}
                 </div>
               )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
+                    Manage Classes
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Classes under {org.name} with their own president,
+                    treasurer, and roster.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openClassModal}
+                  disabled={org.status !== "Active"}
+                  className="px-4 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer self-start sm:self-auto disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Register Class
+                </button>
+              </div>
+
+              <section className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
+                  <span>Registered Classes</span>
+                  <span className="text-slate-400 font-normal">
+                    Showing {classes.length} class
+                    {classes.length === 1 ? "" : "es"}
+                  </span>
+                </div>
+                {isLoadingClasses ? (
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Loading classes...
+                  </div>
+                ) : classes.length > 0 ? (
+                  <div className="divide-y divide-slate-200">
+                    {classes.map((classOrg) => (
+                      <div
+                        key={classOrg._id}
+                        className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors pl-9 border-l-4 border-[#D4AF37]/50"
+                      >
+                        <div className="space-y-1.5 max-w-xl">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-sm font-bold text-[#4A0E17]">
+                              {classOrg.name}
+                            </span>
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
+                              CLASS
+                            </span>
+                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
+                              {classOrg.acronym}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            President:{" "}
+                            <span className="text-slate-700 font-medium">
+                              {classOrg.president || "N/A"}
+                            </span>
+                            <span className="mx-1">•</span>
+                            {classOrg.members ?? 0} member
+                            {classOrg.members === 1 ? "" : "s"}
+                            <span className="mx-1">•</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full border font-bold text-[10px] ${
+                                classOrg.status === "Inactive"
+                                  ? "bg-slate-100 border-slate-200 text-slate-600"
+                                  : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                              }`}
+                            >
+                              {classOrg.status || "Active"}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs self-end sm:self-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => openClassDetail(classOrg)}
+                            className="px-3 py-2 rounded-lg border border-[#4A0E17] bg-white text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white transition-all cursor-pointer"
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteClass(classOrg)}
+                            className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-16 text-center text-xs text-slate-400 space-y-2">
+                    <UserGroupIcon className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="font-medium">No classes registered yet.</p>
+                    <p className="text-[10px]">
+                      Register the first class to give it a president,
+                      treasurer, and roster.
+                    </p>
+                  </div>
+                )}
+              </section>
             </div>
           )}
 
@@ -1297,6 +1892,310 @@ export default function OrgDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isClassModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-5">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-[#4A0E17]">
+                  Register Class
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Under {org.name} · College: {org.college}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClassModalOpen(false)}
+                disabled={isClassSubmitting}
+                className="text-sm font-bold text-slate-400 hover:text-[#4A0E17]"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleClassSubmit} className="space-y-4 text-xs">
+              <label className="block font-bold text-[#4A0E17]">
+                Program
+                {collegePrograms.length > 0 ? (
+                  <select
+                    name="program"
+                    required
+                    value={classForm.program}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none bg-white"
+                  >
+                    <option value="" disabled>
+                      Select program
+                    </option>
+                    {collegePrograms.map((program) => (
+                      <option
+                        key={program._id || program.name}
+                        value={program.name}
+                      >
+                        {program.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    name="program"
+                    required
+                    placeholder="e.g. BSIT"
+                    value={classForm.program}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                )}
+              </label>
+              <label className="block font-bold text-[#4A0E17]">
+                Section
+                <input
+                  name="section"
+                  required
+                  placeholder="e.g. 3B"
+                  value={classForm.section}
+                  onChange={handleClassInput}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                />
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block font-bold text-[#4A0E17] sm:col-span-2">
+                  Class President
+                  <span className="block mt-1 font-normal">
+                    {renderOfficerSearch("president", "president")}
+                  </span>
+                </label>
+                {[
+                  ["presidentSurname", "Surname", "e.g. Dela Cruz", true],
+                  ["presidentFirstName", "First Name", "e.g. Juan", true],
+                  ["presidentMiddleInitial", "M.I.", "e.g. P.", false],
+                  ["presidentSuffix", "Suffix", "e.g. Jr.", false],
+                ].map(([field, label, placeholder, required]) => (
+                  <label key={field} className="block font-bold text-[#4A0E17]">
+                    {label} {required && <span className="text-rose-600">*</span>}
+                    <input
+                      name={field}
+                      required={required}
+                      placeholder={placeholder}
+                      value={classForm[field]}
+                      onChange={handleClassInput}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                    />
+                  </label>
+                ))}
+                <label className="block font-bold text-[#4A0E17] sm:col-span-2">
+                  President Email <span className="text-rose-600">*</span>
+                  <input
+                    type="email"
+                    name="presidentEmail"
+                    required
+                    placeholder="president@marsu.edu.ph"
+                    value={classForm.presidentEmail}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block font-bold text-[#4A0E17] sm:col-span-2">
+                  Class Treasurer
+                  <span className="block mt-1 font-normal">
+                    {renderOfficerSearch("treasurer", "treasurer")}
+                  </span>
+                </label>
+                {[
+                  ["treasurerSurname", "Surname", "e.g. Santos", true],
+                  ["treasurerFirstName", "First Name", "e.g. Maria", true],
+                  ["treasurerMiddleInitial", "M.I.", "e.g. C.", false],
+                  ["treasurerSuffix", "Suffix", "e.g. III", false],
+                ].map(([field, label, placeholder, required]) => (
+                  <label key={field} className="block font-bold text-[#4A0E17]">
+                    {label} {required && <span className="text-rose-600">*</span>}
+                    <input
+                      name={field}
+                      required={required}
+                      placeholder={placeholder}
+                      value={classForm[field]}
+                      onChange={handleClassInput}
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                    />
+                  </label>
+                ))}
+                <label className="block font-bold text-[#4A0E17] sm:col-span-2">
+                  Treasurer Email <span className="text-rose-600">*</span>
+                  <input
+                    type="email"
+                    name="treasurerEmail"
+                    required
+                    placeholder="treasurer@marsu.edu.ph"
+                    value={classForm.treasurerEmail}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+              </div>
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsClassModalOpen(false)}
+                  disabled={isClassSubmitting}
+                  className="px-4 py-2.5 border border-[#4A0E17]/30 bg-white rounded-xl text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isClassSubmitting}
+                  className="rounded-xl bg-[#4A0E17] px-4 py-2.5 font-bold text-white disabled:opacity-50"
+                >
+                  {isClassSubmitting ? "Registering..." : "Register Class"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {viewingClassId && (
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-5">
+            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[#4A0E17]">
+                  {classDetail?.name || "Class Detail"}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {classDetail
+                    ? `${classDetail.program || ""} · Section ${classDetail.section || ""} · ${classDetail.college || ""}`
+                    : "Loading class details..."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeClassDetail}
+                className="text-slate-400 hover:text-[#4A0E17] text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {isLoadingClassDetail ? (
+              <p className="py-8 text-center text-xs text-slate-400">
+                Loading class details...
+              </p>
+            ) : !classDetail ? (
+              <p className="py-8 text-center text-xs text-slate-400">
+                Unable to load class details.
+              </p>
+            ) : (
+              <div className="space-y-5 text-xs">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  {[
+                    ["Classmates", classDetail.memberCount ?? 0, "text-[#4A0E17]"],
+                    ["Officers", classDetail.officerCount ?? 0, "text-[#8B6E10]"],
+                    ["Total", classDetail.totalCount ?? 0, "text-emerald-700"],
+                  ].map(([label, value, color]) => (
+                    <div
+                      key={label}
+                      className="rounded-xl border border-slate-200 bg-slate-50/60 p-3"
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        {label}
+                      </p>
+                      <p className={`mt-1 text-xl font-black ${color}`}>
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 mb-2">
+                    Class Officers
+                  </p>
+                  {(classDetail.officers || []).length === 0 ? (
+                    <p className="text-xs text-slate-400">
+                      No officers assigned.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {classDetail.officers.map((officer) => (
+                        <div
+                          key={officer._id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 truncate">
+                              {officer.name}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {officer.role} • {officer.email}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-bold ${
+                              officer.hasAccount
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
+                            }`}
+                          >
+                            {officer.hasAccount ? "Account Active" : "No Account"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 mb-2">
+                    Classmates ({(classDetail.members || []).length})
+                  </p>
+                  {(classDetail.members || []).length === 0 ? (
+                    <p className="text-xs text-slate-400">
+                      No classmates listed yet.
+                    </p>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200">
+                      {classDetail.members.map((member) => (
+                        <div
+                          key={member._id}
+                          className="flex items-center justify-between gap-3 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 truncate">
+                              {member.name}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {[member.idNumber, member.email]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                            {member.section || ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-1 flex items-center justify-end border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={closeClassDetail}
+                    className="px-4 py-2.5 border border-[#4A0E17]/30 bg-white rounded-xl text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-colors cursor-pointer font-semibold text-xs"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

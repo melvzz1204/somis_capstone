@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import PasswordInput from "./passwordInput";
+import PortalChooserModal from "./portalChooserModal";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import {
+  MEMBER_PORTAL_PATH,
+  resolveOfficerPortalPath,
+  shouldOfferPortalChoice,
+} from "../util/portalChoice";
 import { useToast } from "../util/toastContext";
 
 export default function StudentLogin({
@@ -19,6 +25,8 @@ export default function StudentLogin({
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Dual officer+member accounts pick a workspace instead of auto-redirect.
+  const [chooserUser, setChooserUser] = useState(null);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -66,6 +74,12 @@ export default function StudentLogin({
         // Store onboarding status and user role
         localStorage.setItem("somis_onboarding_completed", "true");
         localStorage.setItem("somis_user_role", user.role);
+
+        if (shouldOfferPortalChoice(user)) {
+          setChooserUser(user);
+          showToast("Signed in successfully. Choose your portal.", "success");
+          return;
+        }
 
         const redirectPath = getRedirectPathByRole(user.role);
         showToast("Signed in successfully.", "success");
@@ -180,6 +194,21 @@ export default function StudentLogin({
           Complete Student Registration
         </button>
       </div>
+
+      {chooserUser && (
+        <PortalChooserModal
+          user={chooserUser}
+          onOfficerSelect={() => {
+            const target = resolveOfficerPortalPath(chooserUser);
+            setChooserUser(null);
+            navigate(target, { replace: true });
+          }}
+          onMemberSelect={() => {
+            setChooserUser(null);
+            navigate(MEMBER_PORTAL_PATH, { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 }

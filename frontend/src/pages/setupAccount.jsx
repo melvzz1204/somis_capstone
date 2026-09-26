@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import PasswordInput from "../component/passwordInput";
+import PortalChooserModal from "../component/portalChooserModal";
 import { getRedirectPathByRole } from "../util/loginRedirectPage";
+import {
+  MEMBER_PORTAL_PATH,
+  resolveOfficerPortalPath,
+  shouldOfferPortalChoice,
+} from "../util/portalChoice";
 import { useToast } from "../util/toastContext";
 
 export default function SetupAccount() {
@@ -16,6 +22,8 @@ export default function SetupAccount() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  // Dual officer+member accounts pick a workspace instead of auto-redirect.
+  const [chooserUser, setChooserUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -58,7 +66,14 @@ export default function SetupAccount() {
         localStorage.setItem("somis_onboarding_completed", "true");
       }
 
-      // 4. Smooth redirect after displaying success message
+      // 4. Dual officer+member accounts choose a portal; everyone else
+      // auto-redirects after the success message.
+      if (shouldOfferPortalChoice(user || {})) {
+        setChooserUser(user);
+        return;
+      }
+
+      // 5. Smooth redirect after displaying success message
       const redirectPath = getRedirectPathByRole(user || "student");
 
       setTimeout(() => {
@@ -188,6 +203,21 @@ export default function SetupAccount() {
           )}
         </div>
       </div>
+
+      {chooserUser && (
+        <PortalChooserModal
+          user={chooserUser}
+          onOfficerSelect={() => {
+            const target = resolveOfficerPortalPath(chooserUser);
+            setChooserUser(null);
+            navigate(target, { replace: true });
+          }}
+          onMemberSelect={() => {
+            setChooserUser(null);
+            navigate(MEMBER_PORTAL_PATH, { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 }

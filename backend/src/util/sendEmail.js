@@ -11,7 +11,9 @@ const sendOrgInviteEmail = async (
   const registrationText =
     organizationType === "suborganization"
       ? `Your suborganization <strong>${orgName}</strong> has been registered by ${registeredBy}.`
-      : `Your student organization <strong>${orgName}</strong> has been registered by ${registeredBy}.`;
+      : organizationType === "class"
+        ? `Your class <strong>${orgName}</strong> has been registered by ${registeredBy}.`
+        : `Your student organization <strong>${orgName}</strong> has been registered by ${registeredBy}.`;
 
   await sendEmail({
     to: toEmail,

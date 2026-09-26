@@ -6,6 +6,29 @@ const AUDIENCES = ["All Members", "Officers", "Students"];
 const getOrganizationId = (req) =>
   req.user?.organization?._id || req.user?.organization || null;
 
+// Meetings visible to the caller: managers see everything in the org, while
+// members are scoped to their audience (mirrors the previous inline logic).
+const applyAudienceScope = (query, user) => {
+  if (user.role === "student") {
+    query.audience = { $in: ["All Members", "Students"] };
+  } else if (user.role !== "org_admin" && user.role !== "admin") {
+    query.audience = { $in: ["All Members", "Officers"] };
+  }
+  return query;
+};
+
+// Annotates plain meeting objects with a per-user `viewed` flag and strips
+// the raw viewer list so responses stay small.
+const withViewedFlag = (meetings, userId) =>
+  meetings.map((meeting) => {
+    const viewedBy = Array.isArray(meeting.viewedBy) ? meeting.viewedBy : [];
+    const viewed = viewedBy.some(
+      (viewerId) => String(viewerId) === String(userId),
+    );
+    const { viewedBy: _viewedBy, ...rest } = meeting;
+    return { ...rest, viewed };
+  });
+
 const populateMeeting = (query) =>
   query
     .populate("organization", "name acronym")
@@ -26,17 +49,16 @@ exports.getMeetings = async (req, res) => {
     const managementView = req.query.view === "manage";
 
     if (!managementView || !MANAGER_ROLES.includes(req.user.role)) {
-      if (req.user.role === "student") {
-        query.audience = { $in: ["All Members", "Students"] };
-      } else if (req.user.role !== "org_admin" && req.user.role !== "admin") {
-        query.audience = { $in: ["All Members", "Officers"] };
-      }
+      applyAudienceScope(query, req.user);
     }
 
     const meetings = await populateMeeting(
       Meeting.find(query).sort({ startDateTime: 1, createdAt: -1 }),
-    );
-    return res.json({ success: true, data: meetings });
+    ).lean();
+    return res.json({
+      success: true,
+      data: withViewedFlag(meetings, req.user._id),
+    });
   } catch (error) {
     console.error("Error fetching meetings:", error);
     return res
@@ -87,6 +109,8 @@ exports.createMeeting = async (req, res) => {
       venue,
       audience: audience || "All Members",
       createdBy: req.user._id,
+      // The author has seen the meeting; every other member gets notified.
+      viewedBy: [req.user._id],
     });
 
     const populatedMeeting = await populateMeeting(
@@ -161,6 +185,10 @@ exports.updateMeeting = async (req, res) => {
     if (venue !== undefined) meeting.venue = venue;
     if (audience !== undefined) meeting.audience = audience;
 
+    // An edited meeting is worth re-reading: re-notify every member except
+    // the editor who just made the change.
+    meeting.viewedBy = [req.user._id];
+
     await meeting.save();
 
     const populatedMeeting = await populateMeeting(
@@ -205,3 +233,53 @@ exports.deleteMeeting = async (req, res) => {
       .json({ success: false, message: "Could not delete the meeting." });
   }
 };
+
+// Counts meetings the caller can see, has not opened yet, and can still
+// attend. Powers the "new meeting" notification badge.
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const organization = getOrganizationId(req);
+    if (!organization) return res.json({ success: true, count: 0, data: 0 });
+
+    const query = {
+      organization,
+      endDateTime: { $gte: new Date() },
+      viewedBy: { $ne: req.user._id },
+    };
+    applyAudienceScope(query, req.user);
+
+    const count = await Meeting.countDocuments(query);
+    return res.json({ success: true, count, data: count });
+  } catch (error) {
+    console.error("Error fetching unread meeting count:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Could not fetch notifications." });
+  }
+};
+
+// Records that the caller opened a meeting, clearing its notification.
+exports.markMeetingViewed = async (req, res) => {
+  try {
+    const meeting = await Meeting.findOneAndUpdate(
+      { _id: req.params.id, organization: getOrganizationId(req) },
+      { $addToSet: { viewedBy: req.user._id } },
+      { new: true },
+    );
+    if (!meeting) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Meeting not found." });
+    }
+    return res.json({ success: true, data: { _id: meeting._id, viewed: true } });
+  } catch (error) {
+    console.error("Error marking meeting as viewed:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Could not update notification." });
+  }
+};
+
+// Exported for unit tests and reuse.
+exports.applyAudienceScope = applyAudienceScope;
+exports.withViewedFlag = withViewedFlag;

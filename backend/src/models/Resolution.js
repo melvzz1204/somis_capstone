@@ -133,6 +133,18 @@ const resolutionSchema = new mongoose.Schema(
     },
     submittedAt: Date,
 
+    // Resubmission lineage: a rejected resolution can be revised and
+    // resubmitted instead of recreated. The resubmission keeps pointing at
+    // the original record and carries an -REn suffixed number on submit.
+    resubmissionOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Resolution",
+      default: null,
+      index: true,
+    },
+    resubmitCount: { type: Number, default: 0, min: 0 },
+    baseResolutionNumber: { type: String, trim: true, uppercase: true, default: "" },
+
     presidentReview: reviewSchema, // step 2 (org_admin / president)
     adviserReview: reviewSchema, // step 3
     deanReview: reviewSchema, // step 4 -> director

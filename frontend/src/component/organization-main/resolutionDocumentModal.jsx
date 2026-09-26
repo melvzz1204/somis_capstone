@@ -96,6 +96,11 @@ export default function ResolutionDocumentModal({ resolution, onClose }) {
                   {resolution.resolutionNumber}
                 </span>
               )}
+              {(resolution.resubmitCount || 0) > 0 && (
+                <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                  RE{resolution.resubmitCount}
+                </span>
+              )}
               <span
                 className={`rounded-md border px-2 py-1 text-[10px] font-bold ${getStatusClass(
                   resolution.status,
@@ -109,6 +114,15 @@ export default function ResolutionDocumentModal({ resolution, onClose }) {
                 </span>
               )}
             </div>
+            {resolution.resubmissionOf &&
+              (resolution.resubmitCount || 0) > 0 && (
+                <p className="mt-2 text-[11px] font-semibold text-amber-700">
+                  Resubmission of{" "}
+                  {resolution.baseResolutionNumber || "the original filing"} ·
+                  Revision {resolution.resubmitCount} — revised after a
+                  previous rejection
+                </p>
+              )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button

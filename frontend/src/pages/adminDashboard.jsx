@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import API from "../api/axios";
+import { realtimeSocket } from "../api/socket";
 import LogoutButton from "../component/logoutButton";
+import NavCountBadge from "../component/navCountBadge";
 import CollegeCatalog from "../component/collegeCatalog";
 import {
   ActivityPlanIcon,
@@ -166,6 +168,32 @@ export default function AdminDashboard() {
   const [isDirectorSubmitting, setIsDirectorSubmitting] = useState(false);
   const [directorForm, setDirectorForm] = useState({ name: "", email: "" });
 
+  // Resolutions awaiting OVPSAS final approval drive the nav badge. The
+  // badge clears as resolutions are adopted or rejected.
+  const [pendingOvpsasCount, setPendingOvpsasCount] = useState(0);
+  const refreshPendingOvpsas = useCallback(async () => {
+    try {
+      const response = await API.get("/resolutions", {
+        params: { status: "Pending OVPSAS Approval" },
+      });
+      const count = Number(
+        response?.count ?? response?.data?.length ?? 0,
+      );
+      setPendingOvpsasCount(Number.isFinite(count) ? count : 0);
+    } catch {
+      // A badge must never break the dashboard; keep the last known count.
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPendingOvpsas();
+    const handleDataUpdated = () => refreshPendingOvpsas();
+    realtimeSocket.on("data-updated", handleDataUpdated);
+    return () => {
+      realtimeSocket.off("data-updated", handleDataUpdated);
+    };
+  }, [refreshPendingOvpsas]);
+
   // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
     name: "",
@@ -206,9 +234,13 @@ export default function AdminDashboard() {
             API.get("/organizations/academic-period"),
           ]);
         if (!mounted) return;
-        setOrganizations(
-          Array.isArray(organizationsData) ? organizationsData : [],
-        );
+        // Classes are managed by their parent organization and stay out of
+        // the OVPSAS directory and totals.
+        const directory = (Array.isArray(organizationsData)
+          ? organizationsData
+          : []
+        ).filter((org) => org.organizationType !== "class");
+        setOrganizations(directory);
         setColleges(Array.isArray(collegesData) ? collegesData : []);
         setAcademicPeriod(periodResponse?.data || periodResponse);
       } catch (err) {
@@ -289,10 +321,20 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
     const normalizedAdviser = newOrg.adviser.trim().replace(/\s+/g, " ");
     const normalizedPresident = newOrg.president.trim().replace(/\s+/g, " ");
+    // Editing preserves the record's hierarchy; only new registrations are
+    // always parent organizations.
+    const preservedType = editingOrg
+      ? editingOrg.organizationType || "parent"
+      : "parent";
+    const preservedParent = editingOrg
+      ? editingOrg.parentOrganization?._id ||
+        editingOrg.parentOrganization ||
+        null
+      : null;
     const payload = {
       ...newOrg,
-      organizationType: "parent",
-      parentOrganization: null,
+      organizationType: preservedType,
+      parentOrganization: preservedParent,
       adviser: normalizedAdviser,
       president: editingOrg ? normalizedPresident : "",
     };
@@ -446,32 +488,51 @@ export default function AdminDashboard() {
         const parentIds = new Set(parents.map((org) => String(org._id)));
 
         const suborgsByParent = new Map();
+        const classesByParent = new Map();
         const orphanSuborgs = [];
+        const orphanClasses = [];
+        const placeChild = (child, childrenByParent, orphans) => {
+          const parentId = String(
+            child.parentOrganization?._id || child.parentOrganization,
+          );
+          if (!parentIds.has(parentId)) {
+            orphans.push(child);
+            return;
+          }
+          if (!childrenByParent.has(parentId)) {
+            childrenByParent.set(parentId, []);
+          }
+          childrenByParent.get(parentId).push(child);
+        };
         orgs
           .filter((org) => org.parentOrganization)
           .sort((left, right) => left.name.localeCompare(right.name))
-          .forEach((suborg) => {
-            const parentId = String(
-              suborg.parentOrganization?._id || suborg.parentOrganization,
-            );
-            if (!parentIds.has(parentId)) {
-              orphanSuborgs.push(suborg);
-              return;
+          .forEach((child) => {
+            if (child.organizationType === "class") {
+              placeChild(child, classesByParent, orphanClasses);
+            } else {
+              placeChild(child, suborgsByParent, orphanSuborgs);
             }
-            if (!suborgsByParent.has(parentId)) {
-              suborgsByParent.set(parentId, []);
-            }
-            suborgsByParent.get(parentId).push(suborg);
           });
 
-        const suborgCount = orgs.length - parents.length;
+        const suborgCount = [...suborgsByParent.values()].reduce(
+          (total, list) => total + list.length,
+          orphanSuborgs.length,
+        );
+        const classCount = [...classesByParent.values()].reduce(
+          (total, list) => total + list.length,
+          orphanClasses.length,
+        );
 
         return {
           college,
           parents,
           suborgsByParent,
+          classesByParent,
           orphanSuborgs,
+          orphanClasses,
           suborgCount,
+          classCount,
         };
       })
       .sort((left, right) => left.college.localeCompare(right.college));
@@ -483,16 +544,28 @@ export default function AdminDashboard() {
       [college]: !current[college],
     }));
 
-  const renderOrganizationRow = (org, isSuborganization = false) => (
+  const [expandedClassColleges, setExpandedClassColleges] = useState({});
+
+  const toggleClassCollege = (college) =>
+    setExpandedClassColleges((current) => ({
+      ...current,
+      [college]: !current[college],
+    }));
+
+  const renderOrganizationRow = (org, kind = "parent") => {
+    const isChild = kind !== "parent";
+    const childLabel =
+      kind === "class" ? "Class" : kind === "sub" ? "Suborganization" : "";
+    return (
     <div
       key={org._id || org.id}
-      className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors ${isSuborganization ? "pl-9 border-l-4 border-[#D4AF37]/50" : ""}`}
+      className={`p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#4A0E17]/[0.02] transition-colors ${isChild ? "pl-9 border-l-4 border-[#D4AF37]/50" : ""}`}
     >
       <div className="space-y-1.5 max-w-xl">
         <div className="flex items-center gap-2.5">
           <span className="text-sm font-bold text-[#4A0E17]">{org.name}</span>
           <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
-            {isSuborganization ? "SUBORGANIZATION" : "PARENT"}
+            {isChild ? (kind === "class" ? "CLASS" : "SUBORGANIZATION") : "PARENT"}
           </span>
           <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
             {org.acronym}
@@ -500,10 +573,10 @@ export default function AdminDashboard() {
         </div>
         <p className="text-xs text-slate-500 leading-relaxed">
           {org.college} <br className="sm:hidden" />
-          {isSuborganization && (
+          {isChild && (
             <>
               <span className="mx-1">•</span>
-              Suborganization of{" "}
+              {childLabel} of{" "}
               <span className="text-slate-700 font-medium">
                 {org.parentOrganization?.name || "its parent organization"}
               </span>{" "}
@@ -554,7 +627,8 @@ export default function AdminDashboard() {
         </button>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#FAFAFC] text-slate-800 font-sans flex">
@@ -644,6 +718,9 @@ export default function AdminDashboard() {
                 className={`w-4 h-4 ${activeTab === "resolutions" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
               />
               <span>Resolutions</span>
+              {pendingOvpsasCount > 0 && (
+                <NavCountBadge count={pendingOvpsasCount} />
+              )}
             </button>
             <button
               onClick={() => setActiveTab("directors")}
@@ -728,6 +805,7 @@ export default function AdminDashboard() {
               label: "Resolutions",
               shortLabel: "Resolutions",
               icon: <FileCheckIcon />,
+              count: pendingOvpsasCount > 0 ? pendingOvpsasCount : undefined,
             },
             {
               id: "directors",
@@ -756,7 +834,10 @@ export default function AdminDashboard() {
               academicPeriodKey={`${academicPeriod.academicYear}:${academicPeriod.semester}`}
             />
           ) : activeTab === "resolutions" ? (
-            <AdminResolutionWorkspace colleges={colleges} />
+            <AdminResolutionWorkspace
+              colleges={colleges}
+              onReviewed={refreshPendingOvpsas}
+            />
           ) : activeTab === "directors" ? (
             <section className="space-y-6">
               <div>
@@ -974,6 +1055,9 @@ export default function AdminDashboard() {
                       const isExpanded = Boolean(
                         expandedColleges[group.college],
                       );
+                      const isClassExpanded = Boolean(
+                        expandedClassColleges[group.college],
+                      );
 
                       return (
                         <div key={group.college}>
@@ -984,7 +1068,9 @@ export default function AdminDashboard() {
                             <span className="text-[10px] font-semibold text-slate-400">
                               {group.parents.length} parent ·{" "}
                               {group.suborgCount} suborganization
-                              {group.suborgCount === 1 ? "" : "s"}
+                              {group.suborgCount === 1 ? "" : "s"} ·{" "}
+                              {group.classCount} class
+                              {group.classCount === 1 ? "" : "es"}
                             </span>
                           </div>
 
@@ -998,23 +1084,41 @@ export default function AdminDashboard() {
                                       String(parent._id),
                                     ) || []
                                   ).map((suborg) =>
-                                    renderOrganizationRow(suborg, true),
+                                    renderOrganizationRow(suborg, "sub"),
+                                  )}
+                                {isClassExpanded &&
+                                  (
+                                    group.classesByParent.get(
+                                      String(parent._id),
+                                    ) || []
+                                  ).map((classOrg) =>
+                                    renderOrganizationRow(classOrg, "class"),
                                   )}
                               </div>
                             ))}
 
                             {isExpanded &&
                               group.orphanSuborgs.map((suborg) =>
-                                renderOrganizationRow(suborg, true),
+                                renderOrganizationRow(suborg, "sub"),
                               )}
 
-                            {!isExpanded && group.parents.length === 0 && (
-                              <div className="px-6 py-5 text-center text-xs text-slate-400">
-                                {group.suborgCount} suborganization
-                                {group.suborgCount === 1 ? "" : "s"} in this
-                                college
-                              </div>
-                            )}
+                            {isClassExpanded &&
+                              group.orphanClasses.map((classOrg) =>
+                                renderOrganizationRow(classOrg, "class"),
+                              )}
+
+                            {!isExpanded &&
+                              !isClassExpanded &&
+                              group.parents.length === 0 && (
+                                <div className="px-6 py-5 text-center text-xs text-slate-400">
+                                  {group.suborgCount + group.classCount}{" "}
+                                  subgroup
+                                  {group.suborgCount + group.classCount === 1
+                                    ? ""
+                                    : "s"}{" "}
+                                  in this college
+                                </div>
+                              )}
                           </div>
 
                           {group.suborgCount > 0 && (
@@ -1027,9 +1131,23 @@ export default function AdminDashboard() {
                               <ChevronDownIcon
                                 className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                               />
-                              {isExpanded ? "Hide" : "Show"} suborganization
-                              {group.suborgCount === 1 ? "" : "s"} (
-                              {group.suborgCount})
+                              {isExpanded ? "Hide" : "Show"} suborganizations
+                              ({group.suborgCount})
+                            </button>
+                          )}
+
+                          {group.classCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleClassCollege(group.college)}
+                              aria-expanded={isClassExpanded}
+                              className="w-full flex items-center justify-center gap-2 border-t border-[#4A0E17]/20 bg-[#4A0E17]/5 px-6 py-3 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/10 transition-colors cursor-pointer"
+                            >
+                              <ChevronDownIcon
+                                className={`w-4 h-4 transition-transform ${isClassExpanded ? "rotate-180" : ""}`}
+                              />
+                              {isClassExpanded ? "Hide" : "Show"} classes (
+                              {group.classCount})
                             </button>
                           )}
                         </div>

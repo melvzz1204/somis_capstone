@@ -6,7 +6,13 @@ const {
   getMyPayment,
   listMyPayments,
   listPaymentAudit,
+  verifyPayment,
 } = require("../controllers/paymentController");
+const {
+  recordClassPayment,
+  listClassCollected,
+  remitClassPayment,
+} = require("../controllers/classCollectionController");
 const { uploadReceipt } = require("../controllers/receiptController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 const {
@@ -23,6 +29,22 @@ const router = express.Router();
 
 router.get("/audit", protect, authorize("treasurer"), listPaymentAudit);
 router.post("/cash", protect, authorize("treasurer"), recordCashPayment);
+// Class collection flow: class treasurers record and remit classmate
+// payments; the organization treasurer verifies them afterwards.
+router.post(
+  "/class-collect",
+  protect,
+  authorize("treasurer"),
+  recordClassPayment,
+);
+router.get(
+  "/class-collected",
+  protect,
+  authorize("treasurer"),
+  listClassCollected,
+);
+router.patch("/:id/remit", protect, authorize("treasurer"), remitClassPayment);
+router.patch("/:id/verify", protect, authorize("treasurer"), verifyPayment);
 router.post(
   "/verify-batch-pdf",
   protect,

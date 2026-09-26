@@ -12,6 +12,25 @@ const {
   createResetPasswordUrl,
 } = require("../config/frontendUrl");
 
+// Officer roles that get their own portal workspace.
+const OFFICER_PORTAL_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
+
+// Detects a dual account: registered as an org officer but also present as a
+// regular member (student profile or "Member" roster entry). The frontend
+// offers these accounts a portal choice on sign-in.
+const checkDualMembership = async (user) => {
+  try {
+    if (!user || !OFFICER_PORTAL_ROLES.includes(user.role)) return false;
+    const [profile, rosterEntry] = await Promise.all([
+      StudentProfile.exists({ user: user._id }),
+      Member.exists({ email: String(user.email || "").toLowerCase().trim(), role: "Member" }),
+    ]);
+    return Boolean(profile || rosterEntry);
+  } catch (_error) {
+    return false;
+  }
+};
+
 // ==========================================
 // 1. REGISTER STUDENT FUNCTION
 // ==========================================
@@ -250,6 +269,8 @@ exports.login = async (req, res) => {
       { expiresIn: "1d" },
     );
 
+    const isAlsoMember = await checkDualMembership(user);
+
     return res.status(200).json({
       token,
       user: {
@@ -258,6 +279,7 @@ exports.login = async (req, res) => {
         email: user.email,
         role: user.role,
         organization: user.organization,
+        isAlsoMember,
       },
     });
   } catch (error) {
@@ -311,6 +333,8 @@ exports.setupAccount = async (req, res) => {
       { expiresIn: "1d" },
     );
 
+    const isAlsoMember = await checkDualMembership(user);
+
     return res.status(200).json({
       message: "Account setup successful!",
       token: authToken,
@@ -320,6 +344,7 @@ exports.setupAccount = async (req, res) => {
         email: user.email,
         role: user.role,
         organization: user.organization,
+        isAlsoMember,
       },
     });
   } catch (error) {
@@ -544,6 +569,8 @@ exports.resetPassword = async (req, res) => {
       { expiresIn: "1d" },
     );
 
+    const isAlsoMember = await checkDualMembership(user);
+
     return res.status(200).json({
       message: "Password reset successful!",
       token: authToken,
@@ -553,6 +580,7 @@ exports.resetPassword = async (req, res) => {
         email: user.email,
         role: user.role,
         organization: user.organization,
+        isAlsoMember,
       },
     });
   } catch (error) {
@@ -560,3 +588,7 @@ exports.resetPassword = async (req, res) => {
     return res.status(500).json({ message: "Failed to reset password." });
   }
 };
+
+// Exported for unit tests and reuse.
+exports.OFFICER_PORTAL_ROLES = OFFICER_PORTAL_ROLES;
+exports.checkDualMembership = checkDualMembership;

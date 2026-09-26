@@ -58,14 +58,15 @@ const formatPeso = (value) =>
     maximumFractionDigits: 2,
   })}`;
 
-const formatMeetingLabel = (meeting) => {
+const formatMeetingLabel = (meeting, isAdopted = false) => {
   const when = meeting?.startDateTime
     ? new Date(meeting.startDateTime).toLocaleString("en-PH", {
         dateStyle: "medium",
         timeStyle: "short",
       })
     : "No date";
-  return `${meeting?.title || "Untitled meeting"} — ${when}`;
+  const title = `${meeting?.title || "Untitled meeting"} — ${when}`;
+  return isAdopted ? `Already adopted — ${title}` : title;
 };
 
 export default function ResolutionModal({
@@ -127,6 +128,9 @@ export default function ResolutionModal({
   const [newProposalFiles, setNewProposalFiles] = useState([]);
 
   const [meetings, setMeetings] = useState([]);
+  // Meetings that already ground an adopted resolution, shown with an
+  // "Already adopted" prefix in the basis-meeting dropdown.
+  const [adoptedMeetingIds, setAdoptedMeetingIds] = useState(() => new Set());
   const [duesCollections, setDuesCollections] = useState([]);
   const [rosterCount, setRosterCount] = useState(null);
   const attendeesTouchedRef = useRef(false);
@@ -141,19 +145,46 @@ export default function ResolutionModal({
 
   useEffect(() => {
     let isCurrent = true;
-    API.get("/meetings")
-      .then((response) => {
+    Promise.all([
+      API.get("/meetings"),
+      API.get("/resolutions", { params: { status: "Adopted" } }).catch(
+        () => ({ data: [] }),
+      ),
+    ])
+      .then(([meetingsResponse, adoptedResponse]) => {
         if (!isCurrent) return;
-        const list = Array.isArray(response?.data) ? response.data : [];
+        const list = Array.isArray(meetingsResponse?.data)
+          ? meetingsResponse.data
+          : [];
         // A6: a resolution is grounded in a meeting that has already occurred.
         const now = Date.now();
         const held = list.filter(
           (meeting) => new Date(meeting.endDateTime).getTime() <= now,
         );
         setMeetings(held);
+        const adoptedList = Array.isArray(adoptedResponse?.data)
+          ? adoptedResponse.data
+          : [];
+        setAdoptedMeetingIds(
+          new Set(
+            adoptedList
+              .map((resolution) => {
+                const meeting = resolution?.meeting;
+                const id =
+                  meeting && typeof meeting === "object"
+                    ? meeting._id || meeting.id
+                    : meeting;
+                return id ? String(id) : null;
+              })
+              .filter(Boolean),
+          ),
+        );
       })
       .catch(() => {
-        if (isCurrent) setMeetings([]);
+        if (isCurrent) {
+          setMeetings([]);
+          setAdoptedMeetingIds(new Set());
+        }
       });
     return () => {
       isCurrent = false;
@@ -595,11 +626,20 @@ export default function ResolutionModal({
                     required
                   >
                     <option value="">Choose a held meeting</option>
-                    {meetings.map((meeting) => (
-                      <option key={meeting._id} value={meeting._id}>
-                        {formatMeetingLabel(meeting)}
-                      </option>
-                    ))}
+                    {meetings.map((meeting) => {
+                      const isAdopted = adoptedMeetingIds.has(
+                        String(meeting._id),
+                      );
+                      return (
+                        <option
+                          key={meeting._id}
+                          value={meeting._id}
+                          disabled={isAdopted}
+                        >
+                          {formatMeetingLabel(meeting, isAdopted)}
+                        </option>
+                      );
+                    })}
                   </select>
                   {meetings.length === 0 && (
                     <span className="mt-1 block text-[10px] font-normal text-slate-500">

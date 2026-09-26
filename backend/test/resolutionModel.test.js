@@ -35,6 +35,14 @@ test("a well-formed draft resolution passes validation", async () => {
   await new Resolution(baseResolution()).validate();
 });
 
+test("new resolutions start with no resubmission lineage", async () => {
+  const doc = new Resolution(baseResolution());
+  await doc.validate();
+  assert.equal(doc.resubmissionOf, null);
+  assert.equal(doc.resubmitCount, 0);
+  assert.equal(doc.baseResolutionNumber, "");
+});
+
 test("embedded proposal end before start is rejected", async () => {
   const doc = new Resolution(
     baseResolution({

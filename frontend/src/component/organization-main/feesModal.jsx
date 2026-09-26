@@ -167,6 +167,9 @@ export default function FeeModal({
   const [previewError, setPreviewError] = useState("");
   const [adoptedResolutions, setAdoptedResolutions] = useState([]);
   const [resolutionsLoading, setResolutionsLoading] = useState(false);
+  // Adopted resolutions already funding an active collection. They stay
+  // visible but unselectable so a resolution is not collected on twice.
+  const [usedResolutionIds, setUsedResolutionIds] = useState(() => new Set());
   const unitAmount = Number(formData.amount) || 0;
   const projectedTotal = targetMembers.length * unitAmount;
 
@@ -246,7 +249,8 @@ export default function FeeModal({
   }, [isOpen, formData.targetYearLevel]);
 
   // A fee drive must be authorized by an adopted resolution. Load the options
-  // so the president can attach one (required for new collections).
+  // so the president can attach one (required for new collections). Options
+  // already linked to an active collection are marked unselectable.
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -256,15 +260,41 @@ export default function FeeModal({
       if (isCurrentRequest) setResolutionsLoading(true);
     });
 
-    API.get("/resolutions/adopted")
-      .then((response) => {
+    Promise.all([
+      API.get("/resolutions/adopted"),
+      API.get("/fees", { params: { includeArchived: "true" } }).catch(() => ({
+        data: [],
+      })),
+    ])
+      .then(([adoptedResponse, feesResponse]) => {
         if (!isCurrentRequest) return;
         setAdoptedResolutions(
-          Array.isArray(response?.data) ? response.data : [],
+          Array.isArray(adoptedResponse?.data) ? adoptedResponse.data : [],
+        );
+        const fees = Array.isArray(feesResponse?.data)
+          ? feesResponse.data
+          : [];
+        setUsedResolutionIds(
+          new Set(
+            fees
+              .filter((item) => !item?.treasurerArchived)
+              .map((item) => {
+                const linked = item?.resolution;
+                const id =
+                  linked && typeof linked === "object"
+                    ? linked._id || linked.id
+                    : linked;
+                return id ? String(id) : null;
+              })
+              .filter(Boolean),
+          ),
         );
       })
       .catch(() => {
-        if (isCurrentRequest) setAdoptedResolutions([]);
+        if (isCurrentRequest) {
+          setAdoptedResolutions([]);
+          setUsedResolutionIds(new Set());
+        }
       })
       .finally(() => {
         if (isCurrentRequest) setResolutionsLoading(false);
@@ -464,13 +494,21 @@ export default function FeeModal({
                   ? "Loading adopted resolutions..."
                   : "Select an adopted resolution"}
               </option>
-              {adoptedResolutions.map((resolution) => (
-                <option key={resolution._id} value={resolution._id}>
-                  {[resolution.resolutionNumber, resolution.title]
-                    .filter(Boolean)
-                    .join(" — ")}
-                </option>
-              ))}
+              {adoptedResolutions.map((resolution) => {
+                const isUsed = usedResolutionIds.has(String(resolution._id));
+                const label = [resolution.resolutionNumber, resolution.title]
+                  .filter(Boolean)
+                  .join(" — ");
+                return (
+                  <option
+                    key={resolution._id}
+                    value={resolution._id}
+                    disabled={isUsed}
+                  >
+                    {isUsed ? `Already used — ${label}` : label}
+                  </option>
+                );
+              })}
             </select>
             {!fee && !resolutionsLoading && adoptedResolutions.length === 0 && (
               <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">

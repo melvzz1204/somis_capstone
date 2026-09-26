@@ -25,13 +25,6 @@ const normalizeEmail = (value) =>
     .trim()
     .toLowerCase();
 
-const getActiveStudentFeeQuery = async (req, extra = {}) => ({
-  approvalStatus: { $in: ["approved", null] },
-  ...extra,
-  org: req.user.organization,
-  ...getAcademicPeriodFilter(await getCurrentAcademicPeriod()),
-});
-
 const resolveTargetMembers = async (orgId, targetYearLevel) => {
   const rosterQuery = {
     organization: orgId,
@@ -432,21 +425,12 @@ const getFees = async (req, res) => {
         user: req.user._id,
       }).select("yearLevel");
 
-      const hiddenArchives = await StudentFeeArchive.find({
-        student: req.user._id,
-        organization: orgId,
-        state: { $in: ["archived", "deleted"] },
-      })
-        .select("fee")
-        .lean();
-      const hiddenFeeIds = hiddenArchives.map((archive) => archive.fee);
-
       query.status = { $in: ["active", "archived"] };
       // Students only see finalized (adviser-approved) collections.
       // `{ $in: ["approved", null] }` keeps legacy fees (no approval field)
       // visible while new collections require explicit adviser approval.
+      // Students can no longer hide fees via a personal archive.
       query.approvalStatus = { $in: ["approved", null] };
-      if (hiddenFeeIds.length) query._id = { $nin: hiddenFeeIds };
       query.$or = [
         { "targetMembers.student": req.user._id },
         {
@@ -808,105 +792,6 @@ const reviewFee = async (req, res) => {
   }
 };
 
-const archiveStudentFee = async (req, res) => {
-  const fee = await Fee.findOne(
-    await getActiveStudentFeeQuery(req, {
-      _id: req.params.id,
-      status: { $in: ["active", "archived"] },
-    }),
-  );
-  if (!fee)
-    return res.status(404).json({
-      success: false,
-      message: "Applicable fee collection not found.",
-    });
-  const target = fee.targetMembers.find(
-    (member) => String(member.student || "") === String(req.user._id),
-  );
-  if (!target && fee.targetMembers.length)
-    return res
-      .status(403)
-      .json({ success: false, message: "This fee is not applicable to you." });
-  const archive = await StudentFeeArchive.findOneAndUpdate(
-    { student: req.user._id, fee: fee._id },
-    { organization: fee.org, state: "archived" },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
-  return res.json({
-    success: true,
-    message: "Fee moved to your archive.",
-    data: archive,
-  });
-};
-
-const restoreStudentFee = async (req, res) => {
-  const activeFee = await Fee.findOne(
-    await getActiveStudentFeeQuery(req, { _id: req.params.id }),
-  ).select("_id");
-  if (!activeFee)
-    return res.status(404).json({
-      success: false,
-      message: "Student fee archive not found.",
-    });
-  const archive = await StudentFeeArchive.findOneAndUpdate(
-    {
-      student: req.user._id,
-      fee: activeFee._id,
-      state: "archived",
-    },
-    { $set: { state: "archived" } },
-    { new: true },
-  );
-  if (!archive)
-    return res
-      .status(404)
-      .json({ success: false, message: "Student fee archive not found." });
-  await StudentFeeArchive.deleteOne({ _id: archive._id });
-  return res.json({
-    success: true,
-    message: "Fee restored to your active list.",
-  });
-};
-
-const deleteStudentFee = async (req, res) => {
-  const activeFee = await Fee.findOne(
-    await getActiveStudentFeeQuery(req, { _id: req.params.id }),
-  ).select("_id");
-  if (!activeFee)
-    return res.status(404).json({
-      success: false,
-      message: "Applicable fee collection not found.",
-    });
-  const archive = await StudentFeeArchive.findOneAndUpdate(
-    { student: req.user._id, fee: activeFee._id },
-    { organization: req.user.organization, state: "deleted" },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
-  return res.json({
-    success: true,
-    message: "Fee permanently removed from your archive.",
-    data: archive,
-  });
-};
-
-const listStudentFeeArchive = async (req, res) => {
-  const activeFees = await Fee.find(await getActiveStudentFeeQuery(req)).select(
-    "_id",
-  );
-  const archives = await StudentFeeArchive.find({
-    student: req.user._id,
-    organization: req.user.organization,
-    fee: { $in: activeFees.map((fee) => fee._id) },
-    state: "archived",
-  })
-    .populate(
-      "fee",
-      "title category amount academicYear semester dueDate status treasurerArchived",
-    )
-    .sort({ updatedAt: -1 });
-  return res.json({ success: true, count: archives.length, data: archives });
-};
-
 module.exports = {
   createFee,
   previewFeeTargets,
@@ -917,8 +802,4 @@ module.exports = {
   archiveFee,
   restoreFee,
   deleteFee,
-  archiveStudentFee,
-  restoreStudentFee,
-  deleteStudentFee,
-  listStudentFeeArchive,
 };

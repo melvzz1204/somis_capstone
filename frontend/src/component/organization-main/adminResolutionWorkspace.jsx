@@ -61,7 +61,10 @@ const matchesView = (status, view) => {
   return status === view;
 };
 
-export default function AdminResolutionWorkspace({ colleges = [] }) {
+export default function AdminResolutionWorkspace({
+  colleges = [],
+  onReviewed,
+}) {
   const [resolutions, setResolutions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -122,6 +125,7 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
         return next;
       });
       setNotice(response.message || `Resolution ${decision.toLowerCase()}.`);
+      onReviewed?.();
     } catch (requestError) {
       setNotice(
         requestError.message || "Unable to save the OVPSAS decision.",
@@ -284,6 +288,11 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
                           {resolution.resolutionNumber}
                         </span>
                       )}
+                      {(resolution.resubmitCount || 0) > 0 && (
+                        <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                          RE{resolution.resubmitCount}
+                        </span>
+                      )}
                       {resolution.org && (
                         <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                           {resolution.org.acronym || resolution.org.name}
@@ -307,6 +316,16 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
                         {resolution.subject}
                       </p>
                     )}
+                    {resolution.resubmissionOf &&
+                      (resolution.resubmitCount || 0) > 0 && (
+                        <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                          Resubmission of{" "}
+                          {resolution.baseResolutionNumber ||
+                            "the original filing"}{" "}
+                          · Revision {resolution.resubmitCount} — revised after
+                          a previous rejection
+                        </p>
+                      )}
                     <p className="mt-2 text-xs leading-5 text-slate-600">
                       Embeds:{" "}
                       <span className="font-semibold text-slate-700">
@@ -329,7 +348,7 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
                   </div>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-y border-slate-100 py-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-y border-slate-100 py-4 text-xs sm:grid-cols-2 lg:grid-cols-3">
                   <div>
                     <dt className="font-semibold text-slate-400">
                       Basis Meeting
@@ -351,13 +370,6 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
                     <dt className="font-semibold text-slate-400">Budget</dt>
                     <dd className="mt-0.5 font-bold text-slate-700">
                       {formatCurrency(proposal.totalBudgetAllocation)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-slate-400">Clauses</dt>
-                    <dd className="mt-0.5 font-bold text-slate-700">
-                      {(resolution.resolvedClauses || []).length} resolved ·{" "}
-                      {(resolution.whereasClauses || []).length} whereas
                     </dd>
                   </div>
                 </dl>

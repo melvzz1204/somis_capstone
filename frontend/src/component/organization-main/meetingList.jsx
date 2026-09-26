@@ -121,7 +121,7 @@ const noticeStyles = {
   later: "border-[#D4AF37]/50 bg-[#D4AF37]/10 text-[#7A610D]",
 };
 
-function MeetingCard({ meeting, onView, isPast = false, now }) {
+function MeetingCard({ meeting, onView, isPast = false, now, isNew = false }) {
   const notice = !isPast ? getUpcomingMeetingNotice(meeting, now) : null;
 
   return (
@@ -138,6 +138,11 @@ function MeetingCard({ meeting, onView, isPast = false, now }) {
             <h5 className="text-sm font-extrabold text-[#4A0E17]">
               {meeting.title}
             </h5>
+            {isNew && (
+              <span className="rounded-md border border-emerald-300 bg-emerald-500 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                New
+              </span>
+            )}
             <span className="rounded-md border border-[#D4AF37]/40 bg-white px-2 py-0.5 text-[10px] font-bold text-[#7A610D]">
               {meeting.audience}
             </span>
@@ -180,6 +185,7 @@ function MeetingCard({ meeting, onView, isPast = false, now }) {
 export default function MeetingList({
   meetings: providedMeetings,
   isLoading: providedIsLoading = false,
+  onMeetingViewed,
 }) {
   const shouldFetch = providedMeetings === undefined;
   const [fetchedMeetings, setFetchedMeetings] = useState([]);
@@ -188,6 +194,9 @@ export default function MeetingList({
   const [now, setNow] = useState(() => new Date().getTime());
   const [viewedMeeting, setViewedMeeting] = useState(null);
   const [activeTab, setActiveTab] = useState(UPCOMING);
+  // Meetings opened during this session, so their New pill clears instantly
+  // even before the next list fetch.
+  const [sessionViewedIds, setSessionViewedIds] = useState({});
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date().getTime()), 60000);
@@ -228,6 +237,22 @@ export default function MeetingList({
 
   const activeMeetings =
     activeTab === UPCOMING ? upcomingMeetings : pastMeetings;
+
+  const isNewMeeting = (meeting) => {
+    if (!meeting || meeting.viewed || sessionViewedIds[meeting._id]) return false;
+    const end = new Date(meeting.endDateTime).getTime();
+    return !Number.isNaN(end) && end >= now;
+  };
+
+  const handleView = (meeting) => {
+    setViewedMeeting(meeting);
+    if (!meeting || meeting.viewed || sessionViewedIds[meeting._id]) return;
+    // Fire-and-forget: opening the details marks the meeting as read, which
+    // clears its notification badge.
+    API.patch(`/meetings/${meeting._id}/view`).catch(() => {});
+    setSessionViewedIds((current) => ({ ...current, [meeting._id]: true }));
+    onMeetingViewed?.(meeting._id);
+  };
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-5">
@@ -296,9 +321,10 @@ export default function MeetingList({
               <MeetingCard
                 key={meeting._id}
                 meeting={meeting}
-                onView={setViewedMeeting}
+                onView={handleView}
                 isPast={activeTab === PAST}
                 now={index === 0 ? now : undefined}
+                isNew={isNewMeeting(meeting)}
               />
             ))
           )}

@@ -108,6 +108,14 @@ const paymentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    // Class collection tracking: a class treasurer records and remits member
+    // payments; the organization treasurer verifies them afterwards.
+    remitted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    remittedAt: Date,
     paidAt: Date,
     receiptImageUrl: {
       type: String,

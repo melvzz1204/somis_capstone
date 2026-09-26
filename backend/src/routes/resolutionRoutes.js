@@ -5,6 +5,7 @@ const {
   getResolution,
   updateResolution,
   submitResolution,
+  resubmitResolution,
   reviewResolution,
   getPresidentSignature,
   getAdviserSignature,
@@ -71,6 +72,13 @@ router.patch(
   protect,
   authorize("secretary"),
   submitResolution,
+);
+
+router.patch(
+  "/:id/resubmit",
+  protect,
+  authorize("secretary"),
+  resubmitResolution,
 );
 
 router.patch(

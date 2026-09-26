@@ -589,6 +589,7 @@ const mapMemberRoleToUserRole = (memberRole) => {
   if (roleLower === "p.i.o" || roleLower.includes("information officer"))
     return "pio";
   if (roleLower.includes("dean")) return "dean";
+  if (roleLower.includes("director")) return "director";
   if (roleLower.includes("adviser") || roleLower.includes("advisor"))
     return "adviser";
   if (roleLower.includes("president")) return "org_admin";

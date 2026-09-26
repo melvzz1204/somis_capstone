@@ -229,8 +229,8 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     (resolution) => resolution.status === pendingStatus,
   ).length;
   const forwardedResolutionStatuses = isDean
-    ? ["Adopted"]
-    : ["Pending Dean Review", "Adopted"];
+    ? ["Pending Director Review", "Pending OVPSAS Approval", "Adopted"]
+    : ["Pending Dean Review", "Pending Director Review", "Pending OVPSAS Approval", "Adopted"];
   const forwardedResolutionCount = resolutions.filter((resolution) =>
     forwardedResolutionStatuses.includes(resolution.status),
   ).length;
@@ -418,7 +418,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                 </div>
                 <div className="p-5 border border-slate-200/80 rounded-2xl bg-white shadow-xs space-y-1.5">
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    {isDean ? "Adopted" : "Approved and Forwarded"}
+                    {isDean ? "Forwarded to Director" : "Approved and Forwarded"}
                   </p>
                   <p className="text-xl font-bold text-emerald-700">
                     {forwardedResolutionCount} Resolutions
@@ -430,7 +430,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                   </p>
                   <p className="text-sm font-bold text-[#4A0E17]">
                     {isDean
-                      ? "President + Adviser + Dean"
+                      ? "President + Adviser + Dean + Director"
                       : "President + Adviser"}
                   </p>
                 </div>

@@ -11,6 +11,7 @@ import SuborgDashboard from "./pages/suborgDashboard.jsx";
 import OrgSecretaryPage from "./pages/orgsecretaryPage.jsx";
 import OrgTreasurerPage from "./pages/orgTreasurerPage.jsx";
 import AdviserDashboard from "./pages/adviserDashboard.jsx";
+import DirectorDashboard from "./pages/directorDashboard.jsx";
 import OrgPioPage from "./pages/orgPioPage.jsx";
 import ClearanceVisualHarness from "./component/organization-main/ClearanceVisualHarness.jsx";
 
@@ -48,6 +49,7 @@ function App() {
           path="/dean-dashboard"
           element={<AdviserDashboard portalRole="dean" />}
         />
+        <Route path="/director-dashboard" element={<DirectorDashboard />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

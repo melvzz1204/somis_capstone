@@ -23,6 +23,8 @@ const signatoryStages = [
   ["presidentReview", "Organization President", "Awaiting president approval"],
   ["adviserReview", "Faculty Adviser", "Awaiting adviser approval"],
   ["deanReview", "Department Dean", "Awaiting dean approval"],
+  ["directorReview", "Director", "Awaiting director approval"],
+  ["ovpsasReview", "OVPSAS", "Awaiting OVPSAS approval"],
 ];
 
 function Detail({ label, children }) {
@@ -280,7 +282,7 @@ export default function ResolutionDocumentModal({ resolution, onClose }) {
                       ? "Resolution Review — Rejected"
                       : "Review Chain in Progress"}
                 </p>
-                <div className="mt-4 grid gap-5 sm:grid-cols-3">
+                <div className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
                   {signatoryStages.map(([field, label, pendingLabel]) => {
                     const review = resolution[field];
                     return (

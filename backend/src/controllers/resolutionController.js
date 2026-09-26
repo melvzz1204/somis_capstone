@@ -88,6 +88,12 @@ const resolveAdviserSignature = (user) =>
 const resolveDeanSignature = (user) =>
   resolveFacultySignature(user, "Department Dean");
 
+const resolveGlobalSignature = async (user) => user.name?.trim() || "";
+
+const resolveDirectorSignature = (user) => resolveGlobalSignature(user);
+
+const resolveOvpsasSignature = (user) => resolveGlobalSignature(user);
+
 const PROPOSAL_FIELDS = [
   "proposalTitle",
   "activityCategory",
@@ -257,11 +263,27 @@ const REVIEW_RULES = {
   },
   dean: {
     expectedStatus: "Pending Dean Review",
-    nextStatus: "Adopted",
+    nextStatus: "Pending Director Review",
     reviewField: "deanReview",
     reviewerLabel: "department dean",
-    nextReviewerLabel: "",
+    nextReviewerLabel: "director",
     resolveSignature: resolveDeanSignature,
+  },
+  director: {
+    expectedStatus: "Pending Director Review",
+    nextStatus: "Pending OVPSAS Approval",
+    reviewField: "directorReview",
+    reviewerLabel: "director",
+    nextReviewerLabel: "OVPSAS",
+    resolveSignature: resolveDirectorSignature,
+  },
+  admin: {
+    expectedStatus: "Pending OVPSAS Approval",
+    nextStatus: "Adopted",
+    reviewField: "ovpsasReview",
+    reviewerLabel: "OVPSAS",
+    nextReviewerLabel: "",
+    resolveSignature: resolveOvpsasSignature,
   },
 };
 
@@ -327,16 +349,19 @@ const createResolution = async (req, res) => {
 
 const getResolutions = async (req, res) => {
   try {
-    // OVPSAS administrators oversee every organization, so they are not tied
-    // to a single organization context the way officers and reviewers are.
+    // OVPSAS administrators and directors oversee every organization, so they
+    // are not tied to a single organization context the way officers and
+    // earlier reviewers are.
     const isOvpsas = req.user.role === "admin";
-    if (!isOvpsas && !req.user.organization) {
+    const isDirector = req.user.role === "director";
+    const isGlobalReviewer = isOvpsas || isDirector;
+    if (!isGlobalReviewer && !req.user.organization) {
       return res
         .status(400)
         .json({ success: false, message: "Organization context is required." });
     }
 
-    const query = isOvpsas ? {} : { org: req.user.organization };
+    const query = isGlobalReviewer ? {} : { org: req.user.organization };
 
     // Administrators can narrow the directory to a single college.
     const requestedCollege = req.query.college
@@ -355,15 +380,37 @@ const getResolutions = async (req, res) => {
 
     if (isOvpsas) {
       if (requestedStatus) query.status = requestedStatus;
+    } else if (isDirector) {
+      const directorStatuses = [
+        "Pending Director Review",
+        "Pending OVPSAS Approval",
+        "Adopted",
+        "Rejected",
+      ];
+      if (requestedStatus && directorStatuses.includes(requestedStatus)) {
+        query.status = requestedStatus;
+      } else if (!requestedStatus) {
+        query.status = { $in: directorStatuses };
+      } else {
+        query.status = requestedStatus;
+      }
     } else {
       const visibleStatusesByRole = {
         adviser: [
           "Pending Adviser Review",
           "Pending Dean Review",
+          "Pending Director Review",
+          "Pending OVPSAS Approval",
           "Adopted",
           "Rejected",
         ],
-        dean: ["Pending Dean Review", "Adopted", "Rejected"],
+        dean: [
+          "Pending Dean Review",
+          "Pending Director Review",
+          "Pending OVPSAS Approval",
+          "Adopted",
+          "Rejected",
+        ],
       };
       const roleStatuses = visibleStatusesByRole[req.user.role];
 
@@ -397,10 +444,11 @@ const getResolutions = async (req, res) => {
 
 const getResolution = async (req, res) => {
   try {
-    const resolution = await Resolution.findOne({
-      _id: req.params.id,
-      org: req.user.organization,
-    })
+    const isGlobalReviewer = ["admin", "director"].includes(req.user.role);
+    const filter = isGlobalReviewer
+      ? { _id: req.params.id }
+      : { _id: req.params.id, org: req.user.organization };
+    const resolution = await Resolution.findOne(filter)
       .populate("org", "name acronym college")
       .populate("meeting", "title startDateTime endDateTime venue audience");
 
@@ -663,10 +711,12 @@ const reviewResolution = async (req, res) => {
       });
     }
 
-    const resolution = await Resolution.findOne({
-      _id: req.params.id,
-      org: req.user.organization,
-    });
+    const isGlobalReviewer = ["admin", "director"].includes(req.user.role);
+    const reviewFilter = isGlobalReviewer
+      ? { _id: req.params.id }
+      : { _id: req.params.id, org: req.user.organization };
+
+    const resolution = await Resolution.findOne(reviewFilter);
 
     if (!resolution) {
       return res
@@ -708,7 +758,7 @@ const reviewResolution = async (req, res) => {
       decision === "Rejected"
         ? `Resolution rejected by the ${rule.reviewerLabel}.`
         : rule.nextStatus === "Adopted"
-          ? "Resolution adopted after dean approval."
+          ? "Resolution adopted after OVPSAS approval."
           : `Resolution approved and forwarded to the ${rule.nextReviewerLabel}.`;
     return res.json({ success: true, message, data: resolution });
   } catch (error) {
@@ -775,6 +825,44 @@ const getDeanSignature = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Could not retrieve the department dean signature.",
+    });
+  }
+};
+
+const getDirectorSignature = async (req, res) => {
+  try {
+    const digitalSignature = await resolveDirectorSignature(req.user);
+    if (!digitalSignature) {
+      return res.status(404).json({
+        success: false,
+        message: "No director name is available for signing.",
+      });
+    }
+    return res.json({ success: true, data: { digitalSignature } });
+  } catch (error) {
+    console.error("Error resolving director signature:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not retrieve the director signature.",
+    });
+  }
+};
+
+const getOvpsasSignature = async (req, res) => {
+  try {
+    const digitalSignature = await resolveOvpsasSignature(req.user);
+    if (!digitalSignature) {
+      return res.status(404).json({
+        success: false,
+        message: "No OVPSAS name is available for signing.",
+      });
+    }
+    return res.json({ success: true, data: { digitalSignature } });
+  } catch (error) {
+    console.error("Error resolving OVPSAS signature:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not retrieve the OVPSAS signature.",
     });
   }
 };
@@ -861,6 +949,8 @@ module.exports = {
   getPresidentSignature,
   getAdviserSignature,
   getDeanSignature,
+  getDirectorSignature,
+  getOvpsasSignature,
   deleteResolution,
   getAdoptableResolutions,
   // Exported for unit tests and reuse.

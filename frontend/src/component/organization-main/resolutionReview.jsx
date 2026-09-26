@@ -37,13 +37,40 @@ const reviewConfig = {
     reviewerName: "Faculty adviser",
   },
   dean: {
-    title: "Department Dean Adoption",
+    title: "Department Dean Review",
     description:
-      "Validate resolutions approved by the president and adviser. Your approval adopts the resolution.",
+      "Validate resolutions approved by the president and adviser. Your approval forwards the resolution to the director.",
     expectedStatus: "Pending Dean Review",
     signatureEndpoint: "/resolutions/dean-signature",
     signatureLabel: "Department Dean E-Signature",
     reviewerName: "Department dean",
+  },
+  director: {
+    title: "Director Review",
+    description:
+      "Review resolutions approved by the president, adviser, and dean. Your approval forwards the resolution to OVPSAS for final approval.",
+    expectedStatus: "Pending Director Review",
+    signatureEndpoint: "/resolutions/director-signature",
+    signatureLabel: "Director E-Signature",
+    reviewerName: "Director",
+  },
+  admin: {
+    title: "OVPSAS Final Approval",
+    description:
+      "Give the final approval for resolutions cleared by the president, adviser, dean, and director. Your approval adopts the resolution.",
+    expectedStatus: "Pending OVPSAS Approval",
+    signatureEndpoint: "/resolutions/ovpsas-signature",
+    signatureLabel: "OVPSAS E-Signature",
+    reviewerName: "OVPSAS",
+  },
+  ovpsas: {
+    title: "OVPSAS Final Approval",
+    description:
+      "Give the final approval for resolutions cleared by the president, adviser, dean, and director. Your approval adopts the resolution.",
+    expectedStatus: "Pending OVPSAS Approval",
+    signatureEndpoint: "/resolutions/ovpsas-signature",
+    signatureLabel: "OVPSAS E-Signature",
+    reviewerName: "OVPSAS",
   },
 };
 
@@ -51,6 +78,8 @@ const reviewHistory = [
   ["presidentReview", "Organization President"],
   ["adviserReview", "Faculty Adviser"],
   ["deanReview", "Department Dean"],
+  ["directorReview", "Director"],
+  ["ovpsasReview", "OVPSAS"],
 ];
 
 export default function ResolutionReview({
@@ -365,7 +394,7 @@ export default function ResolutionReview({
                       >
                         {isActing
                           ? "Saving Decision..."
-                          : reviewRole === "dean"
+                          : reviewRole === "admin" || reviewRole === "ovpsas"
                             ? "Approve and Adopt"
                             : "Approve and Forward"}
                       </button>

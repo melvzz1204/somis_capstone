@@ -29,6 +29,8 @@ const RESOLUTION_STATUSES = [
   "Submitted",
   "Pending Adviser Review",
   "Pending Dean Review",
+  "Pending Director Review",
+  "Pending OVPSAS Approval",
   "Adopted",
   "Rejected",
 ];
@@ -133,7 +135,9 @@ const resolutionSchema = new mongoose.Schema(
 
     presidentReview: reviewSchema, // step 2 (org_admin / president)
     adviserReview: reviewSchema, // step 3
-    deanReview: reviewSchema, // step 5 -> Adopted
+    deanReview: reviewSchema, // step 4 -> director
+    directorReview: reviewSchema, // step 5 -> OVPSAS
+    ovpsasReview: reviewSchema, // step 6 -> Adopted
 
     adoptedAt: Date,
     adoptedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -185,14 +189,18 @@ resolutionSchema.pre("validate", function normalizeAndValidate() {
     );
   }
 
-  // 4. Adoption requires an approved dean review with a timestamp.
+  // 4. Adoption requires an approved OVPSAS review with a timestamp.
+  // Full chain: president -> adviser -> dean -> director -> OVPSAS.
   if (
     this.status === "Adopted" &&
-    !(this.deanReview?.decision === "Approved" && this.deanReview?.reviewedAt)
+    !(
+      this.ovpsasReview?.decision === "Approved" &&
+      this.ovpsasReview?.reviewedAt
+    )
   ) {
     this.invalidate(
       "status",
-      "A resolution can only be adopted after the dean approves it.",
+      "A resolution can only be adopted after OVPSAS approves it.",
     );
   }
 });

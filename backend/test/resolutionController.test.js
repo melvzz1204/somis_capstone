@@ -9,14 +9,14 @@ const {
   parseJsonObject,
 } = require("../src/controllers/resolutionController");
 
-test("REVIEW_RULES defines exactly the president, adviser, and dean stages", () => {
+test("REVIEW_RULES defines the president, adviser, dean, director, and OVPSAS stages", () => {
   assert.deepEqual(Object.keys(REVIEW_RULES).sort(), [
+    "admin",
     "adviser",
     "dean",
+    "director",
     "org_admin",
   ]);
-  // A1: no OVPSAS/admin step exists for resolutions.
-  assert.equal(REVIEW_RULES.admin, undefined);
 });
 
 test("president review moves a submitted resolution to adviser review", () => {
@@ -31,10 +31,25 @@ test("adviser review forwards an approved resolution to dean review", () => {
   assert.equal(REVIEW_RULES.adviser.reviewField, "adviserReview");
 });
 
-test("dean approval adopts the resolution as the terminal success state", () => {
+test("dean approval forwards the resolution to director review", () => {
   assert.equal(REVIEW_RULES.dean.expectedStatus, "Pending Dean Review");
-  assert.equal(REVIEW_RULES.dean.nextStatus, "Adopted");
+  assert.equal(REVIEW_RULES.dean.nextStatus, "Pending Director Review");
   assert.equal(REVIEW_RULES.dean.reviewField, "deanReview");
+});
+
+test("director approval forwards the resolution to OVPSAS approval", () => {
+  assert.equal(REVIEW_RULES.director.expectedStatus, "Pending Director Review");
+  assert.equal(
+    REVIEW_RULES.director.nextStatus,
+    "Pending OVPSAS Approval",
+  );
+  assert.equal(REVIEW_RULES.director.reviewField, "directorReview");
+});
+
+test("OVPSAS approval adopts the resolution as the terminal success state", () => {
+  assert.equal(REVIEW_RULES.admin.expectedStatus, "Pending OVPSAS Approval");
+  assert.equal(REVIEW_RULES.admin.nextStatus, "Adopted");
+  assert.equal(REVIEW_RULES.admin.reviewField, "ovpsasReview");
 });
 
 test("each stage resolves a signature server-side", () => {

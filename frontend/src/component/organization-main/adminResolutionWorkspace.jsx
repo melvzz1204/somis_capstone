@@ -26,11 +26,14 @@ const IN_REVIEW_STATUSES = [
   "Submitted",
   "Pending Adviser Review",
   "Pending Dean Review",
+  "Pending Director Review",
+  "Pending OVPSAS Approval",
 ];
 
 const statusViews = [
   { key: "All", label: "All" },
   { key: "In Review", label: "In Review" },
+  { key: "Pending OVPSAS Approval", label: "Awaiting OVPSAS" },
   { key: "Adopted", label: "Adopted" },
   { key: "Rejected", label: "Rejected" },
   { key: "Draft", label: "Draft" },
@@ -40,12 +43,16 @@ const pendingReviewerByStatus = {
   Submitted: "president",
   "Pending Adviser Review": "adviser",
   "Pending Dean Review": "dean",
+  "Pending Director Review": "director",
+  "Pending OVPSAS Approval": "ovpsas",
 };
 
 const pendingReviewerLabel = {
   president: "organization president",
   adviser: "faculty adviser",
   dean: "department dean",
+  director: "director",
+  ovpsas: "OVPSAS",
 };
 
 const matchesView = (status, view) => {
@@ -61,6 +68,10 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
   const [collegeFilter, setCollegeFilter] = useState("All");
   const [statusView, setStatusView] = useState("All");
   const [selectedResolution, setSelectedResolution] = useState(null);
+  const [actionId, setActionId] = useState("");
+  const [notice, setNotice] = useState("");
+  const [ovpsasSignature, setOvpsasSignature] = useState("");
+  const [remarksForms, setRemarksForms] = useState({});
 
   const loadResolutions = useCallback(async () => {
     setIsLoading(true);
@@ -82,8 +93,43 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
     const requestId = window.setTimeout(() => {
       loadResolutions();
     }, 0);
+    API.get("/resolutions/ovpsas-signature")
+      .then((response) => {
+        setOvpsasSignature(
+          response.data?.digitalSignature || response.digitalSignature || "",
+        );
+      })
+      .catch(() => setOvpsasSignature(""));
     return () => window.clearTimeout(requestId);
   }, [loadResolutions]);
+
+  const handleOvpsasReview = async (resolution, decision) => {
+    setActionId(resolution._id);
+    setNotice("");
+    try {
+      const response = await API.patch(`/resolutions/${resolution._id}/review`, {
+        decision,
+        remarks: remarksForms[resolution._id] || "",
+      });
+      setResolutions((current) =>
+        current.map((item) =>
+          item._id === resolution._id ? response.data : item,
+        ),
+      );
+      setRemarksForms((current) => {
+        const next = { ...current };
+        delete next[resolution._id];
+        return next;
+      });
+      setNotice(response.message || `Resolution ${decision.toLowerCase()}.`);
+    } catch (requestError) {
+      setNotice(
+        requestError.message || "Unable to save the OVPSAS decision.",
+      );
+    } finally {
+      setActionId("");
+    }
+  };
 
   const collegeOptions = useMemo(() => {
     const names = new Set();
@@ -106,6 +152,11 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
 
   return (
     <div className="space-y-4">
+      {notice && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+          {notice}
+        </div>
+      )}
       <header className="border-b border-slate-200 pb-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
@@ -117,7 +168,8 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
             </h2>
             <p className="mt-1 text-xs font-medium text-slate-500">
               Review the resolutions submitted by recognized organizations
-              across every college.
+              across every college. Items cleared by the director await your
+              final OVPSAS approval.
             </p>
           </div>
 
@@ -315,6 +367,54 @@ export default function AdminResolutionWorkspace({ colleges = [] }) {
                     <p className="font-extrabold text-slate-800">
                       Awaiting {pendingReviewerLabel[pendingReviewer]} review
                     </p>
+                  </div>
+                )}
+
+                {resolution.status === "Pending OVPSAS Approval" && (
+                  <div className="mt-4 border border-orange-200 bg-orange-50/50 px-4 py-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="text-[11px] font-bold text-slate-700">
+                        OVPSAS E-Signature
+                        <div className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold italic uppercase text-slate-800">
+                          {ovpsasSignature || "OVPSAS name unavailable"}
+                        </div>
+                      </div>
+                      <label className="text-[11px] font-bold text-slate-700">
+                        Remarks (Optional)
+                        <textarea
+                          value={remarksForms[resolution._id] || ""}
+                          onChange={(event) =>
+                            setRemarksForms((current) => ({
+                              ...current,
+                              [resolution._id]: event.target.value,
+                            }))
+                          }
+                          maxLength={500}
+                          rows={2}
+                          className="mt-1 w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-[#4A0E17]"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOvpsasReview(resolution, "Rejected")}
+                        disabled={actionId === resolution._id || !ovpsasSignature}
+                        className="rounded-lg border border-rose-300 bg-white px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOvpsasReview(resolution, "Approved")}
+                        disabled={actionId === resolution._id || !ovpsasSignature}
+                        className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {actionId === resolution._id
+                          ? "Saving..."
+                          : "Approve and Adopt"}
+                      </button>
+                    </div>
                   </div>
                 )}
 

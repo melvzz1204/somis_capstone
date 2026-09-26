@@ -9,6 +9,8 @@ const {
   getPresidentSignature,
   getAdviserSignature,
   getDeanSignature,
+  getDirectorSignature,
+  getOvpsasSignature,
   deleteResolution,
   getAdoptableResolutions,
 } = require("../controllers/resolutionController");
@@ -49,6 +51,15 @@ router.get(
 router.get("/dean-signature", protect, authorize("dean"), getDeanSignature);
 
 router.get(
+  "/director-signature",
+  protect,
+  authorize("director"),
+  getDirectorSignature,
+);
+
+router.get("/ovpsas-signature", protect, authorize("admin"), getOvpsasSignature);
+
+router.get(
   "/adopted",
   protect,
   authorize("secretary", "org_admin", "treasurer", "adviser"),
@@ -65,7 +76,7 @@ router.patch(
 router.patch(
   "/:id/review",
   protect,
-  authorize("org_admin", "adviser", "dean"),
+  authorize("org_admin", "adviser", "dean", "director", "admin"),
   reviewResolution,
 );
 

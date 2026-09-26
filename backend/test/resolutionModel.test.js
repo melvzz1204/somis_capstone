@@ -87,7 +87,7 @@ test("a non-draft resolution requires a resolution number", async () => {
   });
 });
 
-test("adopting a resolution without an approved dean review is rejected", async () => {
+test("adopting a resolution without an approved OVPSAS review is rejected", async () => {
   const doc = new Resolution(
     baseResolution({
       status: "Adopted",
@@ -101,7 +101,7 @@ test("adopting a resolution without an approved dean review is rejected", async 
   });
 });
 
-test("an adopted resolution with an approved dean review validates", async () => {
+test("an adopted resolution with an approved OVPSAS review validates", async () => {
   const doc = new Resolution(
     baseResolution({
       status: "Adopted",
@@ -110,6 +110,16 @@ test("an adopted resolution with an approved dean review validates", async () =>
         decision: "Approved",
         digitalSignature: "Dean, Alex",
         reviewedAt: new Date("2026-03-02T00:00:00.000Z"),
+      },
+      directorReview: {
+        decision: "Approved",
+        digitalSignature: "Director, Sam",
+        reviewedAt: new Date("2026-03-03T00:00:00.000Z"),
+      },
+      ovpsasReview: {
+        decision: "Approved",
+        digitalSignature: "OVPSAS Admin",
+        reviewedAt: new Date("2026-03-04T00:00:00.000Z"),
       },
     }),
   );

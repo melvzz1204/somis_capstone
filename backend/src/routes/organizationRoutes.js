@@ -678,4 +678,106 @@ router.delete(
   },
 );
 
+// =========================================================
+// GET /v1/organizations/directors - List director accounts (OVPSAS admin only)
+// =========================================================
+router.get("/directors", protect, authorize("admin"), async (req, res) => {
+  try {
+    const directors = await User.find({ role: "director" })
+      .select("name email status organization createdAt")
+      .populate("organization", "name acronym college status")
+      .sort({ createdAt: -1 });
+    return res.status(200).json(directors);
+  } catch (error) {
+    console.error("Error fetching directors:", error);
+    return res.status(500).json({ message: "Failed to fetch directors." });
+  }
+});
+
+// =========================================================
+// POST /v1/organizations/directors - Register a global director (OVPSAS only)
+// =========================================================
+router.post("/directors", protect, authorize("admin"), async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const email = String(req.body.email || "").trim().toLowerCase();
+
+    if (!name || !email) {
+      return res.status(400).json({
+        message: "Director name and email are required.",
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({
+        message: "An account with this email already exists.",
+      });
+    }
+
+    const setupToken = crypto.randomBytes(32).toString("hex");
+    const newUser = new User({
+      name,
+      email,
+      role: "director",
+      status: "Pending",
+      setupToken,
+      setupTokenExpires: Date.now() + 24 * 60 * 60 * 1000,
+    });
+    await newUser.save();
+
+    const setupUrl = createSetupUrl(setupToken);
+    let emailStatus = "sent";
+    try {
+      await sendOrgInviteEmail(email, "SOMIS Director Office", setupToken, {
+        registeredBy: "OVPSAS",
+        organizationType: "director",
+      });
+    } catch (emailErr) {
+      emailStatus = "failed";
+      console.error(`Director invite failed for ${email}:`, emailErr.message);
+    }
+
+    return res.status(201).json({
+      _id: newUser._id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role,
+      status: newUser.status,
+      demoSetupLink: setupUrl,
+      emailStatus,
+    });
+  } catch (error) {
+    console.error("Error creating director:", error);
+    return res.status(500).json({ message: "Failed to register director." });
+  }
+});
+
+// =========================================================
+// DELETE /v1/organizations/directors/:directorId - Remove director (OVPSAS only)
+// =========================================================
+router.delete(
+  "/directors/:directorId",
+  protect,
+  authorize("admin"),
+  async (req, res) => {
+    try {
+      const director = await User.findOne({
+        _id: req.params.directorId,
+        role: "director",
+      });
+      if (!director) {
+        return res.status(404).json({ message: "Director not found." });
+      }
+      await director.deleteOne();
+      return res.status(200).json({
+        message: "Director account removed successfully.",
+      });
+    } catch (error) {
+      console.error("Error deleting director:", error);
+      return res.status(500).json({ message: "Failed to delete director." });
+    }
+  },
+);
+
 module.exports = router;

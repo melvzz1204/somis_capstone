@@ -140,7 +140,7 @@ export default function Login({ onForgotPassword }) {
           }`}
         >
           <UserGroupIcon className="w-3.5 h-3.5" />
-          Student Officer
+          Org Officer
         </button>
         <button
           type="button"

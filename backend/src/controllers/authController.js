@@ -324,7 +324,14 @@ exports.setupAccount = async (req, res) => {
     });
   } catch (error) {
     console.error("Setup account error:", error);
-    return res.status(500).json({ message: "Failed to setup account." });
+    const exposeDetails =
+      (process.env.NODE_ENV || "development") !== "production";
+    return res.status(500).json({
+      message:
+        exposeDetails && error?.message
+          ? `Failed to setup account: ${error.message}`
+          : "Failed to setup account.",
+    });
   }
 };
 

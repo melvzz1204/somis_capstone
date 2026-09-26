@@ -37,6 +37,9 @@ export const getRedirectPathByRole = (roleOrUser) => {
     case "dean":
       return "/dean-dashboard";
 
+    case "director":
+      return "/director-dashboard";
+
     // Organization Leader / General Student Officer Route
     case "org_admin":
     case "officer":

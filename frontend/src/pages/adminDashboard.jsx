@@ -160,6 +160,13 @@ export default function AdminDashboard() {
   const [isAdviserLoading, setIsAdviserLoading] = useState(false);
   const [adviserError, setAdviserError] = useState("");
 
+  // Director management state (OVPSAS registers global directors)
+  const [directors, setDirectors] = useState([]);
+  const [isDirectorLoading, setIsDirectorLoading] = useState(false);
+  const [isDirectorSubmitting, setIsDirectorSubmitting] = useState(false);
+  const [directorForm, setDirectorForm] = useState({ name: "", email: "" });
+  const [lastDirectorLink, setLastDirectorLink] = useState("");
+
   // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
     name: "",
@@ -211,8 +218,22 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchDirectors = async () => {
+      setIsDirectorLoading(true);
+      try {
+        const data = await API.get("/organizations/directors");
+        if (!mounted) return;
+        setDirectors(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to fetch directors:", err);
+      } finally {
+        if (mounted) setIsDirectorLoading(false);
+      }
+    };
+
     fetchDashboardData();
     fetchAdvisers();
+    fetchDirectors();
     return () => {
       mounted = false;
     };
@@ -360,6 +381,52 @@ export default function AdminDashboard() {
       showToast("Organization deleted successfully.", "success");
     } catch (err) {
       showToast(err.message || "Unable to delete organization.", "error");
+    }
+  };
+
+  const handleRegisterDirector = async (e) => {
+    e.preventDefault();
+    if (!directorForm.name.trim() || !directorForm.email.trim()) {
+      showToast("Director name and email are required.", "error");
+      return;
+    }
+    setIsDirectorSubmitting(true);
+    try {
+      const saved = await API.post("/organizations/directors", {
+        name: directorForm.name.trim(),
+        email: directorForm.email.trim(),
+      });
+      setDirectors((prev) => [saved, ...prev]);
+      setDirectorForm({ name: "", email: "" });
+      setLastDirectorLink(saved.demoSetupLink || "");
+      showToast(
+        saved.emailStatus === "failed"
+          ? "Director registered. Invite email failed — copy the setup link below."
+          : "Director registered and invite sent!",
+        "success",
+      );
+    } catch (err) {
+      showToast(err.message || "Unable to register director.", "error");
+    } finally {
+      setIsDirectorSubmitting(false);
+    }
+  };
+
+  const handleDeleteDirector = async (director) => {
+    if (
+      !window.confirm(
+        `Remove director ${director.name}? Their account will be deleted immediately.`,
+      )
+    )
+      return;
+    try {
+      await API.delete(`/organizations/directors/${director._id}`);
+      setDirectors((prev) =>
+        prev.filter((item) => item._id !== director._id),
+      );
+      showToast("Director removed successfully.", "success");
+    } catch (err) {
+      showToast(err.message || "Unable to delete director.", "error");
     }
   };
 
@@ -580,6 +647,19 @@ export default function AdminDashboard() {
               />
               <span>Resolutions</span>
             </button>
+            <button
+              onClick={() => setActiveTab("directors")}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border-l-4 border-transparent transition-all text-left cursor-pointer ${
+                activeTab === "directors"
+                  ? "bg-[#601520] text-[#D4AF37] border-[#D4AF37] shadow-md"
+                  : "text-rose-100/80 hover:bg-[#58111A] hover:text-white"
+              }`}
+            >
+              <UserGroupIcon
+                className={`w-4 h-4 ${activeTab === "directors" ? "text-[#D4AF37]" : "text-rose-200/60"}`}
+              />
+              <span>Directors</span>
+            </button>
           </nav>
         </div>
 
@@ -651,6 +731,12 @@ export default function AdminDashboard() {
               shortLabel: "Resolutions",
               icon: <FileCheckIcon />,
             },
+            {
+              id: "directors",
+              label: "Directors",
+              shortLabel: "Directors",
+              icon: <UserGroupIcon />,
+            },
           ]}
         />
 
@@ -673,6 +759,140 @@ export default function AdminDashboard() {
             />
           ) : activeTab === "resolutions" ? (
             <AdminResolutionWorkspace colleges={colleges} />
+          ) : activeTab === "directors" ? (
+            <section className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-extrabold text-[#4A0E17] tracking-tight">
+                  Directors
+                </h1>
+                <p className="text-xs text-slate-500 mt-1">
+                  Register global directors who review resolutions after the
+                  dean and before OVPSAS final approval. Directors see every
+                  organization.
+                </p>
+              </div>
+
+              <form
+                onSubmit={handleRegisterDirector}
+                className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4"
+              >
+                <h2 className="text-sm font-extrabold text-[#4A0E17]">
+                  Register Director
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#4A0E17] mb-1">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      value={directorForm.name}
+                      onChange={(e) =>
+                        setDirectorForm((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Juan Dela Cruz"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-[#4A0E17]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#4A0E17] mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={directorForm.email}
+                      onChange={(e) =>
+                        setDirectorForm((prev) => ({
+                          ...prev,
+                          email: e.target.value,
+                        }))
+                      }
+                      placeholder="director@marsu.edu.ph"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-[#4A0E17]"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={isDirectorSubmitting}
+                    className="px-4 py-2.5 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isDirectorSubmitting
+                      ? "Registering..."
+                      : "Register Director"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  The director receives an account setup email valid for 24
+                  hours and logs in to the Director Portal.
+                </p>
+                {lastDirectorLink && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-1">
+                    <p className="text-[11px] font-bold text-emerald-800">
+                      Latest setup link (single-use, expires in 24 hours):
+                    </p>
+                    <p className="text-[11px] text-emerald-700 break-all select-all">
+                      {lastDirectorLink}
+                    </p>
+                  </div>
+                )}
+              </form>
+
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div className="px-6 py-4 bg-[#4A0E17]/5 border-b border-slate-200/80 flex items-center justify-between text-xs font-bold text-[#4A0E17]">
+                  <span>Director Accounts</span>
+                  <span className="text-slate-400 font-normal">
+                    Showing {directors.length} account/s
+                  </span>
+                </div>
+                {isDirectorLoading ? (
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Loading director accounts...
+                  </div>
+                ) : directors.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {directors.map((director) => (
+                      <div
+                        key={director._id}
+                        className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center text-[#8B6E10] font-bold text-xs shrink-0">
+                            {(director.name || "D").charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-[#4A0E17] truncate">
+                              {director.name}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {director.email}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {director.status || "Pending"}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDirector(director)}
+                          className="px-3 py-2 rounded-lg border border-[#4A0E17]/30 bg-white text-[#4A0E17] hover:bg-[#4A0E17]/5 transition-all cursor-pointer font-semibold text-xs self-end sm:self-center"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    No director accounts yet. Register the first director above.
+                  </div>
+                )}
+              </div>
+            </section>
           ) : (
             <>
               <AcademicPeriodSettings

@@ -55,9 +55,13 @@ export default function ResolutionList({
         key: "Submitted",
         label: "In Review",
         count: resolutions.filter((item) =>
-          ["Submitted", "Pending Adviser Review", "Pending Dean Review"].includes(
-            item.status,
-          ),
+          [
+            "Submitted",
+            "Pending Adviser Review",
+            "Pending Dean Review",
+            "Pending Director Review",
+            "Pending OVPSAS Approval",
+          ].includes(item.status),
         ).length,
       },
       {
@@ -78,9 +82,13 @@ export default function ResolutionList({
     if (view === "all") return resolutions;
     if (view === "Submitted") {
       return resolutions.filter((item) =>
-        ["Submitted", "Pending Adviser Review", "Pending Dean Review"].includes(
-          item.status,
-        ),
+        [
+          "Submitted",
+          "Pending Adviser Review",
+          "Pending Dean Review",
+          "Pending Director Review",
+          "Pending OVPSAS Approval",
+        ].includes(item.status),
       );
     }
     return resolutions.filter((item) => item.status === view);
@@ -101,7 +109,7 @@ export default function ResolutionList({
           <h3 className="text-base font-bold text-[#4A0E17]">Resolutions</h3>
           <p className="mt-0.5 text-xs text-slate-500">
             Draft resolutions from held meetings and route them through
-            president, adviser, and dean approval.
+            president, adviser, dean, director, and OVPSAS approval.
           </p>
         </div>
         <button

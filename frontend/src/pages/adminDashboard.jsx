@@ -165,7 +165,6 @@ export default function AdminDashboard() {
   const [isDirectorLoading, setIsDirectorLoading] = useState(false);
   const [isDirectorSubmitting, setIsDirectorSubmitting] = useState(false);
   const [directorForm, setDirectorForm] = useState({ name: "", email: "" });
-  const [lastDirectorLink, setLastDirectorLink] = useState("");
 
   // Form state for creating or editing an organization
   const [newOrg, setNewOrg] = useState({
@@ -398,7 +397,6 @@ export default function AdminDashboard() {
       });
       setDirectors((prev) => [saved, ...prev]);
       setDirectorForm({ name: "", email: "" });
-      setLastDirectorLink(saved.demoSetupLink || "");
       showToast(
         saved.emailStatus === "failed"
           ? "Director registered. Invite email failed — copy the setup link below."
@@ -830,16 +828,6 @@ export default function AdminDashboard() {
                   The director receives an account setup email valid for 24
                   hours and logs in to the Director Portal.
                 </p>
-                {lastDirectorLink && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-1">
-                    <p className="text-[11px] font-bold text-emerald-800">
-                      Latest setup link (single-use, expires in 24 hours):
-                    </p>
-                    <p className="text-[11px] text-emerald-700 break-all select-all">
-                      {lastDirectorLink}
-                    </p>
-                  </div>
-                )}
               </form>
 
               <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">

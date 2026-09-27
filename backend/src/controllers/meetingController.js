@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Meeting = require("../models/Meeting");
 
 const MANAGER_ROLES = ["org_admin", "admin"];
@@ -260,6 +261,9 @@ exports.getUnreadCount = async (req, res) => {
 
 // Records that the caller opened a meeting, clearing its notification.
 exports.markMeetingViewed = async (req, res) => {
+  if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ success: false, message: "Meeting not found." });
+  }
   try {
     const meeting = await Meeting.findOneAndUpdate(
       { _id: req.params.id, organization: getOrganizationId(req) },

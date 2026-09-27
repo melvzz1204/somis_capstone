@@ -202,7 +202,12 @@ export default function StudentOnboardingModal({
           },
           signal: controller.signal,
         });
-        setOrganizations(Array.isArray(data) ? data : []);
+        // Students register under parent/sub organizations; classes manage
+        // their own rosters and stay out of this list.
+        const list = Array.isArray(data) ? data : [];
+        setOrganizations(
+          list.filter((org) => org.organizationType !== "class"),
+        );
       } catch (err) {
         if (err.originalError?.code !== "ERR_CANCELED") {
           setOrganizations([]);

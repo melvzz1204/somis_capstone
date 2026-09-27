@@ -158,7 +158,6 @@ const resolutionSchema = new mongoose.Schema(
 );
 
 resolutionSchema.index({ org: 1, status: 1, createdAt: -1 });
-resolutionSchema.index({ meeting: 1 });
 resolutionSchema.index(
   { org: 1, resolutionNumber: 1 },
   {

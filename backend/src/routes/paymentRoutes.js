@@ -53,7 +53,12 @@ router.post(
   validatePdfSignature,
   verifyBatchPdf,
 );
-router.get("/mine", protect, authorize("student"), listMyPayments);
+router.get(
+  "/mine",
+  protect,
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
+  listMyPayments,
+);
 router.post(
   "/upload-receipt",
   protect,

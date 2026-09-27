@@ -11,6 +11,10 @@ const {
   createSetupUrl,
   createResetPasswordUrl,
 } = require("../config/frontendUrl");
+const {
+  ensureOfficerMemberRow,
+  ensureOfficerStudentProfile,
+} = require("./orgMemberController");
 
 // Officer roles that get their own portal workspace.
 const OFFICER_PORTAL_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
@@ -313,6 +317,10 @@ exports.setupAccount = async (req, res) => {
     user.status = "Active";
 
     await user.save();
+
+    // Student officers are automatically regular members as well.
+    await ensureOfficerMemberRow(user);
+    await ensureOfficerStudentProfile(user);
 
     // Keep the organization roster synchronized so active officers receive
     // the account badge as soon as setup succeeds.

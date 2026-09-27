@@ -21,6 +21,8 @@ const sendOrgInviteEmail = require("../util/sendEmail");
 const upload = require("../middleware/upload");
 const {
   getEffectiveClassRoster,
+  ensureOfficerMemberRow,
+  ensureOfficerStudentProfile,
 } = require("../controllers/orgMemberController");
 const { createSetupUrl } = require("../config/frontendUrl");
 const {
@@ -379,14 +381,22 @@ router.post(
         setupTokenExpires: Date.now() + 24 * 60 * 60 * 1000,
       });
 
-      await Member.create({
+      const presidentMember = await Member.create({
         name: normalizedPresident,
         surname: normalizedPresident,
-        email: normalizedEmail,
+        email: normalizedPresidentEmail,
         role: "President",
         organization: organization._id,
         hasAccount: true,
       });
+
+      // The new leader is automatically a regular member as well, with
+      // clearance details adopted once the roster is completed.
+      await ensureOfficerMemberRow(newUser);
+      await ensureOfficerStudentProfile(newUser, presidentMember);
+
+      // The new leader is automatically a regular member as well.
+      await ensureOfficerMemberRow(newUser);
 
       const setupUrl = createSetupUrl(setupToken);
       let emailStatus = "sent";
@@ -469,6 +479,18 @@ router.post(
           cleanSurname && givenName ? `${cleanSurname}, ${givenName}` : "";
         return [baseName, cleanSuffix].filter(Boolean).join(", ");
       };
+      const parseBirthday = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+      };
+      const parseContact = (value) => String(value || "").replace(/\D/g, "");
+      const parseAcademics = (prefix) => ({
+        idNumber: cleanPart(req.body[`${prefix}IdNumber`]),
+        yearLevel: cleanPart(req.body[`${prefix}YearLevel`]),
+        contactNumber: parseContact(req.body[`${prefix}ContactNumber`]),
+        birthDate: parseBirthday(req.body[`${prefix}Birthday`]),
+      });
 
       const normalizedSection = String(req.body.section || "").trim();
       const normalizedProgram = String(req.body.program || "").trim();
@@ -489,6 +511,7 @@ router.post(
         middleInitial: middleInitial(req.body.presidentMiddleInitial),
         suffix: cleanPart(req.body.presidentSuffix),
         email: String(req.body.presidentEmail || "").trim().toLowerCase(),
+        ...parseAcademics("president"),
       };
       const treasurer = {
         surname: cleanPart(req.body.treasurerSurname || req.body.treasurer),
@@ -496,9 +519,25 @@ router.post(
         middleInitial: middleInitial(req.body.treasurerMiddleInitial),
         suffix: cleanPart(req.body.treasurerSuffix),
         email: String(req.body.treasurerEmail || "").trim().toLowerCase(),
+        ...parseAcademics("treasurer"),
       };
       const presidentName = formatOfficerName(president);
       const treasurerName = formatOfficerName(treasurer);
+
+      const academicError =
+        "Each officer also needs an ID number, year level, an 11-digit contact number, and a birthdate (same details as regular member registration).";
+      for (const officer of [president, treasurer]) {
+        if (
+          !officer.idNumber ||
+          !officer.yearLevel ||
+          !/^\d{11}$/.test(officer.contactNumber) ||
+          !officer.birthDate
+        ) {
+          return res.status(400).json({
+            message: academicError,
+          });
+        }
+      }
 
       if (
         !normalizedProgram ||
@@ -606,7 +645,7 @@ router.post(
         adoptOfficerAccount(treasurerSlot, treasurerName, treasurer.email, "treasurer", treasurerToken),
       ]);
 
-      await Member.create([
+      const [presidentMember, treasurerMember] = await Member.create([
         {
           name: presidentName,
           surname: president.surname,
@@ -614,6 +653,11 @@ router.post(
           middleInitial: president.middleInitial,
           suffix: president.suffix,
           email: president.email,
+          idNumber: president.idNumber,
+          birthday: president.birthDate,
+          year: president.yearLevel,
+          program: normalizedProgram,
+          section: normalizedSection,
           role: "President",
           organization: organization._id,
           hasAccount: true,
@@ -625,10 +669,28 @@ router.post(
           middleInitial: treasurer.middleInitial,
           suffix: treasurer.suffix,
           email: treasurer.email,
+          idNumber: treasurer.idNumber,
+          birthday: treasurer.birthDate,
+          year: treasurer.yearLevel,
+          program: normalizedProgram,
+          section: normalizedSection,
           role: "Treasurer",
           organization: organization._id,
           hasAccount: true,
         },
+      ]);
+
+      // The new class officers are automatically regular members as well,
+      // with clearance details adopted from registration.
+      await Promise.all([
+        ensureOfficerMemberRow(presidentUser),
+        ensureOfficerMemberRow(treasurerUser),
+        ensureOfficerStudentProfile(presidentUser, presidentMember, {
+          contactNumber: president.contactNumber,
+        }),
+        ensureOfficerStudentProfile(treasurerUser, treasurerMember, {
+          contactNumber: treasurer.contactNumber,
+        }),
       ]);
 
       // Invite delivery is best-effort; the setup links are always returned
@@ -679,6 +741,8 @@ router.post(
   },
 );
 
+// =========================================================
+// PUT /v1/organizations/:organizationId - Edit organization
 // =========================================================
 // PATCH /v1/organizations/e-wallet - Treasurer e-wallet settings
 // Sets the GCash / PayMaya numbers (and optional GCash QR image) members

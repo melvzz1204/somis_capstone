@@ -22,9 +22,10 @@ const studentProfileSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
-      minlength: [11, "Contact number must be exactly 11 digits"],
-      maxlength: [11, "Contact number must be exactly 11 digits"],
-      match: [/^\d{11}$/, "Contact number must contain numbers only"],
+      validate: {
+        validator: (value) => !value || /^\d{11}$/.test(value),
+        message: "Contact number must be exactly 11 digits",
+      },
     },
     birthDate: { type: Date, required: true },
     college: { type: String, required: true },

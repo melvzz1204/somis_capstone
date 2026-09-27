@@ -139,6 +139,185 @@ const getEffectiveClassRoster = async (classOrgId) => {
 // Exported for reuse by class-scoped routes.
 exports.getEffectiveClassRoster = getEffectiveClassRoster;
 
+// Student officer roles: registering one automatically lists them as a
+// regular member too, so no separate student onboarding is needed.
+const OFFICER_STUDENT_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
+
+const ensureOfficerMemberRow = async (user) => {
+  try {
+    if (
+      !user ||
+      !OFFICER_STUDENT_ROLES.includes(user.role) ||
+      !user.organization
+    ) {
+      return null;
+    }
+    const email = String(user.email || "").toLowerCase().trim();
+    if (!email) return null;
+    const orgId = user.organization?._id || user.organization;
+    const existing = await Member.findOne({
+      organization: orgId,
+      email,
+      role: "Member",
+    });
+    if (existing) return existing;
+    return await Member.create({
+      name: user.name,
+      email,
+      role: "Member",
+      organization: orgId,
+      hasAccount: true,
+    });
+  } catch (_error) {
+    return null;
+  }
+};
+
+exports.ensureOfficerMemberRow = ensureOfficerMemberRow;
+
+const PROFILE_YEAR_LEVELS = [
+  "1st Year",
+  "2nd Year",
+  "3rd Year",
+  "4th Year",
+  "5th Year+",
+];
+
+const normalizeProfileYear = (value) => {
+  const text = String(value || "").trim();
+  if (PROFILE_YEAR_LEVELS.includes(text)) return text;
+  if (/^5th/i.test(text)) return "5th Year+";
+  return "";
+};
+
+// Adopts academic details for a student-officer's clearance profile from
+// their roster row (regular member registration collects these; officer
+// flows historically did not). Existing profile data is never overwritten,
+// creation needs complete data, and failures never break the caller.
+const ensureOfficerStudentProfile = async (user, memberRow = null, extra = {}) => {
+  try {
+    if (
+      !user ||
+      !OFFICER_STUDENT_ROLES.includes(user.role) ||
+      !user.organization
+    ) {
+      return null;
+    }
+    const orgId = user.organization?._id || user.organization;
+    const email = String(user.email || "").toLowerCase().trim();
+
+    let row = memberRow;
+    if (!row && email) {
+      row =
+        (await Member.findOne({
+          organization: orgId,
+          email,
+          role: { $ne: "Member" },
+        })) || (await Member.findOne({ organization: orgId, email }));
+    }
+    if (!row) return null;
+
+    const splitName = (displayName = "") => {
+      const text = String(displayName).trim();
+      if (!text) return {};
+      if (text.includes(",")) {
+        const [surname, ...rest] = text.split(",");
+        const parts = rest.join(",").trim().split(/\s+/).filter(Boolean);
+        const mi = parts.find((part) => /^[A-Za-z]\.?$/.test(part)) || "";
+        return {
+          surname: surname.trim(),
+          firstName: parts.filter((part) => part !== mi).join(" "),
+          middleInitial: mi.replace(/\./g, "")
+            ? `${mi.replace(/\./g, "").charAt(0).toUpperCase()}.`
+            : "",
+        };
+      }
+      const parts = text.split(/\s+/).filter(Boolean);
+      return {
+        surname: parts.at(-1) || "",
+        firstName: parts.slice(0, -1).join(" "),
+      };
+    };
+    const fallbackName = splitName(row.name);
+
+    const organization =
+      row.organization &&
+      typeof row.organization === "object" &&
+      row.organization.college
+        ? row.organization
+        : await Organization.findById(orgId).select("college");
+
+    const candidate = {
+      firstName: row.firstName || fallbackName.firstName || "",
+      middleInitial: row.middleInitial || fallbackName.middleInitial || "",
+      lastName: row.surname || fallbackName.surname || "",
+      suffix: row.suffix || "",
+      studentIdNumber: String(row.idNumber || "").trim(),
+      contactNumber: String(
+        extra.contactNumber || row.contactNumber || "",
+      ).replace(/\D/g, ""),
+      birthDate: row.birthday ? new Date(row.birthday) : null,
+      college: String(organization?.college || "").trim(),
+      program: String(row.program || extra.program || "").trim(),
+      section: String(row.section || extra.section || "").trim(),
+      yearLevel: normalizeProfileYear(row.year || extra.yearLevel),
+    };
+    if (
+      candidate.contactNumber &&
+      !/^\d{11}$/.test(candidate.contactNumber)
+    ) {
+      candidate.contactNumber = "";
+    }
+    if (candidate.birthDate && Number.isNaN(candidate.birthDate.getTime())) {
+      candidate.birthDate = null;
+    }
+
+    let profile = await StudentProfile.findOne({ user: user._id });
+    if (profile) {
+      let touched = false;
+      for (const [key, value] of Object.entries(candidate)) {
+        if (value && !profile[key]) {
+          profile[key] = value;
+          touched = true;
+        }
+      }
+      if (touched) await profile.save();
+      return profile;
+    }
+
+    const complete = [
+      candidate.firstName,
+      candidate.lastName,
+      candidate.studentIdNumber,
+      candidate.birthDate,
+      candidate.college,
+      candidate.program,
+      candidate.section,
+      candidate.yearLevel,
+    ].every(Boolean);
+    if (!complete) return null;
+    if (
+      await StudentProfile.findOne({
+        studentIdNumber: candidate.studentIdNumber,
+      })
+    ) {
+      return null;
+    }
+
+    const doc = { user: user._id, organization: orgId };
+    for (const [key, value] of Object.entries(candidate)) {
+      if (value !== "" && value !== null && value !== undefined) {
+        doc[key] = value;
+      }
+    }
+    return await StudentProfile.create(doc);
+  } catch (_error) {
+    return null;
+  }
+};
+
+exports.ensureOfficerStudentProfile = ensureOfficerStudentProfile;
+
 // ==========================================
 // 1. GET MEMBERS BY ORGANIZATION
 // ==========================================
@@ -689,6 +868,15 @@ exports.updateMember = async (req, res) => {
 
     await member.save();
 
+    // Keep a linked student-officer clearance profile in sync with roster edits.
+    const linkedOfficer = await User.findOne({
+      organization: member.organization,
+      email: String(member.email || "").toLowerCase().trim(),
+    });
+    if (linkedOfficer) {
+      await ensureOfficerStudentProfile(linkedOfficer, member);
+    }
+
     if (
       isPresident ||
       previousRole === "Faculty Adviser" ||
@@ -784,6 +972,10 @@ exports.createOfficerAccount = async (req, res) => {
 
     member.hasAccount = true;
     await member.save();
+
+    // Student officers are automatically regular members as well.
+    await ensureOfficerMemberRow(newUser);
+    await ensureOfficerStudentProfile(newUser, member);
 
     return res.status(201).json({
       message: `User account created successfully for ${member.name}!`,
@@ -1006,6 +1198,10 @@ exports.setupAccount = async (req, res) => {  try {
     user.status = "Active";
 
     await user.save();
+
+    // Student officers are automatically regular members as well.
+    await ensureOfficerMemberRow(user);
+    await ensureOfficerStudentProfile(user);
 
     return res.status(200).json({
       message: "Account activated successfully!",

@@ -114,7 +114,7 @@ export default function LogoutButton({
       {/* CONFIRMATION MODAL */}
       {isOpen && (
         <div
-          className="modal-backdrop"
+          className="modal-backdrop modal-backdrop-front"
           role="dialog"
           aria-modal="true"
           aria-labelledby="logout-dialog-title"

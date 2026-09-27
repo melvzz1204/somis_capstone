@@ -408,15 +408,6 @@ function ScreenStatus({
                 </p>
               )}
             </div>
-
-            {/* Right Logo (SOMIS) */}
-            <div className="flex items-center justify-end shrink-0">
-              <img
-                src="/logo.png"
-                alt="SOMIS logo"
-                className="h-[14mm] w-[14mm] object-contain"
-              />
-            </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
             {!isCleared && isCicsso && onReviewFees && (

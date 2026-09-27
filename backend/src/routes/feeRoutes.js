@@ -39,7 +39,12 @@ router.get(
   listCollectibleFees,
 );
 
-router.get("/clearance", protect, authorize("student"), getClearanceFees);
+router.get(
+  "/clearance",
+  protect,
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
+  getClearanceFees,
+);
 
 router.route("/:id").patch(protect, authorize("org_admin"), updateFee);
 

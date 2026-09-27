@@ -185,6 +185,7 @@ export default function OrgDashboard() {
   // Class registration (president + treasurer accounts).
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [isClassSubmitting, setIsClassSubmitting] = useState(false);
+  const YEAR_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"];
   const [classForm, setClassForm] = useState({
     program: "",
     section: "",
@@ -193,11 +194,19 @@ export default function OrgDashboard() {
     presidentMiddleInitial: "",
     presidentSuffix: "",
     presidentEmail: "",
+    presidentIdNumber: "",
+    presidentYearLevel: "",
+    presidentContactNumber: "",
+    presidentBirthday: "",
     treasurerSurname: "",
     treasurerFirstName: "",
     treasurerMiddleInitial: "",
     treasurerSuffix: "",
     treasurerEmail: "",
+    treasurerIdNumber: "",
+    treasurerYearLevel: "",
+    treasurerContactNumber: "",
+    treasurerBirthday: "",
   });
   const resetClassForm = () =>
     setClassForm({
@@ -208,11 +217,19 @@ export default function OrgDashboard() {
       presidentMiddleInitial: "",
       presidentSuffix: "",
       presidentEmail: "",
+      presidentIdNumber: "",
+      presidentYearLevel: "",
+      presidentContactNumber: "",
+      presidentBirthday: "",
       treasurerSurname: "",
       treasurerFirstName: "",
       treasurerMiddleInitial: "",
       treasurerSuffix: "",
       treasurerEmail: "",
+      treasurerIdNumber: "",
+      treasurerYearLevel: "",
+      treasurerContactNumber: "",
+      treasurerBirthday: "",
     });
   // Organization roster options for picking class officers.
   const [rosterOptions, setRosterOptions] = useState([]);
@@ -1999,6 +2016,59 @@ export default function OrgDashboard() {
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
                   />
                 </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  ID Number <span className="text-rose-600">*</span>
+                  <input
+                    name="presidentIdNumber"
+                    required
+                    placeholder="e.g. 20-12345"
+                    value={classForm.presidentIdNumber}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Year Level <span className="text-rose-600">*</span>
+                  <select
+                    name="presidentYearLevel"
+                    required
+                    value={classForm.presidentYearLevel}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none bg-white"
+                  >
+                    <option value="" disabled>
+                      Select year
+                    </option>
+                    {YEAR_OPTIONS.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Contact Number <span className="text-rose-600">*</span>
+                  <input
+                    name="presidentContactNumber"
+                    required
+                    placeholder="11-digit mobile number"
+                    inputMode="numeric"
+                    value={classForm.presidentContactNumber}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Birthday <span className="text-rose-600">*</span>
+                  <input
+                    type="date"
+                    name="presidentBirthday"
+                    required
+                    value={classForm.presidentBirthday}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block font-bold text-[#4A0E17] sm:col-span-2">
@@ -2033,6 +2103,59 @@ export default function OrgDashboard() {
                     required
                     placeholder="treasurer@marsu.edu.ph"
                     value={classForm.treasurerEmail}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  ID Number <span className="text-rose-600">*</span>
+                  <input
+                    name="treasurerIdNumber"
+                    required
+                    placeholder="e.g. 20-12345"
+                    value={classForm.treasurerIdNumber}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Year Level <span className="text-rose-600">*</span>
+                  <select
+                    name="treasurerYearLevel"
+                    required
+                    value={classForm.treasurerYearLevel}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none bg-white"
+                  >
+                    <option value="" disabled>
+                      Select year
+                    </option>
+                    {YEAR_OPTIONS.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Contact Number <span className="text-rose-600">*</span>
+                  <input
+                    name="treasurerContactNumber"
+                    required
+                    placeholder="11-digit mobile number"
+                    inputMode="numeric"
+                    value={classForm.treasurerContactNumber}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+                <label className="block font-bold text-[#4A0E17]">
+                  Birthday <span className="text-rose-600">*</span>
+                  <input
+                    type="date"
+                    name="treasurerBirthday"
+                    required
+                    value={classForm.treasurerBirthday}
                     onChange={handleClassInput}
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
                   />

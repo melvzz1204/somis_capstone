@@ -37,7 +37,15 @@ const populateMeeting = (query) =>
 
 const parseDate = (value) => {
   if (!value) return null;
-  const date = new Date(value);
+  let normalized = String(value).trim();
+  // `datetime-local` inputs (e.g. "2026-10-04T14:00") carry no timezone.
+  // The browser means Asia/Manila wall time, but a UTC-hosted server would
+  // parse it as UTC and shift display by +8 hours. Assume Manila when no
+  // offset/Z is present; ISO strings with timezone pass through unchanged.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d{1,3})?$/.test(normalized)) {
+    normalized += "+08:00";
+  }
+  const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 

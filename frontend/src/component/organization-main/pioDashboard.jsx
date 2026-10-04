@@ -36,6 +36,7 @@ const EMPTY_FORM = {
 const formatDate = (value) => {
   if (!value) return "No date";
   return new Date(value).toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -45,8 +46,39 @@ const formatDate = (value) => {
 const toDateTimeLocal = (value) => {
   if (!value) return "";
   const date = new Date(value);
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  if (Number.isNaN(date.getTime())) return "";
+  // Render the stored UTC instant as Asia/Manila wall time for the
+  // datetime-local input, regardless of the browser's local timezone.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+};
+
+// datetime-local gives Manila wall time without an offset. Convert to an
+// explicit UTC ISO string so a UTC-hosted server doesn't misinterpret it
+// (same ~8-hour shift as meetings).
+const toApiDateTime = (value) => {
+  if (!value) return value;
+  const str = String(value).trim();
+  if (/[Zz]$|[+-]\d{2}:?\d{2}$/.test(str)) {
+    const direct = new Date(str);
+    return Number.isNaN(direct.getTime()) ? value : direct.toISOString();
+  }
+  const withOffset = /T\d{2}:\d{2}:\d{2}$/.test(str)
+    ? `${str}+08:00`
+    : `${str}:00+08:00`;
+  const parsed = new Date(withOffset);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 };
 
 const statusStyle = {
@@ -170,8 +202,8 @@ export default function PioDashboard({ user: propsUser, org: propsOrg }) {
     setError("");
     const payload = {
       ...form,
-      publishAt: form.publishAt || null,
-      expiresAt: form.expiresAt || null,
+      publishAt: form.publishAt ? toApiDateTime(form.publishAt) : null,
+      expiresAt: form.expiresAt ? toApiDateTime(form.expiresAt) : null,
     };
     try {
       const response = editing

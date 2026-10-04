@@ -18,6 +18,7 @@ const emptyForm = {
 
 const formatDateTime = (value) =>
   new Date(value).toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -26,8 +27,40 @@ const toDateTimeLocal = (value) => {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  // Render the stored UTC instant as Asia/Manila wall time for the
+  // datetime-local input, regardless of the browser's local timezone.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+};
+
+// datetime-local gives Manila wall time without an offset. Convert to an
+// explicit UTC ISO string so a UTC-hosted server doesn't misinterpret it
+// (which caused the ~8-hour shift).
+const toApiDateTime = (value) => {
+  if (!value) return value;
+  const str = String(value).trim();
+  // Already carries timezone info — parse directly.
+  if (/[Zz]$|[+-]\d{2}:?\d{2}$/.test(str)) {
+    const direct = new Date(str);
+    return Number.isNaN(direct.getTime()) ? value : direct.toISOString();
+  }
+  // Assume Asia/Manila wall time (datetime-local has no offset).
+  const withOffset = /T\d{2}:\d{2}:\d{2}$/.test(str)
+    ? `${str}+08:00`
+    : `${str}:00+08:00`;
+  const parsed = new Date(withOffset);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 };
 
 export default function MeetingManager() {
@@ -107,11 +140,16 @@ export default function MeetingManager() {
     event.preventDefault();
     setError("");
     setIsSaving(true);
+    const payload = {
+      ...form,
+      startDateTime: toApiDateTime(form.startDateTime),
+      endDateTime: toApiDateTime(form.endDateTime),
+    };
     try {
       if (editingMeeting) {
         const response = await API.patch(
           `/meetings/${editingMeeting._id}`,
-          form,
+          payload,
         );
         setMeetings((current) =>
           current.map((item) =>
@@ -120,7 +158,7 @@ export default function MeetingManager() {
         );
         showToast("Meeting updated successfully.", "success");
       } else {
-        const response = await API.post("/meetings", form);
+        const response = await API.post("/meetings", payload);
         setMeetings((current) => [response.data, ...current]);
         showToast("Meeting created successfully.", "success");
       }

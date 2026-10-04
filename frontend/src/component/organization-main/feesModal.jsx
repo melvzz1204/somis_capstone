@@ -93,13 +93,16 @@ export default function FeeModal({
   });
   const defaultCategories = useMemo(() => {
     const dueCategories = isCicssoFeeOrganization
-      ? CLEARANCE_REQUIREMENTS.map((requirement) => ({
+      ? CLEARANCE_REQUIREMENTS.filter(
+          (requirement) =>
+            requirement.id !== "paf" &&
+            requirement.feeCategories[0] !== "paf",
+        ).map((requirement) => ({
           value: requirement.feeCategories[0],
           label: requirement.label,
         }))
       : [
           { value: "organization_fee", label: `${orgFeePrefix} Fee` },
-          { value: "paf", label: `${orgFeePrefix} PAF` },
           {
             value: "organization_week_fee",
             label: `${orgFeePrefix} Week Fee`,

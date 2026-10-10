@@ -28,6 +28,13 @@ const ATTENDANCE_PHASE_FIELDS = {
   afternoon_out: "afternoonOutAt",
 };
 
+const ATTENDANCE_VIA_FIELDS = {
+  morning_in: "morningInVia",
+  lunch_out: "lunchOutVia",
+  afternoon_in: "afternoonInVia",
+  afternoon_out: "afternoonOutVia",
+};
+
 const hashAttendanceToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 
@@ -785,6 +792,7 @@ const scanAttendanceQr = async (req, res) => {
       });
     }
     const checkpointField = ATTENDANCE_PHASE_FIELDS[payload.phase];
+    const viaField = ATTENDANCE_VIA_FIELDS[payload.phase];
     if (payload.version === 2) {
       let dailyRecord = attendance.days.find((entry) => entry.day === day);
       if (!dailyRecord) {
@@ -799,6 +807,7 @@ const scanAttendanceQr = async (req, res) => {
         });
       }
       dailyRecord[checkpointField] = now;
+      dailyRecord[viaField] = "qr";
       dailyRecord.presentAt = dailyRecord.presentAt || now;
     } else {
       if (attendance[checkpointField]) {
@@ -809,9 +818,11 @@ const scanAttendanceQr = async (req, res) => {
         });
       }
       attendance[checkpointField] = now;
+      attendance[viaField] = "qr";
       attendance.presentAt = attendance.presentAt || now;
     }
     attendance.status = "Present";
+    attendance.lastMarkedVia = "qr";
     await attendance.save();
 
     return res.json({
@@ -831,6 +842,198 @@ const scanAttendanceQr = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Could not record attendance.",
+    });
+  }
+};
+
+const markManualAttendance = async (req, res) => {
+  try {
+    const { attendanceId, studentId, email, idNumber, day, phase, reason } =
+      req.body || {};
+
+    if (!ATTENDANCE_PHASES.has(phase)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid attendance checkpoint.",
+      });
+    }
+    const dayNumber = Number(day);
+    if (!Number.isInteger(dayNumber) || dayNumber < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid event day.",
+      });
+    }
+
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    if (event.status === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "This event is cancelled.",
+      });
+    }
+
+    const attendanceDays = ensureAttendanceDays(event);
+    const attendanceDay = attendanceDays.find(
+      (entry) => entry.day === dayNumber,
+    );
+    if (!attendanceDay) {
+      return res.status(400).json({
+        success: false,
+        message: "This event day does not exist.",
+      });
+    }
+
+    const checkpointField = ATTENDANCE_PHASE_FIELDS[phase];
+    const viaField = ATTENDANCE_VIA_FIELDS[phase];
+    const now = new Date();
+    let attendance = null;
+    let member = null;
+
+    if (attendanceId) {
+      if (!Event.db.base.Types.ObjectId.isValid(attendanceId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid attendance record.",
+        });
+      }
+      attendance = await EventAttendance.findOne({
+        _id: attendanceId,
+        event: event._id,
+      });
+      if (!attendance) {
+        return res.status(404).json({
+          success: false,
+          message: "Attendance record not found for this event.",
+        });
+      }
+    } else {
+      // Resolve the student for walk-ins (no data / never joined online).
+      let studentUser = null;
+      const cleanedEmail = String(email || "").toLowerCase().trim();
+      const cleanedIdNumber = String(idNumber || "").trim();
+
+      if (studentId && Event.db.base.Types.ObjectId.isValid(studentId)) {
+        studentUser = await User.findById(studentId).select("_id email");
+      }
+      if (!studentUser && cleanedEmail) {
+        studentUser = await User.findOne({ email: cleanedEmail }).select(
+          "_id email",
+        );
+      }
+      member =
+        (cleanedIdNumber &&
+          (await Member.findOne({
+            organization: event.org,
+            idNumber: cleanedIdNumber,
+          }))) ||
+        (cleanedEmail &&
+          (await Member.findOne({
+            organization: event.org,
+            email: cleanedEmail,
+          })));
+
+      if (!studentUser && member) {
+        studentUser = await User.findOne({
+          email: String(member.email || "").toLowerCase().trim(),
+        }).select("_id email");
+      }
+      if (!studentUser) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "No student account found. Ask the student to complete onboarding first, then mark them present.",
+        });
+      }
+      if (!member) {
+        member = await Member.findOne({
+          organization: event.org,
+          email: String(studentUser.email || "").toLowerCase().trim(),
+        });
+      }
+
+      attendance = await EventAttendance.findOne({
+        event: event._id,
+        student: studentUser._id,
+      });
+      if (!attendance) {
+        attendance = new EventAttendance({
+          event: event._id,
+          org: event.org,
+          student: studentUser._id,
+          member: member?._id || null,
+          status: "Pending",
+          joinedAt: now,
+          days: [],
+        });
+      }
+      if (member?._id && !attendance.member) {
+        attendance.member = member._id;
+      }
+      if (!attendance.joinedAt) attendance.joinedAt = now;
+    }
+
+    const manualReason = String(reason || "No mobile data").slice(0, 200);
+    let existingStamp = null;
+    let existingVia = null;
+
+    if (attendanceDays.length > 1 || attendance.days.length > 0 || dayNumber !== 1 || attendanceDay) {
+      let dailyRecord = attendance.days.find(
+        (entry) => Number(entry.day) === dayNumber,
+      );
+      if (!dailyRecord) {
+        attendance.days.push({ day: dayNumber, date: attendanceDay.date });
+        dailyRecord = attendance.days[attendance.days.length - 1];
+      }
+      existingStamp = dailyRecord[checkpointField];
+      existingVia = dailyRecord[viaField];
+      if (existingStamp) {
+        return res.json({
+          success: true,
+          message: `${ATTENDANCE_PHASE_LABELS[phase]} was already recorded${existingVia === "manual" ? " manually" : ""}.`,
+          data: attendance,
+        });
+      }
+      dailyRecord[checkpointField] = now;
+      dailyRecord[viaField] = "manual";
+      dailyRecord.presentAt = dailyRecord.presentAt || now;
+    }
+    // Keep the legacy single-day fields in sync for day 1 records.
+    if (dayNumber === 1 && !attendance[checkpointField]) {
+      attendance[checkpointField] = now;
+      attendance[viaField] = "manual";
+    }
+    attendance.presentAt = attendance.presentAt || now;
+    attendance.status = "Present";
+    attendance.lastMarkedBy = req.user._id;
+    attendance.lastMarkedVia = "manual";
+    attendance.lastManualReason = manualReason;
+    await attendance.save();
+    await attendance.populate([
+      { path: "student", select: "name email" },
+      { path: "member", select: "idNumber name year program section" },
+      { path: "lastMarkedBy", select: "name email role" },
+    ]);
+
+    return res.json({
+      success: true,
+      message: `${ATTENDANCE_PHASE_LABELS[phase]} marked present manually.`,
+      data: attendance,
+    });
+  } catch (error) {
+    console.error("Error marking manual attendance:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not mark the student present.",
     });
   }
 };
@@ -1002,6 +1205,7 @@ const getEventAttendance = async (req, res) => {
     const records = await EventAttendance.find({ event: event._id })
       .populate("student", "name email")
       .populate("member", "idNumber name year program section")
+      .populate("lastMarkedBy", "name email role")
       .sort({ status: 1, joinedAt: 1 });
     const summary = records.reduce(
       (counts, record) => {
@@ -1042,6 +1246,7 @@ module.exports = {
   configureAttendanceSchedule,
   joinEvent,
   scanAttendanceQr,
+  markManualAttendance,
   getMyAttendance,
   getMyAttendanceFines,
   getEventAttendance,

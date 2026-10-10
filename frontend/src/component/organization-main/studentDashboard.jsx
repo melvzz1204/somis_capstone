@@ -2271,6 +2271,10 @@ export default function StudentDashboard({ user: propsUser }) {
                   Verifying checkpoint...
                 </p>
               )}
+              <p className="mt-3 rounded-lg bg-amber-50 p-3 text-[11px] font-semibold text-amber-800">
+                Walang mobile data? Lumapit sa officer/secretary sa venue para
+                i-manual ang attendance mo. Magpakita ng student ID.
+              </p>
             </div>
           </div>
         )}

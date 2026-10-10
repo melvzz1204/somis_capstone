@@ -9,6 +9,7 @@ const {
   getCreatedAttendanceQrs,
   revokeAttendanceQr,
   scanAttendanceQr,
+  markManualAttendance,
   getMyAttendance,
   getMyAttendanceFines,
   getEventAttendance,
@@ -72,6 +73,12 @@ router.delete(
   protect,
   authorize("secretary"),
   revokeAttendanceQr,
+);
+router.post(
+  "/:id/attendance/manual",
+  protect,
+  authorize("secretary"),
+  markManualAttendance,
 );
 router.get(
   "/:id/attendance",

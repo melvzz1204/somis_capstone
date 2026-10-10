@@ -89,6 +89,8 @@ export default function SecretaryEvents({ resolutions = [] }) {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSearch, setAttendanceSearch] = useState("");
+  const [markingKey, setMarkingKey] = useState("");
+  const [manualReason, setManualReason] = useState("No mobile data");
 
   const adoptedResolutions = useMemo(
     () => resolutions.filter((resolution) => resolution.status === "Adopted"),
@@ -385,6 +387,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
 
   const loadAttendance = async (event) => {
     setAttendanceSearch("");
+    setManualReason("No mobile data");
     setAttendanceDialog({
       event,
       records: [],
@@ -409,6 +412,68 @@ export default function SecretaryEvents({ resolutions = [] }) {
       );
     } finally {
       setAttendanceLoading(false);
+    }
+  };
+
+  const handleManualMark = async (record, checkpoint) => {
+    if (!attendanceDialog?.event || !record || !checkpoint) return;
+    const studentName =
+      record.student?.name || record.student?.email || "this student";
+    if (
+      !window.confirm(
+        `Mark ${studentName} present for Day ${checkpoint.day} ${checkpoint.label}? Use this when the student has no mobile data.`,
+      )
+    ) {
+      return;
+    }
+    const key = `${record._id}-${checkpoint.day}-${checkpoint.phase}`;
+    setMarkingKey(key);
+    setAttendanceError("");
+    try {
+      const response = await API.post(
+        `/events/${attendanceDialog.event._id}/attendance/manual`,
+        {
+          attendanceId: record._id,
+          day: checkpoint.day,
+          phase: checkpoint.phase,
+          reason: manualReason || "No mobile data",
+        },
+      );
+      const updated = response.data || response;
+      setAttendanceDialog((current) => {
+        if (!current) return current;
+        const nextRecords = current.records.map((item) =>
+          item._id === record._id ? { ...item, ...updated } : item,
+        );
+        const presentCount = nextRecords.filter(
+          (item) => item.status === "Present",
+        ).length;
+        return {
+          ...current,
+          records: nextRecords,
+          summary: current.summary
+            ? {
+                ...current.summary,
+                present: presentCount,
+                pending: nextRecords.length - presentCount,
+                joined: nextRecords.length,
+              }
+            : current.summary,
+        };
+      });
+      showToast(
+        response.message || `${studentName} marked present.`,
+        "success",
+      );
+    } catch (requestError) {
+      const message =
+        requestError.response?.data?.message ||
+        requestError.message ||
+        "Unable to mark the student present.";
+      setAttendanceError(message);
+      showToast(message, "error");
+    } finally {
+      setMarkingKey("");
     }
   };
 
@@ -457,10 +522,16 @@ export default function SecretaryEvents({ resolutions = [] }) {
     ? attendanceDialog.records.filter((record) => {
         const query = attendanceSearch.trim().toLocaleLowerCase();
         if (!query) return true;
-        const studentName = String(
-          record.student?.name || "",
-        ).toLocaleLowerCase();
-        return studentName.includes(query);
+        const haystack = [
+          record.student?.name,
+          record.student?.email,
+          record.member?.idNumber,
+          record.member?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+        return haystack.includes(query);
       })
     : [];
 
@@ -996,7 +1067,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                     htmlFor="attendance-name-search"
                     className="mb-1.5 block text-[10px] font-bold uppercase text-slate-500"
                   >
-                    Search student name
+                    Search student name, ID, or email
                   </label>
                   <div className="relative">
                     <Search
@@ -1010,10 +1081,34 @@ export default function SecretaryEvents({ resolutions = [] }) {
                       onChange={(event) =>
                         setAttendanceSearch(event.target.value)
                       }
-                      placeholder="Type a student name..."
+                      placeholder="Type a name, student ID, or email..."
                       className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
                     />
                   </div>
+                  <p className="mt-2 text-[10px] text-slate-500">
+                    No mobile data ang estudyante? Hanapin siya sa lista at
+                    pindutin ang{" "}
+                    <span className="font-bold text-[#4A0E17]">
+                      Mark present
+                    </span>{" "}
+                    sa tamang checkpoint.
+                  </p>
+                  <label className="mt-2 block text-[10px] font-bold uppercase text-slate-500">
+                    Reason for manual mark
+                    <select
+                      value={manualReason}
+                      onChange={(event) =>
+                        setManualReason(event.target.value)
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium normal-case text-slate-700 outline-none focus:border-[#4A0E17]"
+                    >
+                      <option>No mobile data</option>
+                      <option>Phone battery empty</option>
+                      <option>QR scan failed</option>
+                      <option>Late arrival verified</option>
+                      <option>Other verified on-site</option>
+                    </select>
+                  </label>
                 </div>
                 <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-slate-100">
                   {attendanceDialog.records.length === 0 ? (
@@ -1022,7 +1117,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                     </p>
                   ) : filteredAttendanceRecords.length === 0 ? (
                     <p className="p-6 text-center text-xs text-slate-500">
-                      No student names match “{attendanceSearch.trim()}”.
+                      No students match “{attendanceSearch.trim()}”.
                     </p>
                   ) : (
                     <table className="min-w-full text-left text-[10px]">
@@ -1061,25 +1156,61 @@ export default function SecretaryEvents({ resolutions = [] }) {
                               const dailyRecord = record.days?.find(
                                 (day) => Number(day.day) === checkpoint.day,
                               );
-                              const scannedAt = dailyRecord?.[checkpoint.field];
+                              const scannedAt =
+                                dailyRecord?.[checkpoint.field] ??
+                                (checkpoint.day === 1
+                                  ? record?.[checkpoint.field]
+                                  : null);
+                              const viaField = String(
+                                checkpoint.field || "",
+                              ).replace(/At$/, "Via");
+                              const markedVia =
+                                dailyRecord?.[viaField] ??
+                                (checkpoint.day === 1
+                                  ? record?.[viaField]
+                                  : null);
+                              const isManual = markedVia === "manual";
+                              const cellKey = `${record._id}-${checkpoint.day}-${checkpoint.phase}`;
+                              const isMarking = markingKey === cellKey;
                               return (
                                 <td
                                   key={`${checkpoint.day}-${checkpoint.phase}`}
                                   className="whitespace-nowrap px-3 py-2.5"
                                 >
-                                  <span
-                                    className={`rounded-md border px-2 py-1 font-bold ${scannedAt ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"}`}
-                                  >
-                                    {scannedAt
-                                      ? new Date(scannedAt).toLocaleTimeString(
+                                  {scannedAt ? (
+                                    <span className="inline-flex flex-col items-start gap-1">
+                                      <span
+                                        className={`rounded-md border px-2 py-1 font-bold ${isManual ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
+                                      >
+                                        {new Date(scannedAt).toLocaleTimeString(
                                           "en-PH",
                                           {
                                             hour: "numeric",
                                             minute: "2-digit",
                                           },
-                                        )
-                                      : "Not scanned"}
-                                  </span>
+                                        )}
+                                      </span>
+                                      {isManual && (
+                                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-800">
+                                          Manual
+                                        </span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={isMarking}
+                                      onClick={() =>
+                                        handleManualMark(record, checkpoint)
+                                      }
+                                      title="Mark present manually (for students with no mobile data)"
+                                      className="rounded-md border border-[#4A0E17]/30 bg-white px-2 py-1 font-bold text-[#4A0E17] hover:bg-[#4A0E17] hover:text-white disabled:cursor-wait disabled:opacity-50"
+                                    >
+                                      {isMarking
+                                        ? "Marking..."
+                                        : "Mark present"}
+                                    </button>
+                                  )}
                                 </td>
                               );
                             })}

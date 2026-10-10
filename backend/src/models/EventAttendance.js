@@ -1,5 +1,11 @@
 const mongoose = require("mongoose");
 
+const checkinSourceSchema = {
+  type: String,
+  enum: ["qr", "manual"],
+  default: null,
+};
+
 const dailyAttendanceSchema = new mongoose.Schema(
   {
     day: { type: Number, required: true, min: 1 },
@@ -9,6 +15,10 @@ const dailyAttendanceSchema = new mongoose.Schema(
     afternoonInAt: { type: Date, default: null },
     afternoonOutAt: { type: Date, default: null },
     presentAt: { type: Date, default: null },
+    morningInVia: checkinSourceSchema,
+    lunchOutVia: checkinSourceSchema,
+    afternoonInVia: checkinSourceSchema,
+    afternoonOutVia: checkinSourceSchema,
   },
   { _id: false },
 );
@@ -51,6 +61,17 @@ const eventAttendanceSchema = new mongoose.Schema(
     afternoonInAt: { type: Date, default: null },
     afternoonOutAt: { type: Date, default: null },
     presentAt: { type: Date, default: null },
+    morningInVia: checkinSourceSchema,
+    lunchOutVia: checkinSourceSchema,
+    afternoonInVia: checkinSourceSchema,
+    afternoonOutVia: checkinSourceSchema,
+    lastMarkedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    lastMarkedVia: checkinSourceSchema,
+    lastManualReason: { type: String, trim: true, default: "" },
   },
   { timestamps: true },
 );

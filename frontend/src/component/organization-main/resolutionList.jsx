@@ -43,6 +43,7 @@ export default function ResolutionList({
   onDelete,
 }) {
   const [view, setView] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedResolution, setSelectedResolution] = useState(null);
 
   const views = useMemo(
@@ -81,9 +82,9 @@ export default function ResolutionList({
   );
 
   const visibleResolutions = useMemo(() => {
-    if (view === "all") return resolutions;
+    let filtered = resolutions;
     if (view === "Submitted") {
-      return resolutions.filter((item) =>
+      filtered = filtered.filter((item) =>
         [
           "Submitted",
           "Pending Adviser Review",
@@ -92,9 +93,31 @@ export default function ResolutionList({
           "Pending OVPSAS Approval",
         ].includes(item.status),
       );
+    } else if (view !== "all") {
+      filtered = filtered.filter((item) => item.status === view);
     }
-    return resolutions.filter((item) => item.status === view);
-  }, [view, resolutions]);
+
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return filtered;
+
+    return filtered.filter((item) => {
+      const proposal = item.activityProposal || {};
+      const haystack = [
+        item.title,
+        item.subject,
+        item.resolutionNumber,
+        item.baseResolutionNumber,
+        item.status,
+        proposal.proposalTitle,
+        proposal.activityCategory,
+        item.meeting?.title,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [view, resolutions, searchQuery]);
 
   if (isLoading) {
     return (
@@ -106,6 +129,41 @@ export default function ResolutionList({
 
   return (
     <div className="space-y-4">
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"
+            />
+          </svg>
+        </span>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search title, number, subject..."
+          aria-label="Search resolutions"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:border-[#4A0E17]/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#4A0E17]/10"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-sm font-bold leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+          >
+            ×
+          </button>
+        )}
+      </div>
       <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
         <div>
           <h3 className="text-base font-bold text-[#4A0E17]">Resolutions</h3>
@@ -149,12 +207,24 @@ export default function ResolutionList({
       {visibleResolutions.length === 0 ? (
         <div className="border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
           <p className="text-sm font-bold text-slate-700">
-            No resolutions in this view
+            {searchQuery.trim()
+              ? `No resolutions found for "${searchQuery.trim()}"`
+              : "No resolutions in this view"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Create a resolution from a concluded meeting to begin the approval
-            chain.
+            {searchQuery.trim()
+              ? "Try a different keyword or clear the search to see all resolutions in this view."
+              : "Create a resolution from a concluded meeting to begin the approval chain."}
           </p>
+          {searchQuery.trim() && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="mt-4 rounded-lg border border-[#4A0E17]/30 px-4 py-2 text-xs font-bold text-[#4A0E17] hover:bg-[#4A0E17]/5"
+            >
+              Clear search
+            </button>
+          )}
         </div>
       ) : (
         <div className="divide-y divide-slate-200 border border-slate-200 bg-white">

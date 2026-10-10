@@ -903,7 +903,7 @@ export default function ResolutionModal({
                     onChange={updateProposalField}
                     className="h-4 w-4 rounded border-slate-300 text-[#4A0E17]"
                   />
-                  This activity will require a dues collection (fee drive).
+                  This activity will require a dues collection.
                 </label>
               </div>
             </section>

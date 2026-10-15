@@ -188,7 +188,6 @@ export default function OrgDashboard() {
   const YEAR_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"];
   const [classForm, setClassForm] = useState({
     program: "",
-    section: "",
     presidentSurname: "",
     presidentFirstName: "",
     presidentMiddleInitial: "",
@@ -196,6 +195,7 @@ export default function OrgDashboard() {
     presidentEmail: "",
     presidentIdNumber: "",
     presidentYearLevel: "",
+    presidentSection: "",
     presidentContactNumber: "",
     presidentBirthday: "",
     treasurerSurname: "",
@@ -205,13 +205,13 @@ export default function OrgDashboard() {
     treasurerEmail: "",
     treasurerIdNumber: "",
     treasurerYearLevel: "",
+    treasurerSection: "",
     treasurerContactNumber: "",
     treasurerBirthday: "",
   });
   const resetClassForm = () =>
     setClassForm({
       program: "",
-      section: "",
       presidentSurname: "",
       presidentFirstName: "",
       presidentMiddleInitial: "",
@@ -219,6 +219,7 @@ export default function OrgDashboard() {
       presidentEmail: "",
       presidentIdNumber: "",
       presidentYearLevel: "",
+      presidentSection: "",
       presidentContactNumber: "",
       presidentBirthday: "",
       treasurerSurname: "",
@@ -228,10 +229,12 @@ export default function OrgDashboard() {
       treasurerEmail: "",
       treasurerIdNumber: "",
       treasurerYearLevel: "",
+      treasurerSection: "",
       treasurerContactNumber: "",
       treasurerBirthday: "",
     });
-  // Organization roster options for picking class officers.
+  // Organization roster options for picking class officers (members
+  // registered under this organization).
   const [rosterOptions, setRosterOptions] = useState([]);
   const [isLoadingRosterOptions, setIsLoadingRosterOptions] = useState(false);
   // OVPSAS program catalog for the org's college (class program dropdown).
@@ -243,14 +246,49 @@ export default function OrgDashboard() {
   });
   const [openOfficerSearch, setOpenOfficerSearch] = useState(null);
 
+  // Alphanumeric-only lowercase for tolerant program comparison
+  // ("BSIS" matches "BS Information Systems" via acronym, "B.S.I.T"
+  // matches "BSIT" via normalization).
+  const normProgram = (value) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const programAcronym = (value) =>
+    (String(value || "").match(/[A-Z0-9]/g) || [])
+      .join("")
+      .toLowerCase();
+  const programMatches = (memberProgram, selectedProgram) => {
+    const member = normProgram(memberProgram);
+    const selected = normProgram(selectedProgram);
+    if (!member || !selected) return false;
+    if (member === selected) return true;
+    return (
+      programAcronym(memberProgram) === selected ||
+      programAcronym(selectedProgram) === member
+    );
+  };
+
   const filterRosterOptions = (query) => {
     const q = String(query || "").trim().toLowerCase();
-    const matches = (member) =>
+    const program = String(classForm.program || "").trim();
+    const textMatches = (member) =>
       [member.name, member.email, member.idNumber, member.section].some(
         (value) => String(value || "").toLowerCase().includes(q),
       );
-    const list = q ? rosterOptions.filter(matches) : rosterOptions;
-    return list.slice(0, 8);
+    if (!program) {
+      const list = q ? rosterOptions.filter(textMatches) : rosterOptions;
+      return { results: list.slice(0, 8), programFallback: false };
+    }
+    const strict = rosterOptions.filter(
+      (member) => programMatches(member.program, program) && textMatches(member),
+    );
+    if (strict.length > 0 || rosterOptions.length === 0) {
+      return { results: strict.slice(0, 8), programFallback: false };
+    }
+    // Roster program labels don't match the catalog (e.g. legacy rows):
+    // fall back to the full roster instead of showing nothing.
+    const list = q ? rosterOptions.filter(textMatches) : rosterOptions;
+    return { results: list.slice(0, 8), programFallback: true };
   };
 
   const openClassModal = async () => {
@@ -295,11 +333,31 @@ export default function OrgDashboard() {
     }
   };
 
-  const applyRosterPick = (memberId, prefix) => {
+  const applyRosterPick = async (memberId, prefix) => {
     const picked = rosterOptions.find(
       (member) => String(member._id) === String(memberId),
     );
     if (!picked) return;
+    const normalizeYearOption = (value) => {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      if (/^5th/i.test(text)) return "5th Year";
+      return (
+        YEAR_OPTIONS.find(
+          (option) => option.toLowerCase() === text.toLowerCase(),
+        ) || ""
+      );
+    };
+    const toDateInput = (value) => {
+      if (!value) return "";
+      const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+      const date = new Date(value);
+      return Number.isNaN(date.getTime())
+        ? ""
+        : date.toISOString().split("T")[0];
+    };
+    const displayName = picked.name || picked.email || "";
     setClassForm((current) => ({
       ...current,
       [`${prefix}Surname`]: picked.surname || "",
@@ -307,15 +365,47 @@ export default function OrgDashboard() {
       [`${prefix}MiddleInitial`]: picked.middleInitial || "",
       [`${prefix}Suffix`]: picked.suffix || "",
       [`${prefix}Email`]: picked.email || "",
+      [`${prefix}IdNumber`]: picked.idNumber || "",
+      [`${prefix}YearLevel`]: normalizeYearOption(picked.year),
+      [`${prefix}Section`]: picked.section || "",
+      [`${prefix}Birthday`]: toDateInput(picked.birthday),
     }));
-    setOfficerSearch((current) => ({ ...current, [prefix]: picked.name || "" }));
+    setOfficerSearch((current) => ({ ...current, [prefix]: displayName }));
     setOpenOfficerSearch(null);
+    // The contact number lives on the student profile, not the roster row —
+    // fetch it so every input is filled. Roster values stay as fallback.
+    const email = String(picked.email || "").trim();
+    if (!email) return;
+    try {
+      const response = await API.get("/orgmembers/student-lookup", {
+        params: { email },
+      });
+      const data = response?.data;
+      if (!data) return;
+      setClassForm((current) => ({
+        ...current,
+        [`${prefix}ContactNumber`]:
+          data.contactNumber || current[`${prefix}ContactNumber`],
+        [`${prefix}IdNumber`]:
+          current[`${prefix}IdNumber`] || data.studentIdNumber || "",
+        [`${prefix}YearLevel`]:
+          current[`${prefix}YearLevel`] ||
+          normalizeYearOption(data.yearLevel),
+        [`${prefix}Section`]:
+          current[`${prefix}Section`] || data.section || "",
+        [`${prefix}Birthday`]:
+          current[`${prefix}Birthday`] || toDateInput(data.birthDate),
+      }));
+    } catch {
+      // Roster data is already filled; contact number stays manual.
+    }
   };
 
   const renderOfficerSearch = (prefix, title) => {
     const query = officerSearch[prefix] || "";
-    const results = filterRosterOptions(query);
+    const { results, programFallback } = filterRosterOptions(query);
     const isOpen = openOfficerSearch === prefix;
+    const programFilter = String(classForm.program || "").trim();
     return (
       <div className="relative">
         <input
@@ -324,7 +414,9 @@ export default function OrgDashboard() {
           placeholder={
             isLoadingRosterOptions
               ? "Loading organization roster..."
-              : `Search registered members for ${title}...`
+              : programFilter
+                ? `Search ${programFilter} members for ${title}...`
+                : `Search registered members for ${title}...`
           }
           disabled={isLoadingRosterOptions}
           value={query}
@@ -341,11 +433,19 @@ export default function OrgDashboard() {
         />
         {isOpen && !isLoadingRosterOptions && (
           <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+            {programFallback && (
+              <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+                No exact {programFilter} match in the roster — showing all
+                members.
+              </p>
+            )}
             {results.length === 0 ? (
               <p className="px-3 py-2.5 text-[11px] text-slate-400">
                 {query.trim()
-                  ? "No matching members. Fill the fields manually below."
-                  : "No roster members available. Fill the fields manually below."}
+                  ? `No matching members${programFilter ? ` in ${programFilter}` : ""}. Fill the fields manually below.`
+                  : programFilter
+                    ? `No ${programFilter} members in the roster. Fill the fields manually below.`
+                    : "No roster members available. Fill the fields manually below."}
               </p>
             ) : (
               results.map((member) => (
@@ -363,7 +463,9 @@ export default function OrgDashboard() {
                     </span>
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    {[member.role, member.email].filter(Boolean).join(" — ")}
+                    {[member.program, member.email]
+                      .filter(Boolean)
+                      .join(" — ")}
                   </span>
                 </button>
               ))
@@ -677,10 +779,28 @@ export default function OrgDashboard() {
 
   const handleClassSubmit = async (event) => {
     event.preventDefault();
+    const presidentSection = String(classForm.presidentSection || "").trim();
+    const treasurerSection = String(classForm.treasurerSection || "").trim();
+    if (
+      presidentSection &&
+      treasurerSection &&
+      presidentSection.toLowerCase() !== treasurerSection.toLowerCase()
+    ) {
+      showToast(
+        "President and treasurer must be from the same section.",
+        "error",
+        15000,
+      );
+      return;
+    }
     setIsClassSubmitting(true);
     setClassSetupLinks(null);
     try {
-      const response = await API.post("/organizations/classes", classForm);
+      // The class section comes from the president's section.
+      const response = await API.post("/organizations/classes", {
+        ...classForm,
+        section: presidentSection,
+      });
       setIsClassModalOpen(false);
       resetClassForm();
       if (response?._id) {
@@ -1915,7 +2035,7 @@ export default function OrgDashboard() {
 
       {isClassModalOpen && (
         <div className="modal-backdrop">
-          <div className="modal-panel max-w-lg p-5 sm:p-6 space-y-5">
+          <div className="modal-panel modal-panel-wide max-w-5xl p-5 sm:p-6 space-y-5">
             <div className="flex items-start justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-[#4A0E17]">
@@ -1968,17 +2088,8 @@ export default function OrgDashboard() {
                   />
                 )}
               </label>
-              <label className="block font-bold text-[#4A0E17]">
-                Section
-                <input
-                  name="section"
-                  required
-                  placeholder="e.g. 3B"
-                  value={classForm.section}
-                  onChange={handleClassInput}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
-                />
-              </label>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block font-bold text-[#4A0E17] sm:col-span-2">
                   Class President
@@ -2016,6 +2127,8 @@ export default function OrgDashboard() {
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
                   />
                 </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="block font-bold text-[#4A0E17]">
                   ID Number <span className="text-rose-600">*</span>
                   <input
@@ -2047,6 +2160,19 @@ export default function OrgDashboard() {
                   </select>
                 </label>
                 <label className="block font-bold text-[#4A0E17]">
+                  Section <span className="text-rose-600">*</span>
+                  <input
+                    name="presidentSection"
+                    required
+                    placeholder="e.g. 3B"
+                    value={classForm.presidentSection}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block font-bold text-[#4A0E17]">
                   Contact Number <span className="text-rose-600">*</span>
                   <input
                     name="presidentContactNumber"
@@ -2070,6 +2196,8 @@ export default function OrgDashboard() {
                   />
                 </label>
               </div>
+                </div>
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block font-bold text-[#4A0E17] sm:col-span-2">
                   Class Treasurer
@@ -2107,6 +2235,8 @@ export default function OrgDashboard() {
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
                   />
                 </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="block font-bold text-[#4A0E17]">
                   ID Number <span className="text-rose-600">*</span>
                   <input
@@ -2138,6 +2268,19 @@ export default function OrgDashboard() {
                   </select>
                 </label>
                 <label className="block font-bold text-[#4A0E17]">
+                  Section <span className="text-rose-600">*</span>
+                  <input
+                    name="treasurerSection"
+                    required
+                    placeholder="e.g. 3B"
+                    value={classForm.treasurerSection}
+                    onChange={handleClassInput}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block font-bold text-[#4A0E17]">
                   Contact Number <span className="text-rose-600">*</span>
                   <input
                     name="treasurerContactNumber"
@@ -2160,6 +2303,8 @@ export default function OrgDashboard() {
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal focus:border-[#4A0E17] focus:outline-none"
                   />
                 </label>
+              </div>
+                </div>
               </div>
               <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
                 <button

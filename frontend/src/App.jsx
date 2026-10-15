@@ -16,6 +16,7 @@ import ClassDashboard from "./pages/classDashboard.jsx";
 import ClassTreasurerDashboard from "./pages/classTreasurerDashboard.jsx";
 import OrgPioPage from "./pages/orgPioPage.jsx";
 import ClearanceVisualHarness from "./component/organization-main/ClearanceVisualHarness.jsx";
+import TermsModal from "./component/termsModal.jsx";
 
 function App() {
   useEffect(() => {
@@ -60,6 +61,7 @@ function App() {
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <TermsModal />
     </BrowserRouter>
   );
 }

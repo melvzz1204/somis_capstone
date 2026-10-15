@@ -1144,7 +1144,7 @@ export default function LandingPage() {
                 </span>
                 <div>
                   <div className="text-sm font-bold text-[#1a2332]">
-                    Regular Student Members
+                    Student Members
                   </div>
                   <div className="text-xs text-[#6b7289] mt-0.5">
                     Join orgs, pay dues, attend events, and track your personal
@@ -1422,7 +1422,7 @@ export default function LandingPage() {
                 {[
                   {
                     q: "Who can access SOMIS?",
-                    a: "SOMIS is open to three groups: (1) registered student organization officers, (2) regular student members, and (3) OVPSAS administrators. Officers and OVPSAS are provisioned via official invites; members self-register through their college and organization.",
+                    a: "SOMIS is open to three groups: (1) registered student organization officers, (2) student members, and (3) OVPSAS administrators. Officers and OVPSAS are provisioned via official invites; members self-register through their college and organization.",
                   },
                   {
                     q: "How do fees and receipts work?",
@@ -1714,8 +1714,19 @@ export default function LandingPage() {
               © {new Date().getFullYear()} Marinduque State University Office
               of the Vice President for Student Affairs. All rights reserved.
             </span>
-            <span className="font-mono text-[10px] tracking-widest uppercase text-[#9aa0b3]">
-              SOMIS • Designed for MarSU
+            <span className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(new Event("somis:open-terms"))
+                }
+                className="font-medium text-[#6b7289] hover:text-[#4a0e17] transition-colors underline-offset-2 hover:underline cursor-pointer"
+              >
+                Terms & Conditions
+              </button>
+              <span className="font-mono text-[10px] tracking-widest uppercase text-[#9aa0b3]">
+                SOMIS • Designed for MarSU
+              </span>
             </span>
           </div>
         </div>

@@ -34,6 +34,19 @@ const meetingSchema = new mongoose.Schema(
       default: "All Members",
       index: true,
     },
+    // Optional narrowing of the audience. Empty means "all" within the
+    // selected audience (e.g. every year level / every section).
+    targetYear: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    targetSection: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: "",
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -46,6 +59,37 @@ const meetingSchema = new mongoose.Schema(
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       default: [],
       index: true,
+    },
+    // Self RSVP: members who tapped "Join" on the meeting.
+    joins: {
+      type: [
+        {
+          user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+          name: { type: String, trim: true, default: "" },
+          email: { type: String, lowercase: true, trim: true, default: "" },
+          joinedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
+    // Final record: the president's manual present/absent marking after
+    // (or during) the meeting. Walk-ins are recorded here too.
+    attendance: {
+      type: [
+        {
+          user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+          },
+          name: { type: String, trim: true, default: "" },
+          email: { type: String, lowercase: true, trim: true, default: "" },
+          present: { type: Boolean, default: false },
+          markedAt: { type: Date, default: Date.now },
+          markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        },
+      ],
+      default: [],
     },
   },
   { timestamps: true },

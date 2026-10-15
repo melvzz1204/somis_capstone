@@ -90,7 +90,7 @@ export default function PortalChooserModal({
                 Member Portal
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Continue as a regular student member — pay dues, join events
+                Continue as a student member — pay dues, join events
                 and meetings, and track your clearance.
               </p>
             </div>

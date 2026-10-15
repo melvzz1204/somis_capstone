@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useLogout } from "../util/useLogout"; // Adjust path if needed
 
 // Inline Logout SVG Icon
@@ -111,14 +112,17 @@ export default function LogoutButton({
     <>
       {renderTrigger()}
 
-      {/* CONFIRMATION MODAL */}
-      {isOpen && (
-        <div
-          className="modal-backdrop modal-backdrop-front"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="logout-dialog-title"
-        >
+      {/* CONFIRMATION MODAL — portaled to body so it always sits above
+          sticky headers, sidebars, and tab bars regardless of parent
+          stacking contexts. */}
+      {isOpen &&
+        createPortal(
+          <div
+            className="modal-backdrop modal-backdrop-front"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-dialog-title"
+          >
           <div className="modal-panel max-w-sm p-5 sm:p-6 space-y-4 text-center">
             <div className="w-12 h-12 bg-rose-100 border border-rose-200 text-rose-700 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
               <LogoutIcon className="w-6 h-6" />
@@ -154,8 +158,9 @@ export default function LogoutButton({
               </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

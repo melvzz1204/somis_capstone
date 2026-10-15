@@ -6,6 +6,10 @@ const {
   deleteMeeting,
   getUnreadCount,
   markMeetingViewed,
+  joinMeeting,
+  leaveMeeting,
+  getAttendance,
+  saveAttendance,
 } = require("../controllers/meetingController");
 const { protect, authorize } = require("../middleware/authMiddileware");
 
@@ -20,6 +24,16 @@ router
 // mistaken for a meeting id).
 router.get("/unread-count", protect, getUnreadCount);
 router.patch("/:id/view", protect, markMeetingViewed);
+
+// Self RSVP (any member who can see the meeting).
+router.post("/:id/join", protect, joinMeeting);
+router.delete("/:id/join", protect, leaveMeeting);
+
+// Final attendance record (organization president / OVPSAS admin).
+router
+  .route("/:id/attendance")
+  .get(protect, authorize("org_admin", "admin"), getAttendance)
+  .put(protect, authorize("org_admin", "admin"), saveAttendance);
 
 router
   .route("/:id")

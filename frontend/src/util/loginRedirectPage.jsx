@@ -52,7 +52,7 @@ export const getRedirectPathByRole = (roleOrUser) => {
       if (organizationType === "class") return "/class-dashboard";
       return "/org-dashboard";
 
-    // Regular Student Member Route
+    // Student Member Route
     case "student":
       return "/student-dashboard";
 

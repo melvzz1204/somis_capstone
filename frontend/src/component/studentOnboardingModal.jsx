@@ -388,7 +388,7 @@ export default function StudentOnboardingModal({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#4A0E17]">
-                    Regular Student Member
+                    Student Member
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     I want to join organizations, attend activities, and track

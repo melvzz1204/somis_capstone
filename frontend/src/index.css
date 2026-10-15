@@ -148,6 +148,10 @@
     width: min(100%, 42rem); max-height: calc(100dvh - 2rem); overflow-y: auto; background: #fff;
     border: 1px solid rgb(255 255 255 / 15%); border-radius: .85rem; box-shadow: 0 24px 64px rgb(0 0 0 / 28%);
   }
+  /* Extra-wide dialogs (e.g. split president/treasurer forms). */
+  .modal-panel-wide {
+    width: min(100%, 68rem);
+  }
   .empty-state {
     display: grid; min-height: 12rem; place-items: center; padding: 2rem; color: var(--somis-muted);
     text-align: center; border: 1px dashed #d8d2c0; border-radius: .5rem; background: #fdfbf6;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../api/axios";
 import { useToast } from "../../util/toastContext";
 import {
@@ -185,6 +185,14 @@ export default function OrganizationMembers({
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
 
+  // Search-then-autofill: officer must already be registered as a student
+  // member. Adviser / Dean roles are exempt (no student profile needed).
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [lookupResults, setLookupResults] = useState([]);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState(null);
+  const [isAutoFilled, setIsAutoFilled] = useState(false);
+
   const [formData, setFormData] = useState({
     idNumber: "",
     name: "",
@@ -306,6 +314,10 @@ export default function OrganizationMembers({
     });
     setAvatarFile(null);
     setAvatarPreview(null);
+    setLookupQuery("");
+    setLookupResults([]);
+    setLookupMessage(null);
+    setIsAutoFilled(false);
     setIsModalOpen(true);
   };
 
@@ -347,6 +359,10 @@ export default function OrganizationMembers({
     });
     setAvatarFile(null);
     setAvatarPreview(officer.avatar ? getAvatarSrc(officer.avatar) : null);
+    setLookupQuery("");
+    setLookupResults([]);
+    setLookupMessage(null);
+    setIsAutoFilled(false);
     setIsModalOpen(true);
   };
 
@@ -368,6 +384,161 @@ export default function OrganizationMembers({
       setAvatarPreview(URL.createObjectURL(file));
     }
   };
+
+  const applyStudentLookupData = (data) => {
+    if (!data) return;
+    const toDateInput = (value) => {
+      if (!value) return "";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toISOString().split("T")[0];
+    };
+    const year =
+      data.yearLevel === "5th Year+" ? "5th Year" : data.yearLevel || "1st Year";
+    // Tolerant program match ("BSIS" matches "BS Information Systems"):
+    // store the catalog's canonical name so the dropdown displays it.
+    // Kapag wala talaga sa catalog, blank na lang (manual).
+    const normProgram = (value) =>
+      String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+    const programAcronym = (value) =>
+      (String(value || "").match(/[A-Z0-9]/g) || [])
+        .join("")
+        .toLowerCase();
+    const wanted = normProgram(data.program);
+    const catalogMatch = wanted
+      ? programs.find((item) => {
+          const canonical = normProgram(item.name);
+          return (
+            canonical === wanted ||
+            programAcronym(item.name) === wanted ||
+            programAcronym(data.program) === canonical
+          );
+        })
+      : null;
+    const matchedProgram = catalogMatch ? catalogMatch.name : "";
+    setFormData((prev) => ({
+      ...prev,
+      surname: data.lastName || prev.surname,
+      firstName: data.firstName || prev.firstName,
+      middleInitial: data.middleInitial || "",
+      suffix: data.suffix || "",
+      idNumber: data.studentIdNumber || prev.idNumber,
+      email: data.email || prev.email,
+      birthday: toDateInput(data.birthDate),
+      year,
+      program: matchedProgram,
+      section: data.section || prev.section,
+    }));
+    setIsAutoFilled(true);
+  };
+
+  const handleStudentLookup = async (e) => {
+    e?.preventDefault?.();
+    const query = lookupQuery.trim();
+    if (!query) {
+      setLookupMessage({ type: "error", text: "Maglagay ng pangalan, email, o student ID para maghanap." });
+      return;
+    }
+    setIsLookingUp(true);
+    setLookupMessage(null);
+    setLookupResults([]);
+    try {
+      const params = query.includes("@") ? { email: query } : { q: query };
+      const response = await API.get("/orgmembers/student-lookup", { params });
+      const results = response?.results || (response?.data ? [response.data] : []);
+      if (!results.length) {
+        setLookupMessage({
+          type: "error",
+          text: "Walang nahanap na student member sa org na ito. Pwede mo pa ring i-manual fill ang form.",
+        });
+        return;
+      }
+      if (results.length === 1) {
+        applyStudentLookupData(results[0]);
+      } else {
+        setLookupResults(results);
+        setLookupMessage({
+          type: "info",
+          text: `${results.length} found. Select the correct student to auto-fill.`,
+        });
+      }
+    } catch (err) {
+      setLookupMessage({
+        type: "error",
+        text:
+          err?.message ||
+          "Walang nahanap na student member sa org na ito. Pwede mo pa ring i-manual fill ang form.",
+      });
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  // Live search: debounced call mula sa input onChange (hindi effect para
+  // iwas cascading-render lint). Single match sa live = list pa rin,
+  // click-to-autofill para hindi ma-overwrite habang nagta-type.
+  const liveSearchTimer = useRef(null);
+  const runLiveStudentSearch = useCallback(async (query) => {
+    const trimmed = String(query || "").trim();
+    if (trimmed.length < 2) {
+      setLookupResults([]);
+      setIsLookingUp(false);
+      return;
+    }
+    setIsLookingUp(true);
+    try {
+      const response = await API.get("/orgmembers/student-lookup", {
+        params: { q: trimmed },
+      });
+      const results = response?.results || (response?.data ? [response.data] : []);
+      setLookupResults(results);
+      if (!results.length) {
+        setLookupMessage({
+          type: "error",
+          text: "Walang nahanap na student member sa org na ito. Pwede mo pa ring i-manual fill ang form.",
+        });
+      } else {
+        setLookupMessage({
+          type: "info",
+          text: `${results.length} found. Select the correct student to auto-fill.`,
+        });
+      }
+    } catch (_err) {
+      setLookupResults([]);
+      if (_err?.status === 404) {
+        setLookupMessage({
+          type: "error",
+          text: "Walang nahanap na student member sa org na ito. Pwede mo pa ring i-manual fill ang form.",
+        });
+      }
+    } finally {
+      setIsLookingUp(false);
+    }
+  }, []);
+
+  const handleLookupQueryChange = (value) => {
+    setLookupQuery(value);
+    if (isAutoFilled) setIsAutoFilled(false);
+    if (liveSearchTimer.current) window.clearTimeout(liveSearchTimer.current);
+    const trimmed = String(value || "").trim();
+    if (trimmed.length < 2) {
+      setLookupResults([]);
+      setLookupMessage(null);
+      setIsLookingUp(false);
+      return;
+    }
+    setIsLookingUp(true);
+    liveSearchTimer.current = window.setTimeout(() => {
+      runLiveStudentSearch(trimmed);
+    }, 350);
+  };
+
+  // Clear pending live-search timer on unmount.
+  useEffect(() => () => {
+    if (liveSearchTimer.current) window.clearTimeout(liveSearchTimer.current);
+  }, []);
 
   // Submit Handler for Member Add/Edit
   const handleSubmit = async (e) => {
@@ -750,7 +921,7 @@ export default function OrganizationMembers({
       {/* MODAL 1: ADD / EDIT OFFICER */}
       {(canManageOfficers || canManageMembers) && isModalOpen && (
         <div className="modal-backdrop">
-          <div className="modal-panel max-w-md p-5 sm:p-6 space-y-4">
+          <div className="modal-panel max-w-2xl p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-[#4A0E17]/10 border border-[#4A0E17]/20 rounded-xl text-[#4A0E17]">
@@ -771,7 +942,78 @@ export default function OrganizationMembers({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-              <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              {!editingOfficer && !isMemberDirectory && !isFacultySignatory && (
+                <div className="rounded-xl border border-[#4A0E17]/15 bg-[#4A0E17]/5 p-3 space-y-2">
+                  <p className="font-bold text-slate-800">
+                    Search registered student member
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={lookupQuery}
+                      onChange={(e) => handleLookupQueryChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleStudentLookup(e);
+                      }}
+                      placeholder="Type name, email, o student ID… (live)"
+                      autoComplete="off"
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleStudentLookup}
+                      disabled={isLookingUp}
+                      title="Exact lookup (email / ID)"
+                      className="px-3 py-2 bg-[#4A0E17] hover:bg-[#601520] text-white font-bold rounded-lg disabled:opacity-50 shrink-0 cursor-pointer"
+                    >
+                      {isLookingUp ? "…" : "Go"}
+                    </button>
+                  </div>
+                  {isLookingUp && (
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Searching…
+                    </p>
+                  )}
+                  {lookupMessage && (
+                    <p
+                      className={`rounded-lg border px-3 py-2 text-[11px] font-medium ${
+                        lookupMessage.type === "success"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : lookupMessage.type === "info"
+                            ? "border-sky-200 bg-sky-50 text-sky-700"
+                            : "border-amber-200 bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      {lookupMessage.text}
+                    </p>
+                  )}
+                  {lookupResults.length > 0 && (
+                    <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                      {lookupResults.map((result) => (
+                        <button
+                          key={result.studentIdNumber || result.email}
+                          type="button"
+                          onClick={() => {
+                            applyStudentLookupData(result);
+                            setLookupResults([]);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                        >
+                          <span className="block font-bold text-slate-800">
+                            {result.firstName} {result.lastName}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">
+                            {result.studentIdNumber} • {result.email} •{" "}
+                            {result.section}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-5 sm:items-start">
+              <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl sm:col-span-3">
                 <div className="w-20 h-20 rounded-full bg-slate-200 border-2 border-[#D4AF37]/70 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                   {avatarPreview ? (
                     <img
@@ -797,7 +1039,7 @@ export default function OrganizationMembers({
                   />
                 </div>
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block font-bold text-slate-700 mb-1">
                   Position / Role
                 </label>
@@ -838,6 +1080,7 @@ export default function OrganizationMembers({
                 </select>
                 )}
               </div>
+              </div>
               <div>
                 {isEditingPresident && (
                   <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
@@ -845,7 +1088,7 @@ export default function OrganizationMembers({
                     as the digital signature on proposal decisions.
                   </p>
                 )}
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                   {[
                     ["surname", "Surname", "e.g. Dela Cruz", true],
                     ["firstName", "First Name", "e.g. Juan", true],
@@ -875,11 +1118,9 @@ export default function OrganizationMembers({
                     </label>
                   ))}
                 </div>
-                <p className="mt-1 text-[10px] font-medium text-slate-500">
-                  Saved and signed as Surname, First Name, M.I., Suffix.
-                </p>
               </div>
 
+              <div className={`grid grid-cols-1 gap-3 ${isFacultySignatory ? "" : "sm:grid-cols-2"}`}>
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   Email Address <span className="text-rose-600">*</span>
@@ -903,6 +1144,26 @@ export default function OrganizationMembers({
                     cannot be changed here.
                   </p>
                 )}
+              </div>
+              {!isFacultySignatory && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Section
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={
+                      getSectionPrefix(formData.program, formData.year) ||
+                      "e.g. BSIS - 2 A"
+                    }
+                    value={formData.section}
+                    onChange={(e) =>
+                      setFormData({ ...formData, section: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
+                  />
+                </div>
+              )}
               </div>
 
               {!isFacultySignatory && (
@@ -998,14 +1259,6 @@ export default function OrganizationMembers({
                             ? "No programs registered"
                             : "Select program"}
                       </option>
-                      {formData.program &&
-                        !programs.some(
-                          (program) => program.name === formData.program,
-                        ) && (
-                          <option value={formData.program}>
-                            {formData.program} (previously saved)
-                          </option>
-                        )}
                       {programs.map((program) => (
                         <option key={program._id} value={program.name}>
                           {program.name}
@@ -1018,26 +1271,6 @@ export default function OrganizationMembers({
                       </p>
                     )}
                   </div>
-                </div>
-              )}
-
-              {!isFacultySignatory && (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Section
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={
-                      getSectionPrefix(formData.program, formData.year) ||
-                      "e.g. BSIS - 2 A"
-                    }
-                    value={formData.section}
-                    onChange={(e) =>
-                      setFormData({ ...formData, section: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17] font-medium text-slate-800"
-                  />
                 </div>
               )}
 

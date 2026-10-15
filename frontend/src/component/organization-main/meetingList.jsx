@@ -14,8 +14,18 @@ const formatDateTime = (value) =>
     timeStyle: "short",
   });
 
-function MeetingDetailModal({ meeting, onClose }) {
+function MeetingDetailModal({
+  meeting,
+  onClose,
+  joinState,
+  onToggleJoin,
+  joinBusy = false,
+  isPast = false,
+}) {
   if (!meeting) return null;
+
+  const { joined = false, joinCount = 0, joinNames = [] } = joinState || {};
+  const presentCount = meeting.presentCount ?? 0;
 
   return (
     <div
@@ -53,6 +63,16 @@ function MeetingDetailModal({ meeting, onClose }) {
             <span className="rounded-md border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-2.5 py-1 text-[10px] font-bold text-[#7A610D]">
               Audience: {meeting.audience}
             </span>
+            {meeting.targetYear && (
+              <span className="rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700">
+                {meeting.targetYear}
+              </span>
+            )}
+            {meeting.targetSection && (
+              <span className="rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700">
+                {meeting.targetSection}
+              </span>
+            )}
             {meeting.organization?.name && (
               <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-600">
                 {meeting.organization.name}
@@ -100,9 +120,50 @@ function MeetingDetailModal({ meeting, onClose }) {
               </p>
             </div>
           )}
+
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              Who&apos;s joining ({joinCount})
+            </p>
+            {joinCount === 0 ? (
+              <p className="mt-1.5 text-xs text-slate-400">
+                No one has joined yet. Be the first!
+              </p>
+            ) : (
+              <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-3">
+                {joinNames.map((name, index) => (
+                  <p
+                    key={`${name}-${index}`}
+                    className="text-xs font-medium text-slate-700"
+                  >
+                    ✓ {name}
+                  </p>
+                ))}
+              </div>
+            )}
+            {isPast && presentCount > 0 && (
+              <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                Final attendance: {presentCount} attended
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="border-t border-slate-200 px-5 py-4">
+        <div className="space-y-2 border-t border-slate-200 px-5 py-4">
+          {!isPast && (
+            <button
+              type="button"
+              onClick={onToggleJoin}
+              disabled={joinBusy}
+              className={`w-full rounded-lg px-4 py-2.5 text-xs font-extrabold transition disabled:opacity-50 ${
+                joined
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+            >
+              {joinBusy ? "Saving..." : joined ? "✓ Joined — tap to leave" : "Join this meeting"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -122,8 +183,19 @@ const noticeStyles = {
   later: "border-[#D4AF37]/50 bg-[#D4AF37]/10 text-[#7A610D]",
 };
 
-function MeetingCard({ meeting, onView, isPast = false, now, isNew = false }) {
+function MeetingCard({
+  meeting,
+  onView,
+  isPast = false,
+  now,
+  isNew = false,
+  joinState,
+  onToggleJoin,
+  joinBusy = false,
+}) {
   const notice = !isPast ? getUpcomingMeetingNotice(meeting, now) : null;
+  const { joined = false, joinCount = 0 } = joinState || {};
+  const presentCount = meeting.presentCount ?? 0;
 
   return (
     <article
@@ -147,6 +219,26 @@ function MeetingCard({ meeting, onView, isPast = false, now, isNew = false }) {
             <span className="rounded-md border border-[#D4AF37]/40 bg-white px-2 py-0.5 text-[10px] font-bold text-[#7A610D]">
               {meeting.audience}
             </span>
+            {joinCount > 0 && (
+              <span className="rounded-md border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
+                👥 {joinCount} joining
+              </span>
+            )}
+            {isPast && presentCount > 0 && (
+              <span className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                ✓ {presentCount} attended
+              </span>
+            )}
+            {meeting.targetYear && (
+              <span className="rounded-md border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
+                {meeting.targetYear}
+              </span>
+            )}
+            {meeting.targetSection && (
+              <span className="rounded-md border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
+                {meeting.targetSection}
+              </span>
+            )}
             {notice && (
               <span
                 className={`rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${noticeStyles[notice.tone]}`}
@@ -171,13 +263,29 @@ function MeetingCard({ meeting, onView, isPast = false, now, isNew = false }) {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => onView(meeting)}
-          className="shrink-0 self-start rounded-lg bg-[#4A0E17] px-3 py-2 text-xs font-bold text-white hover:bg-[#601520] sm:self-auto"
-        >
-          View
-        </button>
+        <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+          {!isPast && (
+            <button
+              type="button"
+              onClick={() => onToggleJoin(meeting)}
+              disabled={joinBusy}
+              className={`rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-50 ${
+                joined
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+            >
+              {joinBusy ? "..." : joined ? "✓ Joined" : "Join"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onView(meeting)}
+            className="shrink-0 rounded-lg bg-[#4A0E17] px-3 py-2 text-xs font-bold text-white hover:bg-[#601520]"
+          >
+            View
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -198,6 +306,9 @@ export default function MeetingList({
   // Meetings opened during this session, so their New pill clears instantly
   // even before the next list fetch.
   const [sessionViewedIds, setSessionViewedIds] = useState({});
+  // Local RSVP overrides so Join works in both fetch and provided modes.
+  const [joinOverrides, setJoinOverrides] = useState({});
+  const [joinBusyId, setJoinBusyId] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date().getTime()), 60000);
@@ -253,6 +364,45 @@ export default function MeetingList({
     API.patch(`/meetings/${meeting._id}/view`).catch(() => {});
     setSessionViewedIds((current) => ({ ...current, [meeting._id]: true }));
     onMeetingViewed?.(meeting._id);
+  };
+
+  const getJoinState = (meeting) => {
+    if (!meeting) return { joined: false, joinCount: 0, joinNames: [] };
+    const override = joinOverrides[meeting._id];
+    return {
+      joined: override?.joined ?? meeting.joined ?? false,
+      joinCount: override?.joinCount ?? meeting.joinCount ?? 0,
+      joinNames: override?.joinNames ?? meeting.joinNames ?? [],
+    };
+  };
+
+  const handleToggleJoin = async (meeting) => {
+    if (!meeting?._id || joinBusyId) return;
+    const { joined } = getJoinState(meeting);
+    setJoinBusyId(meeting._id);
+    setError("");
+    try {
+      const response = joined
+        ? await API.delete(`/meetings/${meeting._id}/join`)
+        : await API.post(`/meetings/${meeting._id}/join`);
+      const data = response?.data || {};
+      setJoinOverrides((current) => ({
+        ...current,
+        [meeting._id]: {
+          joined: data.joined ?? !joined,
+          joinCount: data.joinCount ?? 0,
+          joinNames: data.joinNames ?? [],
+        },
+      }));
+      // Keep the open detail modal in sync without refetching.
+      setViewedMeeting((current) =>
+        current?._id === meeting._id ? meeting : current,
+      );
+    } catch (requestError) {
+      setError(requestError.message || "Unable to update your RSVP.");
+    } finally {
+      setJoinBusyId("");
+    }
   };
 
   return (
@@ -326,6 +476,9 @@ export default function MeetingList({
                 isPast={activeTab === PAST}
                 now={index === 0 ? now : undefined}
                 isNew={isNewMeeting(meeting)}
+                joinState={getJoinState(meeting)}
+                onToggleJoin={handleToggleJoin}
+                joinBusy={joinBusyId === meeting._id}
               />
             ))
           )}
@@ -335,6 +488,13 @@ export default function MeetingList({
       <MeetingDetailModal
         meeting={viewedMeeting}
         onClose={() => setViewedMeeting(null)}
+        joinState={getJoinState(viewedMeeting)}
+        onToggleJoin={() => handleToggleJoin(viewedMeeting)}
+        joinBusy={joinBusyId === viewedMeeting?._id}
+        isPast={Boolean(
+          viewedMeeting &&
+            new Date(viewedMeeting.endDateTime).getTime() < now,
+        )}
       />
     </div>
   );

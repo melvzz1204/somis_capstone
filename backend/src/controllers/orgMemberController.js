@@ -1083,16 +1083,29 @@ exports.sendMemberInvite = async (req, res) => {
 };
 
 // ==========================================
-// 7. LOOK UP A REGISTERED STUDENT (class roster prefill)
-// Finds a student onboarded through landing registration by email or
-// student ID so the class president can fetch their details instead of
-// typing everything manually.
+// 7. LOOK UP A REGISTERED STUDENT (officer / class roster prefill)
+// Finds a student member onboarded through landing registration by email,
+// student ID, or name search — scoped to the requester's own organization
+// so an adviser only sees their own student members. Faculty Adviser and
+// Department Dean roles are exempt (no student profile needed).
 // ==========================================
 exports.lookupStudent = async (req, res) => {
   try {
-    if (!(await isClassRosterManager(req))) {
+    // Read-only, org-scoped search: advisers, organization presidents, and
+    // class presidents (e.g. class registration officer pickers).
+    const isRosterManager = await isClassRosterManager(req);
+    if (!isRosterManager && req.user?.role !== "org_admin") {
       return res.status(403).json({
-        message: "Only the faculty adviser or class president can search students.",
+        message: "Only the faculty adviser or organization presidents can search students.",
+      });
+    }
+
+    const orgId = ownOrganizationId(req);
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        found: false,
+        message: "Organization context is required.",
       });
     }
 
@@ -1100,28 +1113,92 @@ exports.lookupStudent = async (req, res) => {
     const idNumber = String(
       req.query.idNumber || req.query.studentIdNumber || "",
     ).trim();
+    const q = String(req.query.q || req.query.query || "").trim();
+
+    const toClient = (profile, fallbackEmail = "") => ({
+      firstName: profile.firstName || "",
+      middleInitial: profile.middleInitial || "",
+      lastName: profile.lastName || "",
+      suffix: profile.suffix || "",
+      studentIdNumber: profile.studentIdNumber || "",
+      contactNumber: profile.contactNumber || "",
+      birthDate: profile.birthDate || null,
+      college: profile.college || "",
+      program: profile.program || "",
+      section: profile.section || "",
+      yearLevel: profile.yearLevel || "",
+      email: profile.user?.email || fallbackEmail,
+      name: profile.user?.name || "",
+      hasAccount: Boolean(profile.user),
+      organization: profile.organization,
+    });
+
+    // Live search: name / ID / email partial, org-scoped.
+    if (q && !email && !idNumber) {
+      const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      // Email lives on User, so match it separately then include those users.
+      const emailMatchedUsers = await User.find({
+        organization: orgId,
+        email: rx,
+      })
+        .select("_id")
+        .limit(10)
+        .lean();
+      const emailMatchedIds = emailMatchedUsers.map((u) => u._id);
+      const orClauses = [
+        { firstName: rx },
+        { lastName: rx },
+        { studentIdNumber: rx },
+      ];
+      if (emailMatchedIds.length) orClauses.push({ user: { $in: emailMatchedIds } });
+      const profiles = await StudentProfile.find({
+        organization: orgId,
+        $or: orClauses,
+      })
+        .populate("user", "name email avatar")
+        .limit(10)
+        .lean();
+
+      if (!profiles.length) {
+        return res.status(404).json({
+          success: false,
+          found: false,
+          message:
+            "No registered student member found in your organization. Fill the details manually below.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        found: true,
+        results: profiles.map((p) => toClient(p, p.user?.email || "")),
+        data: toClient(profiles[0], profiles[0].user?.email || ""),
+      });
+    }
 
     if (!email && !idNumber) {
       return res.status(400).json({
         success: false,
         found: false,
-        message: "Provide an email address or student ID number to search.",
+        message: "Provide an email address, student ID, or name to search.",
       });
     }
 
     let profile = null;
     if (idNumber) {
       profile = await StudentProfile.findOne({
+        organization: orgId,
         studentIdNumber: idNumber,
-      }).populate("user", "name email");
+      }).populate("user", "name email avatar");
     }
     if (!profile && email) {
       const user = await User.findOne({ email }).select("_id name email");
       if (user) {
-        profile = await StudentProfile.findOne({ user: user._id }).populate(
-          "user",
-          "name email",
-        );
+        profile = await StudentProfile.findOne({
+          user: user._id,
+          organization: orgId,
+        }).populate("user", "name email avatar");
       }
     }
 
@@ -1130,29 +1207,14 @@ exports.lookupStudent = async (req, res) => {
         success: false,
         found: false,
         message:
-          "No registered student found. Fill the details manually below.",
+          "No registered student member found in your organization. Fill the details manually below.",
       });
     }
 
     return res.status(200).json({
       success: true,
       found: true,
-      data: {
-        firstName: profile.firstName || "",
-        middleInitial: profile.middleInitial || "",
-        lastName: profile.lastName || "",
-        suffix: profile.suffix || "",
-        studentIdNumber: profile.studentIdNumber || "",
-        contactNumber: profile.contactNumber || "",
-        birthDate: profile.birthDate || null,
-        college: profile.college || "",
-        program: profile.program || "",
-        section: profile.section || "",
-        yearLevel: profile.yearLevel || "",
-        email: profile.user?.email || email,
-        name: profile.user?.name || "",
-        hasAccount: Boolean(profile.user),
-      },
+      data: toClient(profile, email),
     });
   } catch (error) {
     console.error("Error looking up student:", error);

@@ -245,6 +245,13 @@ export default function OrgDashboard() {
     treasurer: "",
   });
   const [openOfficerSearch, setOpenOfficerSearch] = useState(null);
+  // Post-pick account notice per officer slot: shown only when the picked
+  // account cannot be assigned (any other active account). A promotable
+  // active student is processed silently.
+  const [officerAccountNote, setOfficerAccountNote] = useState({
+    president: null,
+    treasurer: null,
+  });
 
   // Alphanumeric-only lowercase for tolerant program comparison
   // ("BSIS" matches "BS Information Systems" via acronym, "B.S.I.T"
@@ -266,6 +273,25 @@ export default function OrgDashboard() {
       programAcronym(memberProgram) === selected ||
       programAcronym(selectedProgram) === member
     );
+  };
+
+  // Tolerant section comparison: "BSIT 3B", "3B", "3-B", and "3–B" all mean
+  // the same section. Alphanumeric-only lowercase, then strip a leading
+  // program prefix ("bsit3b" vs "3b") using the selected program.
+  const sectionCore = (value, programName = "") => {
+    let text = String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    const keys = [normProgram(programName), programAcronym(programName)]
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    for (const key of keys) {
+      if (text.startsWith(key) && text.length > key.length) {
+        text = text.slice(key.length);
+        break;
+      }
+    }
+    return text;
   };
 
   const filterRosterOptions = (query) => {
@@ -294,6 +320,7 @@ export default function OrgDashboard() {
   const openClassModal = async () => {
     resetClassForm();
     setOfficerSearch({ president: "", treasurer: "" });
+    setOfficerAccountNote({ president: null, treasurer: null });
     setOpenOfficerSearch(null);
     setIsClassModalOpen(true);
     setIsLoadingRosterOptions(true);
@@ -372,6 +399,7 @@ export default function OrgDashboard() {
     }));
     setOfficerSearch((current) => ({ ...current, [prefix]: displayName }));
     setOpenOfficerSearch(null);
+    setOfficerAccountNote((current) => ({ ...current, [prefix]: null }));
     // The contact number lives on the student profile, not the roster row —
     // fetch it so every input is filled. Roster values stay as fallback.
     const email = String(picked.email || "").trim();
@@ -382,8 +410,47 @@ export default function OrgDashboard() {
       });
       const data = response?.data;
       if (!data) return;
+      // Flag early only when the picked account cannot be assigned (any
+      // other active account besides an own active student, which is
+      // promoted silently). The backend enforces the same rule on submit.
+      const parentOrgId = String(
+        user?.organization?._id || user?.organization || "",
+      );
+      const lookupOrgId = String(
+        data.organization?._id || data.organization || "",
+      );
+      const pickedLabel =
+        displayName || data.email || (prefix === "president" ? "President" : "Treasurer");
+      const titleLabel = prefix === "president" ? "President" : "Treasurer";
+      if (data.accountStatus === "Active") {
+        const isOwnStudent =
+          data.accountRole === "student" &&
+          lookupOrgId &&
+          parentOrgId &&
+          lookupOrgId === parentOrgId;
+        if (!isOwnStudent) {
+          setOfficerAccountNote((current) => ({
+            ...current,
+            [prefix]: {
+              text: `${pickedLabel} already has an active ${data.accountRole || "officer"} account and cannot be assigned as Class ${titleLabel}. Pick someone else.`,
+            },
+          }));
+        }
+      }
       setClassForm((current) => ({
         ...current,
+        // Roster rows for self-registered students only store the formatted
+        // full name (no surname / first name / M.I. parts), so fall back to
+        // the linked student profile. Without this the name fields stay blank
+        // even though the search row shows the member.
+        [`${prefix}Surname`]:
+          current[`${prefix}Surname`] || data.lastName || "",
+        [`${prefix}FirstName`]:
+          current[`${prefix}FirstName`] || data.firstName || "",
+        [`${prefix}MiddleInitial`]:
+          current[`${prefix}MiddleInitial`] || data.middleInitial || "",
+        [`${prefix}Suffix`]:
+          current[`${prefix}Suffix`] || data.suffix || "",
         [`${prefix}ContactNumber`]:
           data.contactNumber || current[`${prefix}ContactNumber`],
         [`${prefix}IdNumber`]:
@@ -473,6 +540,15 @@ export default function OrgDashboard() {
           </div>
         )}
       </div>
+    );
+  };
+  const renderOfficerAccountNote = (prefix) => {
+    const note = officerAccountNote[prefix];
+    if (!note) return null;
+    return (
+      <p className="sm:col-span-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-700">
+        {note.text}
+      </p>
     );
   };
   const [classSetupLinks, setClassSetupLinks] = useState(null);
@@ -775,19 +851,37 @@ export default function OrgDashboard() {
   const handleClassInput = (event) => {
     const { name, value } = event.target;
     setClassForm((current) => ({ ...current, [name]: value }));
+    // A manually edited email invalidates the post-pick account notice.
+    if (name === "presidentEmail" || name === "treasurerEmail") {
+      const slot = name === "presidentEmail" ? "president" : "treasurer";
+      setOfficerAccountNote((current) => ({ ...current, [slot]: null }));
+    }
   };
 
   const handleClassSubmit = async (event) => {
     event.preventDefault();
+    // Stop early when a picked officer is known to hold an account that
+    // cannot be assigned (the backend enforces the same rule on submit).
+    const blockingNote = ["president", "treasurer"].find(
+      (slot) => officerAccountNote[slot],
+    );
+    if (blockingNote) {
+      showToast(officerAccountNote[blockingNote].text, "error", 15000);
+      return;
+    }
     const presidentSection = String(classForm.presidentSection || "").trim();
     const treasurerSection = String(classForm.treasurerSection || "").trim();
+    const presidentCore = sectionCore(presidentSection, classForm.program);
+    const treasurerCore = sectionCore(treasurerSection, classForm.program);
     if (
       presidentSection &&
       treasurerSection &&
-      presidentSection.toLowerCase() !== treasurerSection.toLowerCase()
+      presidentCore &&
+      treasurerCore &&
+      presidentCore !== treasurerCore
     ) {
       showToast(
-        "President and treasurer must be from the same section.",
+        `President and treasurer must be from the same section ("${presidentSection}" vs "${treasurerSection}").`,
         "error",
         15000,
       );
@@ -2097,6 +2191,7 @@ export default function OrgDashboard() {
                     {renderOfficerSearch("president", "president")}
                   </span>
                 </label>
+                {renderOfficerAccountNote("president")}
                 {[
                   ["presidentSurname", "Surname", "e.g. Dela Cruz", true],
                   ["presidentFirstName", "First Name", "e.g. Juan", true],
@@ -2205,6 +2300,7 @@ export default function OrgDashboard() {
                     {renderOfficerSearch("treasurer", "treasurer")}
                   </span>
                 </label>
+                {renderOfficerAccountNote("treasurer")}
                 {[
                   ["treasurerSurname", "Surname", "e.g. Santos", true],
                   ["treasurerFirstName", "First Name", "e.g. Maria", true],

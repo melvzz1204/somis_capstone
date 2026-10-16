@@ -2,6 +2,7 @@ const express = require("express");
 const {
   getEvents,
   createEvent,
+  deleteEvent,
   configureAttendanceSchedule,
   configureAttendanceFine,
   finalizeEventAttendanceFines,
@@ -23,6 +24,8 @@ router
   .route("/")
   .get(protect, getEvents)
   .post(protect, authorize("secretary"), createEvent);
+
+router.delete("/:id", protect, authorize("secretary"), deleteEvent);
 
 router.post(
   "/attendance/scan",

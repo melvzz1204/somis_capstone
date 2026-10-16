@@ -271,6 +271,19 @@ const createEvent = async (req, res) => {
     const activity = resolution.activityProposal || {};
     const startDateTime = new Date(activity.requestedStartDateTime);
     const endDateTime = new Date(activity.requestedEndDateTime);
+    // Legacy resolutions may lack proposal dates: fail with a clear 400
+    // instead of crashing in buildAttendanceDays (RangeError → 500
+    // "Could not create event.").
+    if (
+      Number.isNaN(startDateTime.getTime()) ||
+      Number.isNaN(endDateTime.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The adopted resolution has no valid activity dates. Update the resolution's activity proposal dates first.",
+      });
+    }
     const attendanceDays = buildAttendanceDays({
       startDateTime,
       endDateTime,
@@ -307,6 +320,24 @@ const createEvent = async (req, res) => {
     console.error("Error creating event:", error);
     if (error.name === "ValidationError") {
       return res.status(400).json({ success: false, message: error.message });
+    }
+    if (error.code === 11000) {
+      // Genuine race on the resolution guard (also checked up front).
+      if (error.keyPattern?.resolution) {
+        return res.status(409).json({
+          success: false,
+          message: "An event has already been created for this resolution.",
+        });
+      }
+      // Leftover unique index from an older Event schema; the startup
+      // self-heal normally removes it before any request arrives.
+      if (error.keyPattern?.proposal) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Stale event index conflict. Restart the backend server to auto-repair, then try again.",
+        });
+      }
     }
     res
       .status(500)
@@ -1236,9 +1267,48 @@ const getEventAttendance = async (req, res) => {
   }
 };
 
+// DELETE /events/:id — secretary-only "undo" for a created event.
+// Allowed only while no student has joined and no fines exist, so
+// attendance history is never destroyed. Removing the event frees its
+// adopted resolution for reuse.
+const deleteEvent = async (req, res) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    const [attendanceCount, fineCount] = await Promise.all([
+      EventAttendance.countDocuments({ event: event._id }),
+      AttendanceFine.countDocuments({ event: event._id }),
+    ]);
+    if (attendanceCount > 0 || fineCount > 0) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Students have already joined this event, so it can no longer be removed.",
+      });
+    }
+    await event.deleteOne();
+    return res.json({ success: true, message: "Event removed successfully." });
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not remove the event.",
+    });
+  }
+};
+
 module.exports = {
   getEvents,
   createEvent,
+  deleteEvent,
   getLifecycle,
   generateAttendanceQr,
   getCreatedAttendanceQrs,

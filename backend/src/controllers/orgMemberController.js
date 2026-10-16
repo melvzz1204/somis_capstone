@@ -273,6 +273,19 @@ const ensureOfficerStudentProfile = async (user, memberRow = null, extra = {}) =
     }
 
     let profile = await StudentProfile.findOne({ user: user._id });
+    if (!profile && candidate.studentIdNumber) {
+      // Reclaim a profile orphaned by class deletion: same student number,
+      // but the linked login is gone (delete + re-register flow). Never
+      // steal a profile still owned by a living account.
+      const orphan = await StudentProfile.findOne({
+        studentIdNumber: candidate.studentIdNumber,
+      });
+      if (orphan && !(await User.exists({ _id: orphan.user }))) {
+        orphan.user = user._id;
+        await orphan.save();
+        profile = orphan;
+      }
+    }
     if (profile) {
       let touched = false;
       for (const [key, value] of Object.entries(candidate)) {
@@ -1130,6 +1143,10 @@ exports.lookupStudent = async (req, res) => {
       email: profile.user?.email || fallbackEmail,
       name: profile.user?.name || "",
       hasAccount: Boolean(profile.user),
+      // Lets class/officer pickers tell a promotable active student apart
+      // from an account that will block registration.
+      accountStatus: profile.user?.status || "",
+      accountRole: profile.user?.role || "",
       organization: profile.organization,
     });
 
@@ -1156,7 +1173,7 @@ exports.lookupStudent = async (req, res) => {
         organization: orgId,
         $or: orClauses,
       })
-        .populate("user", "name email avatar")
+        .populate("user", "name email avatar status role")
         .limit(10)
         .lean();
 
@@ -1190,7 +1207,7 @@ exports.lookupStudent = async (req, res) => {
       profile = await StudentProfile.findOne({
         organization: orgId,
         studentIdNumber: idNumber,
-      }).populate("user", "name email avatar");
+      }).populate("user", "name email avatar status role");
     }
     if (!profile && email) {
       const user = await User.findOne({ email }).select("_id name email");
@@ -1198,7 +1215,7 @@ exports.lookupStudent = async (req, res) => {
         profile = await StudentProfile.findOne({
           user: user._id,
           organization: orgId,
-        }).populate("user", "name email avatar");
+        }).populate("user", "name email avatar status role");
       }
     }
 

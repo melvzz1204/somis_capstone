@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api/axios";
 import { useToast } from "../util/toastContext";
@@ -245,6 +245,9 @@ export default function OrgDashboard() {
     treasurer: "",
   });
   const [openOfficerSearch, setOpenOfficerSearch] = useState(null);
+  // Guards async lookups: only the newest pick may fill the form, so a
+  // slow response for a replaced member cannot write into the inputs.
+  const rosterPickSessionRef = useRef(0);
   // Post-pick account notice per officer slot: shown only when the picked
   // account cannot be assigned (any other active account). A promotable
   // active student is processed silently.
@@ -294,13 +297,36 @@ export default function OrgDashboard() {
     return text;
   };
 
-  const filterRosterOptions = (query) => {
+  const filterRosterOptions = (query, prefix = "") => {
     const q = String(query || "").trim().toLowerCase();
     const program = String(classForm.program || "").trim();
     const textMatches = (member) =>
       [member.name, member.email, member.idNumber, member.section].some(
         (value) => String(value || "").toLowerCase().includes(q),
       );
+    // Classmates only: once one officer is picked, the other picker locks
+    // to that officer's section (mirrors the backend same-section rule).
+    const otherSection = String(
+      prefix === "president"
+        ? classForm.treasurerSection
+        : prefix === "treasurer"
+          ? classForm.presidentSection
+          : "",
+    ).trim();
+    if (otherSection) {
+      const target = sectionCore(otherSection, program);
+      const classmates = rosterOptions.filter(
+        (member) =>
+          textMatches(member) &&
+          Boolean(member.section) &&
+          sectionCore(member.section, member.program || program) === target,
+      );
+      return {
+        results: classmates.slice(0, 8),
+        programFallback: false,
+        sectionLocked: otherSection,
+      };
+    }
     if (!program) {
       const list = q ? rosterOptions.filter(textMatches) : rosterOptions;
       return { results: list.slice(0, 8), programFallback: false };
@@ -365,15 +391,57 @@ export default function OrgDashboard() {
       (member) => String(member._id) === String(memberId),
     );
     if (!picked) return;
+    // Invalidate any lookup still in flight for an earlier pick.
+    const pickSession = ++rosterPickSessionRef.current;
     const normalizeYearOption = (value) => {
       const text = String(value || "").trim();
       if (!text) return "";
       if (/^5th/i.test(text)) return "5th Year";
+      // Accept bare numbers / ordinal-only values ("2", "3rd").
+      const ordinal = text.match(/^([1-5])(?:st|nd|rd|th)?$/i);
+      if (ordinal) return YEAR_OPTIONS[Number(ordinal[1]) - 1] || "";
       return (
         YEAR_OPTIONS.find(
           (option) => option.toLowerCase() === text.toLowerCase(),
         ) || ""
       );
+    };
+    // Legacy roster rows only store the formatted display name
+    // ("Surname, First M." or "Surname, First M., Jr"), so parse it when
+    // the structured surname / first name fields are absent — otherwise
+    // those inputs stay blank after picking.
+    const parseMemberName = (value) => {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      const relevant = (part) => part && /[A-Za-z0-9]/.test(part);
+      const parts = text
+        .split(",")
+        .map((part) => part.trim())
+        .filter(relevant);
+      const initialsOf = (token) => {
+        const initials = token.replace(/\./g, "");
+        return initials ? `${initials.charAt(0).toUpperCase()}.` : "";
+      };
+      if (parts.length >= 2) {
+        // "Surname, First M." with an optional suffix after a second comma.
+        const given = parts[1].split(" ").filter(relevant);
+        const mi = given.find((part) => /^[A-Za-z]\.?$/.test(part)) || "";
+        return {
+          surname: parts[0],
+          firstName: given.filter((part) => part !== mi).join(" "),
+          middleInitial: mi ? initialsOf(mi) : "",
+          suffix: parts.slice(2).join(", "),
+        };
+      }
+      // No comma ("First M. Last"): last token is the surname.
+      const given = text.split(" ").filter(relevant);
+      const mi = given.find((part) => /^[A-Za-z]\.?$/.test(part)) || "";
+      const remainder = given.filter((part) => part !== mi);
+      return {
+        surname: remainder.pop() || "",
+        firstName: remainder.join(" "),
+        middleInitial: mi ? initialsOf(mi) : "",
+        suffix: "",
+      };
     };
     const toDateInput = (value) => {
       if (!value) return "";
@@ -385,12 +453,14 @@ export default function OrgDashboard() {
         : date.toISOString().split("T")[0];
     };
     const displayName = picked.name || picked.email || "";
+    const fallbackName = parseMemberName(picked.name);
     setClassForm((current) => ({
       ...current,
-      [`${prefix}Surname`]: picked.surname || "",
-      [`${prefix}FirstName`]: picked.firstName || "",
-      [`${prefix}MiddleInitial`]: picked.middleInitial || "",
-      [`${prefix}Suffix`]: picked.suffix || "",
+      [`${prefix}Surname`]: picked.surname || fallbackName.surname || "",
+      [`${prefix}FirstName`]: picked.firstName || fallbackName.firstName || "",
+      [`${prefix}MiddleInitial`]:
+        picked.middleInitial || fallbackName.middleInitial || "",
+      [`${prefix}Suffix`]: picked.suffix || fallbackName.suffix || "",
       [`${prefix}Email`]: picked.email || "",
       [`${prefix}IdNumber`]: picked.idNumber || "",
       [`${prefix}YearLevel`]: normalizeYearOption(picked.year),
@@ -410,6 +480,9 @@ export default function OrgDashboard() {
       });
       const data = response?.data;
       if (!data) return;
+      // A newer pick invalidates this response (the member was replaced
+      // while the lookup was in flight) — never write stale data.
+      if (rosterPickSessionRef.current !== pickSession) return;
       // Flag early only when the picked account cannot be assigned (any
       // other active account besides an own active student, which is
       // promoted silently). The backend enforces the same rule on submit.
@@ -470,7 +543,10 @@ export default function OrgDashboard() {
 
   const renderOfficerSearch = (prefix, title) => {
     const query = officerSearch[prefix] || "";
-    const { results, programFallback } = filterRosterOptions(query);
+    const { results, programFallback, sectionLocked } = filterRosterOptions(
+      query,
+      prefix,
+    );
     const isOpen = openOfficerSearch === prefix;
     const programFilter = String(classForm.program || "").trim();
     return (
@@ -481,9 +557,11 @@ export default function OrgDashboard() {
           placeholder={
             isLoadingRosterOptions
               ? "Loading organization roster..."
-              : programFilter
-                ? `Search ${programFilter} members for ${title}...`
-                : `Search registered members for ${title}...`
+              : sectionLocked
+                ? `Search ${sectionLocked} classmates for ${title}...`
+                : programFilter
+                  ? `Search ${programFilter} members for ${title}...`
+                  : `Search registered members for ${title}...`
           }
           disabled={isLoadingRosterOptions}
           value={query}
@@ -500,6 +578,11 @@ export default function OrgDashboard() {
         />
         {isOpen && !isLoadingRosterOptions && (
           <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+            {sectionLocked && (
+              <p className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-600">
+                Showing {sectionLocked} classmates only
+              </p>
+            )}
             {programFallback && (
               <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
                 No exact {programFilter} match in the roster — showing all
@@ -508,11 +591,13 @@ export default function OrgDashboard() {
             )}
             {results.length === 0 ? (
               <p className="px-3 py-2.5 text-[11px] text-slate-400">
-                {query.trim()
-                  ? `No matching members${programFilter ? ` in ${programFilter}` : ""}. Fill the fields manually below.`
-                  : programFilter
-                    ? `No ${programFilter} members in the roster. Fill the fields manually below.`
-                    : "No roster members available. Fill the fields manually below."}
+                {sectionLocked
+                  ? `No ${sectionLocked} classmates${query.trim() ? " matching this search" : " in the roster"}. Fill the fields manually below.`
+                  : query.trim()
+                    ? `No matching members${programFilter ? ` in ${programFilter}` : ""}. Fill the fields manually below.`
+                    : programFilter
+                      ? `No ${programFilter} members in the roster. Fill the fields manually below.`
+                      : "No roster members available. Fill the fields manually below."}
               </p>
             ) : (
               results.map((member) => (
@@ -1885,9 +1970,6 @@ export default function OrgDashboard() {
                             </span>
                             <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-extrabold border border-slate-200 tracking-wide">
                               CLASS
-                            </span>
-                            <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#7A610D] font-extrabold border border-[#D4AF37]/30 tracking-wide">
-                              {classOrg.acronym}
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 leading-relaxed">

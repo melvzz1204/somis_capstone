@@ -112,6 +112,22 @@ const CheckCircleIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 );
 
+const AlertTriangleIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+    />
+  </svg>
+);
+
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -133,6 +149,7 @@ export default function StudentOnboardingModal({
   const [step, setStep] = useState(initialStep);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [setupEmailSent, setSetupEmailSent] = useState(true);
   const [organizations, setOrganizations] = useState([]);
   const [colleges, setColleges] = useState([]);
   const [isLoadingColleges, setIsLoadingColleges] = useState(true);
@@ -293,8 +310,16 @@ export default function StudentOnboardingModal({
     };
 
     try {
-      await API.post("/auth/register-student", payload);
-      showToast("Registration submitted successfully.", "success");
+      const { data } = await API.post("/auth/register-student", payload);
+      const emailSent = data?.emailSent !== false;
+      setSetupEmailSent(emailSent);
+      showToast(
+        emailSent
+          ? "Registration submitted successfully."
+          : data?.message ||
+              "Registration submitted, but the setup email could not be sent. Please contact the administrator.",
+        emailSent ? "success" : "error",
+      );
       setStep(4);
     } catch (err) {
       // Log the exact response payload from the backend for debugging
@@ -815,16 +840,30 @@ export default function StudentOnboardingModal({
         {/* STEP 4: EMAIL SENT CONFIRMATION SCREEN */}
         {step === 4 && (
           <div className="text-center space-y-5 py-4 animate-in fade-in zoom-in duration-300">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full flex items-center justify-center mx-auto shadow-inner">
-              <CheckCircleIcon className="w-8 h-8 text-emerald-600" />
+            <div
+              className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-inner border ${
+                setupEmailSent
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                  : "bg-amber-100 text-amber-700 border-amber-200"
+              }`}
+            >
+              {setupEmailSent ? (
+                <CheckCircleIcon className="w-8 h-8 text-emerald-600" />
+              ) : (
+                <AlertTriangleIcon className="w-8 h-8 text-amber-600" />
+              )}
             </div>
 
             <div className="space-y-2">
               <h2 className="text-xl font-extrabold text-[#4A0E17]">
-                Check Your Email Inbox!
+                {setupEmailSent
+                  ? "Check Your Email Inbox!"
+                  : "Registration Submitted"}
               </h2>
               <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
-                We have dispatched an account setup link to:
+                {setupEmailSent
+                  ? "We have dispatched an account setup link to:"
+                  : "Your account was created, but the setup email could not be sent. Please contact the administrator to receive your setup link for:"}
               </p>
               <p className="text-xs font-bold text-[#4A0E17] bg-rose-50/60 py-1.5 px-3 rounded-lg border border-rose-200/50 inline-block">
                 {formData.officialEmail}
@@ -836,17 +875,28 @@ export default function StudentOnboardingModal({
                 Organization:{" "}
                 {selectedOrganization?.name || "Registered organization"}
               </p>
-              <p className="font-bold text-slate-800">Next Steps:</p>
-              <ol className="list-decimal list-inside space-y-1 text-slate-500 font-medium">
-                <li>
-                  Open the email from <strong>MarSU SOMIS</strong>.
-                </li>
-                <li>
-                  Click on the <strong>"Set Up Account Password"</strong>{" "}
-                  button.
-                </li>
-                <li>Create your secure account password and sign in.</li>
-              </ol>
+              {setupEmailSent ? (
+                <>
+                  <p className="font-bold text-slate-800">Next Steps:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-500 font-medium">
+                    <li>
+                      Open the email from <strong>MarSU SOMIS</strong>.
+                    </li>
+                    <li>
+                      Click on the <strong>"Set Up Account Password"</strong>{" "}
+                      button.
+                    </li>
+                    <li>Create your secure account password and sign in.</li>
+                  </ol>
+                </>
+              ) : (
+                <p className="text-amber-700 font-medium">
+                  The setup email could not be delivered. Ask the administrator to
+                  resend your setup link, or use the{" "}
+                  <strong>Forgot Password</strong> option on the login screen once
+                  your account is ready.
+                </p>
+              )}
             </div>
             <button
               onClick={() => {

@@ -142,6 +142,19 @@ exports.registerStudent = async (req, res) => {
       middleInitial ? middleInitial.trim() + " " : ""
     }${lastName.trim()}${suffix ? " " + suffix.trim() : ""}`.trim();
 
+    // Normalize the structured name parts so the official roster keeps the
+    // same Surname / First Name / M.I. / Suffix breakdown as officer rows.
+    // Without these, autofill pickers (e.g. Register Class) cannot populate
+    // the name fields from a self-registered member.
+    const rosterMiddleInitial = (() => {
+      const initial = String(middleInitial || "")
+        .trim()
+        .replace(/\./g, "")
+        .charAt(0)
+        .toUpperCase();
+      return initial ? `${initial}.` : "";
+    })();
+
     // 5. Generate setup token and expiration (24 Hours)
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -184,6 +197,10 @@ exports.registerStudent = async (req, res) => {
         $set: {
           idNumber: studentIdNumber,
           name: formattedName,
+          surname: String(lastName || "").trim(),
+          firstName: String(firstName || "").trim(),
+          middleInitial: rosterMiddleInitial,
+          suffix: String(suffix || "").trim(),
           birthday: birthDate,
           year: yearLevel,
           program: normalizedProgram,

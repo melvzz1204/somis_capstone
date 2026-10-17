@@ -69,6 +69,9 @@ export default function SecretaryEvents({ resolutions = [] }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date().getTime());
+  // Undo support: per-event Undo buttons revert a mistaken creation
+  // (backend blocks removal once students have joined or fines exist).
+  const [undoingEventId, setUndoingEventId] = useState("");
   const [qrConfigDialog, setQrConfigDialog] = useState(null);
   const [selectedQrDay, setSelectedQrDay] = useState(1);
   const [selectedQrPhases, setSelectedQrPhases] = useState([
@@ -83,6 +86,9 @@ export default function SecretaryEvents({ resolutions = [] }) {
     afternoonIn: "13:00",
     afternoonOut: "17:00",
   });
+  // "Same time for all days": apply the configured checkpoints to every
+  // event day in one go instead of repeating per day.
+  const [applyToAllDays, setApplyToAllDays] = useState(false);
   const [qrImagesByEvent, setQrImagesByEvent] = useState({});
   const [qrLoading, setQrLoading] = useState(false);
   const [attendanceDialog, setAttendanceDialog] = useState(null);
@@ -202,22 +208,75 @@ export default function SecretaryEvents({ resolutions = [] }) {
       setError("Choose an adopted resolution first.");
       return;
     }
+    // Confirm before creating: guards against accidental clicks. The Undo
+    // bar and Undo button below still cover a wrongly picked resolution.
+    const selectedResolution = adoptedResolutions.find(
+      (item) => item._id === form.resolution,
+    );
+    const selectedActivity = selectedResolution?.activityProposal;
+    if (
+      !window.confirm(
+        `Create event "${selectedActivity?.proposalTitle || selectedResolution?.title || "this resolution"}"?\nSchedule: ${formatDateTime(selectedActivity?.requestedStartDateTime)} - ${formatDateTime(selectedActivity?.requestedEndDateTime)}\nVenue: ${selectedActivity?.targetVenue || "N/A"}`,
+      )
+    )
+      return;
     setSaving(true);
     try {
       const response = await API.post("/events", form);
-      setEvents((current) => [
-        response.data?.data || response.data,
-        ...current,
-      ]);
+      const created = response.data || response;
+      setEvents((current) => [created, ...current]);
       setForm(emptyForm);
       showToast("Event created from the adopted resolution.", "success");
     } catch (requestError) {
+      // The API wrapper rejects with { status, message } (no .response),
+      // so read .message first to surface the real backend error instead
+      // of always falling back to the generic text.
       const message =
-        requestError.response?.data?.message || "Unable to create the event.";
+        requestError.message ||
+        requestError.originalError?.response?.data?.message ||
+        "Unable to create the event.";
       setError(message);
       showToast(message, "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Undo for a mistaken creation (active view only — the archive stays
+  // view-only so attendance history is never at risk).
+  const handleUndoEvent = async (target) => {
+    if (!target?._id || undoingEventId) return;
+    if (
+      !window.confirm(
+        `Undo "${target.title || "this event"}"? The linked resolution can be reused for a new event.`,
+      )
+    )
+      return;
+    setUndoingEventId(target._id);
+    try {
+      await API.delete(`/events/${target._id}`);
+      setEvents((current) =>
+        current.filter((item) => item._id !== target._id),
+      );
+      setQrImagesByEvent((current) => {
+        if (!current[target._id]) return current;
+        const next = { ...current };
+        delete next[target._id];
+        return next;
+      });
+      showToast(
+        "Event undone. Its resolution can be reused.",
+        "success",
+      );
+    } catch (requestError) {
+      const message =
+        requestError.message ||
+        requestError.originalError?.response?.data?.message ||
+        "Unable to undo the event.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setUndoingEventId("");
     }
   };
 
@@ -267,6 +326,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
   const openQrConfiguration = (event) => {
     const day = getEventDays(event)[0];
     setSelectedQrDay(day.day);
+    setApplyToAllDays(false);
     setSelectedQrPhases([
       "morning_in",
       "lunch_out",
@@ -303,38 +363,50 @@ export default function SecretaryEvents({ resolutions = [] }) {
       setError("Select at least one attendance checkpoint.");
       return;
     }
+    const allDays = getEventDays(event);
+    const daysToProcess = applyToAllDays
+      ? allDays
+      : allDays.filter((day) => day.day === selectedQrDay);
+    if (daysToProcess.length === 0) {
+      setQrLoading(false);
+      setError("Select a valid event day.");
+      return;
+    }
     try {
-      const selectedSchedule = Object.fromEntries(
-        attendancePhases
-          .filter(({ key }) => selectedQrPhases.includes(key))
-          .map(({ key }) => {
-            const field = {
-              morning_in: "morningIn",
-              lunch_out: "morningOut",
-              afternoon_in: "afternoonIn",
-              afternoon_out: "afternoonOut",
-            }[key];
-            return [field, qrSchedule[field]];
-          }),
+      const selectedPhases = attendancePhases.filter(({ key }) =>
+        selectedQrPhases.includes(key),
       );
-      const scheduleResponse = await API.patch(
-        `/events/${event._id}/attendance/schedule`,
-        { day: selectedQrDay, schedule: selectedSchedule },
-      );
-      const savedSchedule = scheduleResponse.data || {
-        schedule: qrSchedule,
+      const phaseField = {
+        morning_in: "morningIn",
+        lunch_out: "morningOut",
+        afternoon_in: "afternoonIn",
+        afternoon_out: "afternoonOut",
       };
-      const generated = await Promise.all(
-        attendancePhases
-          .filter(({ key }) => selectedQrPhases.includes(key))
-          .map(async ({ key: phase, label }) => {
+      let totalGenerated = 0;
+      let lastSchedule = qrSchedule;
+      for (const day of daysToProcess) {
+        const selectedSchedule = Object.fromEntries(
+          selectedPhases.map(({ key }) => [phaseField[key], qrSchedule[phaseField[key]]]),
+        );
+        const scheduleResponse = await API.patch(
+          `/events/${event._id}/attendance/schedule`,
+          { day: day.day, schedule: selectedSchedule },
+        );
+        const savedSchedule = scheduleResponse.data || {
+          schedule: qrSchedule,
+        };
+        lastSchedule = savedSchedule.schedule || qrSchedule;
+        const generated = await Promise.all(
+          selectedPhases.map(async ({ key: phase, label }) => {
             const response = await API.post(
               `/events/${event._id}/attendance/qr`,
-              { day: selectedQrDay, phase },
+              { day: day.day, phase },
             );
             const payload = response.code || response.data?.code;
             if (!payload)
-              throw new Error(`The server did not return ${label}.`);
+              throw new Error(
+                `The server did not return ${label} (Day ${day.day}).`,
+              );
             const image = await QRCode.toDataURL(payload, {
               width: 360,
               margin: 2,
@@ -342,35 +414,40 @@ export default function SecretaryEvents({ resolutions = [] }) {
             });
             return { phase, label, payload, image };
           }),
-      );
-      setQrImagesByEvent((current) => ({
-        ...current,
-        [event._id]: {
-          ...(current[event._id] || {}),
-          [selectedQrDay]: generated.map((qr) => ({
-            ...qr,
-            day: selectedQrDay,
-          })),
-        },
-      }));
-      setEvents((current) =>
-        current.map((item) => {
-          if (item._id !== event._id) return item;
-          const days = getEventDays(item).map((day) =>
-            day.day === selectedQrDay
-              ? { ...day, schedule: savedSchedule.schedule || qrSchedule }
-              : day,
-          );
-          return {
-            ...item,
-            attendanceDays: days,
-            attendanceSchedule: savedSchedule.schedule || qrSchedule,
-          };
-        }),
-      );
+        );
+        totalGenerated += generated.length;
+        const daySchedule = lastSchedule;
+        setQrImagesByEvent((current) => ({
+          ...current,
+          [event._id]: {
+            ...(current[event._id] || {}),
+            [day.day]: generated.map((qr) => ({
+              ...qr,
+              day: day.day,
+            })),
+          },
+        }));
+        setEvents((current) =>
+          current.map((item) => {
+            if (item._id !== event._id) return item;
+            const days = getEventDays(item).map((entry) =>
+              entry.day === day.day
+                ? { ...entry, schedule: daySchedule }
+                : entry,
+            );
+            return {
+              ...item,
+              attendanceDays: days,
+              attendanceSchedule: daySchedule,
+            };
+          }),
+        );
+      }
       setQrConfigDialog(null);
       showToast(
-        `Day ${selectedQrDay} schedule saved and ${generated.length} QR code${generated.length === 1 ? "" : "s"} generated.`,
+        daysToProcess.length > 1
+          ? `Schedule saved and ${totalGenerated} QR code${totalGenerated === 1 ? "" : "s"} generated for ${daysToProcess.length} days.`
+          : `Day ${selectedQrDay} schedule saved and ${totalGenerated} QR code${totalGenerated === 1 ? "" : "s"} generated.`,
         "success",
       );
     } catch (requestError) {
@@ -629,7 +706,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
             </h4>
             {eventView === "active" && (
               <div className="flex flex-wrap gap-2 text-[10px] font-bold">
-                {["Upcoming", "Ongoing", "Cancelled"].map((status) => (
+                {["Upcoming", "Ongoing"].map((status) => (
                   <span
                     key={status}
                     className={`rounded-md border px-2.5 py-1 ${lifecycleStyles[status]}`}
@@ -761,6 +838,17 @@ export default function SecretaryEvents({ resolutions = [] }) {
                   <Users className="h-3.5 w-3.5" />
                   Attendance
                 </button>
+                {eventView === "active" && (
+                  <button
+                    type="button"
+                    onClick={() => handleUndoEvent(event)}
+                    disabled={Boolean(undoingEventId)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-2 text-[11px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {undoingEventId === event._id ? "Undoing..." : "Undo"}
+                  </button>
+                )}
               </div>
               {eventView === "active" &&
                 Object.keys(qrImagesByEvent[event._id] || {}).length > 0 && (
@@ -869,10 +957,11 @@ export default function SecretaryEvents({ resolutions = [] }) {
               Event date
               <select
                 value={selectedQrDay}
+                disabled={applyToAllDays}
                 onChange={(event) =>
                   selectQrDay(qrConfigDialog, event.target.value)
                 }
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#4A0E17]"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-[#4A0E17] disabled:bg-slate-100"
               >
                 {getEventDays(qrConfigDialog).map((day) => (
                   <option key={day.day} value={day.day}>
@@ -881,6 +970,21 @@ export default function SecretaryEvents({ resolutions = [] }) {
                 ))}
               </select>
             </label>
+            {getEventDays(qrConfigDialog).length > 1 && (
+              <label className="mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={applyToAllDays}
+                  onChange={(event) =>
+                    setApplyToAllDays(event.target.checked)
+                  }
+                />
+                <span>
+                  Same time for all {getEventDays(qrConfigDialog).length}{" "}
+                  event days
+                </span>
+              </label>
+            )}
             <div className="mt-5 space-y-3">
               <p className="text-[11px] font-bold text-slate-700">
                 Checkpoints to create
@@ -933,6 +1037,8 @@ export default function SecretaryEvents({ resolutions = [] }) {
               Select one or more checkpoints. Only selected QR codes will be
               created. Selected times must be chronological; unselected
               checkpoints may be configured later.
+              {applyToAllDays &&
+                " The same times will be applied to every event day."}
             </p>
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button

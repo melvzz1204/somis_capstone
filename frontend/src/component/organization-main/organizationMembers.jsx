@@ -5,6 +5,11 @@ import {
   applySectionPrefix,
   getSectionPrefix,
 } from "../../util/academicSection";
+import MemberAvatar from "./memberAvatar";
+import {
+  getCachedMemberAvatar,
+  loadMemberAvatar,
+} from "../../util/memberAvatar";
 
 const OFFICER_ROLES = [
   "Faculty Adviser",
@@ -20,16 +25,6 @@ const OFFICER_ROLES = [
   "Muse",
   "Escort",
 ];
-const getRootBackendUrl = () => {
-  try {
-    const rawUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-    return new URL(rawUrl).origin;
-  } catch {
-    return "http://localhost:5000";
-  }
-};
-const BACKEND_URL = getRootBackendUrl();
-
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -358,7 +353,17 @@ export default function OrganizationMembers({
       role: officer.role || OFFICER_ROLES[0],
     });
     setAvatarFile(null);
-    setAvatarPreview(officer.avatar ? getAvatarSrc(officer.avatar) : null);
+    // Avatars are lazy-loaded; reuse the cached image if the row already
+    // fetched it, otherwise kick off a fetch for the editor preview.
+    const cachedAvatar = officer.hasAvatar
+      ? getCachedMemberAvatar(officer._id, officer.avatarVersion)
+      : null;
+    setAvatarPreview(cachedAvatar);
+    if (officer.hasAvatar && !cachedAvatar) {
+      loadMemberAvatar(officer._id, officer.avatarVersion).then((loaded) => {
+        if (loaded) setAvatarPreview(loaded);
+      });
+    }
     setLookupQuery("");
     setLookupResults([]);
     setLookupMessage(null);
@@ -699,18 +704,6 @@ export default function OrganizationMembers({
     }
   };
 
-  const getAvatarSrc = (avatarPath) => {
-    if (!avatarPath) return null;
-    if (
-      avatarPath.startsWith("http") ||
-      avatarPath.startsWith("blob:") ||
-      avatarPath.startsWith("data:")
-    ) {
-      return avatarPath;
-    }
-    return `${BACKEND_URL}${avatarPath}`;
-  };
-
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
   const isEditingPresident = editingOfficer?.role === "President";
   const isRoleLocked = ["President", "Faculty Adviser"].includes(
@@ -839,25 +832,23 @@ export default function OrganizationMembers({
             </div>
           ) : (
             filteredOfficers.map((officer) => {
-              const avatarUrl = getAvatarSrc(officer.avatar);
-
               return (
                 <div
                   key={officer._id || officer.id}
                   className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
                 >
                   <div className="flex items-center gap-3.5">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={officer.name}
-                        className="w-14 h-14 rounded-full object-cover object-top border-2 border-[#D4AF37]/60 shadow-xs shrink-0"
-                      />
-                    ) : (
+                    <MemberAvatar
+                      memberId={officer._id}
+                      hasAvatar={officer.hasAvatar}
+                      version={officer.avatarVersion}
+                      alt={officer.name}
+                      imgClassName="w-14 h-14 rounded-full object-cover object-top border-2 border-[#D4AF37]/60 shadow-xs shrink-0"
+                    >
                       <div className="w-14 h-14 rounded-full bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border-2 border-[#D4AF37]/60 uppercase shrink-0 shadow-xs">
                         {officer.name?.charAt(0)}
                       </div>
-                    )}
+                    </MemberAvatar>
 
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">

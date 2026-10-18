@@ -31,6 +31,9 @@ router.get(
   memberController.lookupStudent,
 );
 
+// 4b. Serve a single member avatar image (lazy-loaded by the roster UI)
+router.get("/:id/avatar", protect, memberController.getMemberAvatar);
+
 // 5. Fetch members by specific organization ID
 router.get("/:orgId", protect, memberController.getMembersByOrg);
 

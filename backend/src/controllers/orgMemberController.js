@@ -76,6 +76,30 @@ const shouldReconcileRoster = (orgId) => {
   return true;
 };
 
+// Avatars are stored inline on the roster document but are never serialized in
+// the roster JSON. The list only flags whether a photo exists plus a version,
+// so the client can lazy-load the image from GET /orgmembers/:id/avatar and
+// bust its own cache when the photo changes.
+const shapeRosterMember = (member) => {
+  const plain =
+    member && typeof member.toObject === "function"
+      ? member.toObject()
+      : { ...member };
+  const avatar = plain.avatar;
+  delete plain.avatar;
+  plain.hasAvatar = Boolean(avatar);
+  plain.avatarVersion = plain.updatedAt
+    ? new Date(plain.updatedAt).getTime()
+    : 0;
+  return plain;
+};
+
+const parseAvatarDataUri = (avatar) => {
+  const match = /^data:([^;]+);base64,(.*)$/s.exec(String(avatar || ""));
+  if (!match) return null;
+  return { contentType: match[1], buffer: Buffer.from(match[2], "base64") };
+};
+
 // Backfill the avatar on roster (Member) records from the linked active
 // student account. Students upload their avatar in Account settings, which is
 // saved on the User record; keep the official roster in sync so organization
@@ -493,13 +517,14 @@ exports.getMembersByOrg = async (req, res) => {
 
         if (isClassView) {
           const effective = await getEffectiveClassRoster(orgId);
-          if (effective) return effective.members;
+          if (effective) return effective.members.map(shapeRosterMember);
         }
 
-        return await Member.find({ organization: orgId }).sort({
+        const members = await Member.find({ organization: orgId }).sort({
           role: 1,
           createdAt: -1,
         });
+        return members.map(shapeRosterMember);
       })();
 
       rosterBuilds.set(cacheKey, build);
@@ -517,6 +542,33 @@ exports.getMembersByOrg = async (req, res) => {
   } catch (error) {
     console.error("Error fetching members:", error);
     return res.status(500).json({ message: "Failed to retrieve roster." });
+  }
+};
+
+// ==========================================
+// 1b. SERVE A SINGLE MEMBER AVATAR (lazy-loaded by the roster UI)
+// ==========================================
+exports.getMemberAvatar = async (req, res) => {
+  try {
+    const member = await Member.findById(req.params.id).select(
+      "avatar updatedAt",
+    );
+
+    if (!member?.avatar) {
+      return res.status(404).json({ message: "Avatar not found." });
+    }
+
+    const parsed = parseAvatarDataUri(member.avatar);
+    if (!parsed) {
+      // Stored as a URL/path rather than an inline data URI.
+      return res.redirect(member.avatar);
+    }
+
+    res.set("Content-Type", parsed.contentType);
+    res.set("Cache-Control", "private, max-age=86400");
+    return res.send(parsed.buffer);
+  } catch (_error) {
+    return res.status(404).json({ message: "Avatar not found." });
   }
 };
 
@@ -572,9 +624,11 @@ exports.getMyOrganization = async (req, res) => {
       });
     }
 
-    const roster = await Member.find({
-      organization: organization._id,
-    }).sort({ role: 1, name: 1 });
+    const roster = (
+      await Member.find({
+        organization: organization._id,
+      }).sort({ role: 1, name: 1 })
+    ).map(shapeRosterMember);
 
     const user = await User.findById(req.user._id)
       .select("name email role status avatar")
@@ -747,7 +801,7 @@ exports.addMember = async (req, res) => {
 
     return res.status(201).json({
       message: "Officer/Member added successfully!",
-      member: newMember,
+      member: shapeRosterMember(newMember),
     });
   } catch (error) {
     console.error("Error adding member:", error);
@@ -989,7 +1043,7 @@ exports.updateMember = async (req, res) => {
 
     return res.status(200).json({
       message: "Member updated successfully!",
-      member,
+      member: shapeRosterMember(member),
     });
   } catch (error) {
     console.error("Error updating member:", error);

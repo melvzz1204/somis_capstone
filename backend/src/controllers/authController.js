@@ -14,7 +14,9 @@ const {
 const {
   ensureOfficerMemberRow,
   ensureOfficerStudentProfile,
+  invalidateRosterCache,
 } = require("./orgMemberController");
+const { processAvatar } = require("../util/avatar");
 
 // Officer roles that get their own portal workspace.
 const OFFICER_PORTAL_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
@@ -221,6 +223,9 @@ exports.registerStudent = async (req, res) => {
       { new: true, upsert: true, runValidators: true },
     );
 
+    // A new roster row exists now; drop any cached roster for this organization.
+    invalidateRosterCache(selectedOrganization._id);
+
     // 9. Send setup email using the configured production frontend URL.
     // The account, profile and roster row are already persisted at this point,
     // so a mail failure must NOT fail the whole request. Otherwise the student
@@ -358,6 +363,7 @@ exports.setupAccount = async (req, res) => {
     user.status = "Active";
 
     await user.save();
+    invalidateRosterCache(user.organization);
 
     // Student officers are automatically regular members as well.
     await ensureOfficerMemberRow(user);
@@ -446,8 +452,7 @@ exports.updateStudentAccount = async (req, res) => {
     }
     if (name !== undefined && String(name).trim())
       user.name = String(name).trim();
-    if (req.file)
-      user.avatar = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    if (req.file) user.avatar = await processAvatar(req.file);
     if (contactNumber !== undefined) {
       const normalizedContact = String(contactNumber).trim();
       if (normalizedContact && !/^\d{11}$/.test(normalizedContact)) {
@@ -611,6 +616,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     await user.save();
+    invalidateRosterCache(user.organization);
 
     const authToken = jwt.sign(
       { id: user._id, role: user.role, orgId: user.organization },

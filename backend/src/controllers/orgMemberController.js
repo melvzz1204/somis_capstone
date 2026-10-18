@@ -6,6 +6,7 @@ const User = require("../models/User");
 const StudentProfile = require("../models/studentProfile");
 const Organization = require("../models/OrganizationModels");
 const bcrypt = require("bcryptjs");
+const { processAvatar } = require("../util/avatar");
 
 const cleanNamePart = (value = "") => String(value).trim().replace(/\s+/g, " ");
 
@@ -32,9 +33,47 @@ const formatMemberName = ({ surname, firstName, middleInitial, suffix }) => {
   return [baseName, cleanSuffix].filter(Boolean).join(", ");
 };
 
-const getAvatarDataUri = (file) => {
-  if (!file?.buffer || !file.mimetype) return null;
-  return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+// ---- Roster response cache -------------------------------------------------
+// The members list is fetched on every mount by several dashboards and the GET
+// handler also runs reconciliation writes. A short-lived per-organization cache
+// removes the repeated round-trips while staying fresh enough for a roster that
+// changes rarely. Mutations call invalidateRosterCache() to drop it eagerly.
+const ROSTER_CACHE_TTL_MS = 30 * 1000;
+const RECONCILE_INTERVAL_MS = 2 * 60 * 1000;
+const rosterCache = new Map();
+const rosterBuilds = new Map();
+const lastReconciledAt = new Map();
+
+const readRosterCache = (key) => {
+  const entry = rosterCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    rosterCache.delete(key);
+    return null;
+  }
+  return entry.data;
+};
+
+const writeRosterCache = (key, data) => {
+  rosterCache.set(key, { data, expiresAt: Date.now() + ROSTER_CACHE_TTL_MS });
+};
+
+const invalidateRosterCache = (orgId) => {
+  if (!orgId) return;
+  const prefix = `${orgId}:`;
+  for (const key of rosterCache.keys()) {
+    if (key.startsWith(prefix)) rosterCache.delete(key);
+  }
+};
+
+exports.invalidateRosterCache = invalidateRosterCache;
+
+const shouldReconcileRoster = (orgId) => {
+  const key = String(orgId);
+  const last = lastReconciledAt.get(key) || 0;
+  if (Date.now() - last < RECONCILE_INTERVAL_MS) return false;
+  lastReconciledAt.set(key, Date.now());
+  return true;
 };
 
 // Backfill the avatar on roster (Member) records from the linked active
@@ -76,6 +115,92 @@ const syncOrganizationAdviser = async (organizationId) => {
   await Organization.findByIdAndUpdate(organizationId, {
     adviser: adviser?.name || "",
   });
+};
+
+// One place for every self-healing roster write (president row, account flags,
+// adviser role, avatar backfill, organization adviser field). It used to run on
+// every members GET; now it is throttled so reads are cheap.
+const reconcileOrganizationRoster = async (orgId) => {
+  try {
+    const organization = await Organization.findById(orgId).select(
+      "president email",
+    );
+    if (organization?.president && organization?.email) {
+      const normalizedPresidentEmail = organization.email.toLowerCase().trim();
+      const existingPresident = await Member.findOne({
+        organization: organization._id,
+        email: normalizedPresidentEmail,
+      });
+
+      if (!existingPresident) {
+        const presidentSurname = cleanNamePart(organization.president);
+        await Member.create({
+          name: presidentSurname,
+          surname: presidentSurname,
+          email: normalizedPresidentEmail,
+          role: "President",
+          organization: organization._id,
+          hasAccount: true,
+        });
+      } else if (
+        existingPresident.role !== "President" ||
+        !existingPresident.hasAccount
+      ) {
+        existingPresident.role = "President";
+        existingPresident.hasAccount = true;
+        await existingPresident.save();
+      }
+    }
+
+    // Reconcile legacy officer records with active login accounts so the
+    // dashboard can reliably display their account status.
+    const activeAccountEmails = await User.find({
+      organization: orgId,
+      status: "Active",
+    }).distinct("email");
+
+    if (activeAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: activeAccountEmails },
+          hasAccount: { $ne: true },
+        },
+        { $set: { hasAccount: true } },
+      );
+    }
+
+    const adviserAccountEmails = await User.find({
+      organization: orgId,
+      role: "adviser",
+      status: "Active",
+    }).distinct("email");
+
+    if (adviserAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: adviserAccountEmails },
+          role: { $ne: "Faculty Adviser" },
+        },
+        {
+          $set: {
+            role: "Faculty Adviser",
+            idNumber: "",
+            birthday: null,
+            year: "",
+            program: "",
+            section: "",
+          },
+        },
+      );
+    }
+
+    await syncMemberAvatarsFromActiveAccounts(orgId);
+    await syncOrganizationAdviser(orgId);
+  } catch (error) {
+    console.error("Roster reconciliation failed:", error.message);
+  }
 };
 
 // Roster managers: faculty advisers everywhere, plus the president of a
@@ -346,104 +471,48 @@ exports.getMembersByOrg = async (req, res) => {
       return res.status(400).json({ message: "Organization ID is required." });
     }
 
-    // Older organizations may have been created before presidents were also
-    // stored in the official roster. Backfill the record from the OVPSAS-entered
-    // organization details without overwriting a profile already completed by
-    // the president.
-    const organization =
-      await Organization.findById(orgId).select("president email");
-    if (organization?.president && organization?.email) {
-      const normalizedPresidentEmail = organization.email.toLowerCase().trim();
-      const existingPresident = await Member.findOne({
-        organization: organization._id,
-        email: normalizedPresidentEmail,
-      });
+    // Class presidents see the effective class roster (manual rows + onboarded
+    // parent members matched by section), so it is cached under its own key.
+    const isClassView = req.user?.role === "org_admin";
+    const cacheKey = `${orgId}:${isClassView ? "class" : "org"}`;
 
-      if (!existingPresident) {
-        const presidentSurname = cleanNamePart(organization.president);
-        await Member.create({
-          name: presidentSurname,
-          surname: presidentSurname,
-          email: normalizedPresidentEmail,
-          role: "President",
-          organization: organization._id,
-          hasAccount: true,
+    const cached = readRosterCache(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    // Coalesce concurrent cold-cache requests into a single build.
+    let build = rosterBuilds.get(cacheKey);
+    if (!build) {
+      build = (async () => {
+        // Self-heal legacy rows at most once every few minutes instead of on
+        // every request, so the common path is a pure read.
+        if (shouldReconcileRoster(orgId)) {
+          await reconcileOrganizationRoster(orgId);
+        }
+
+        if (isClassView) {
+          const effective = await getEffectiveClassRoster(orgId);
+          if (effective) return effective.members;
+        }
+
+        return await Member.find({ organization: orgId }).sort({
+          role: 1,
+          createdAt: -1,
         });
-      } else {
-        existingPresident.role = "President";
-        existingPresident.hasAccount = true;
-        await existingPresident.save();
-      }
+      })();
+
+      rosterBuilds.set(cacheKey, build);
+      const cleanupBuild = () => {
+        if (rosterBuilds.get(cacheKey) === build) {
+          rosterBuilds.delete(cacheKey);
+        }
+      };
+      build.then(cleanupBuild, cleanupBuild);
     }
 
-    // Reconcile legacy officer records with active login accounts so the
-    // dashboard can reliably display their account status.
-    const activeAccountEmails = await User.find({
-      organization: orgId,
-      status: "Active",
-    }).distinct("email");
-
-    if (activeAccountEmails.length > 0) {
-      await Member.updateMany(
-        {
-          organization: orgId,
-          email: { $in: activeAccountEmails },
-          hasAccount: { $ne: true },
-        },
-        { $set: { hasAccount: true } },
-      );
-    }
-
-    const adviserAccountEmails = await User.find({
-      organization: orgId,
-      role: "adviser",
-      status: "Active",
-    }).distinct("email");
-
-    if (adviserAccountEmails.length > 0) {
-      await Member.updateMany(
-        {
-          organization: orgId,
-          email: { $in: adviserAccountEmails },
-          role: { $ne: "Faculty Adviser" },
-        },
-        {
-          $set: {
-            role: "Faculty Adviser",
-            idNumber: "",
-            birthday: null,
-            year: "",
-            program: "",
-            section: "",
-          },
-        },
-      );
-    }
-
-    // Backfill avatars onto roster records from active student accounts so the
-    // organization leader portal shows the student's profile photo even for
-    // members whose roster row predates avatar syncing.
-    await syncMemberAvatarsFromActiveAccounts(orgId);
-
-    const members = await Member.find({ organization: orgId }).sort({
-      role: 1,
-      createdAt: -1,
-    });
-
-    // Class presidents see the effective roster: manual class rows plus
-    // onboarded parent members auto-matched by section.
-    if (req.user?.role === "org_admin") {
-      const effective = await getEffectiveClassRoster(orgId);
-      if (effective) {
-        await syncOrganizationAdviser(orgId);
-        return res.status(200).json(effective.members);
-      }
-    }
-
-    // Repair organizations created before adviser synchronization was added,
-    // and keep the profile value consistent with the official roster.
-    await syncOrganizationAdviser(orgId);
-
+    const members = await build;
+    writeRosterCache(cacheKey, members);
     return res.status(200).json(members);
   } catch (error) {
     console.error("Error fetching members:", error);
@@ -624,7 +693,7 @@ exports.addMember = async (req, res) => {
       }
     }
 
-    const avatarPath = getAvatarDataUri(req.file);
+    const avatarPath = await processAvatar(req.file);
 
     if (["Department Dean", "President"].includes(normalizedRole)) {
       const existingLeader = await Member.findOne({
@@ -674,6 +743,8 @@ exports.addMember = async (req, res) => {
       });
     }
 
+    invalidateRosterCache(orgId);
+
     return res.status(201).json({
       message: "Officer/Member added successfully!",
       member: newMember,
@@ -714,6 +785,7 @@ exports.deleteMember = async (req, res) => {
     }
 
     const deletedMember = await Member.findByIdAndDelete(id);
+    invalidateRosterCache(deletedMember.organization);
 
     if (deletedMember.role === "President") {
       const normalizedEmail = String(deletedMember.email || "")
@@ -874,7 +946,7 @@ exports.updateMember = async (req, res) => {
       }
     }
 
-    const avatarDataUri = getAvatarDataUri(req.file);
+    const avatarDataUri = await processAvatar(req.file);
     if (avatarDataUri) {
       member.avatar = avatarDataUri;
     }
@@ -912,6 +984,8 @@ exports.updateMember = async (req, res) => {
         ),
       ]);
     }
+
+    invalidateRosterCache(member.organization);
 
     return res.status(200).json({
       message: "Member updated successfully!",
@@ -989,6 +1063,8 @@ exports.createOfficerAccount = async (req, res) => {
     // Student officers are automatically regular members as well.
     await ensureOfficerMemberRow(newUser);
     await ensureOfficerStudentProfile(newUser, member);
+
+    invalidateRosterCache(member.organization);
 
     return res.status(201).json({
       message: `User account created successfully for ${member.name}!`,
@@ -1083,6 +1159,8 @@ exports.sendMemberInvite = async (req, res) => {
     <p>This link will expire in 24 hours.</p>
   `,
     });
+
+    invalidateRosterCache(member.organization);
 
     return res.status(200).json({
       message: `Setup invitation email sent to ${member.email}!`,

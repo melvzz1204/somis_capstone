@@ -14,6 +14,17 @@ const ATTENDANCE_PHASES = new Set([
   "afternoon_out",
 ]);
 
+// Roles allowed to use the student-facing attendance endpoints. Officers
+// (dual membership) are also registered student members, so they can join
+// events and record attendance alongside regular students.
+const STUDENT_MEMBER_ROLES = new Set([
+  "student",
+  "org_admin",
+  "secretary",
+  "treasurer",
+  "pio",
+]);
+
 const ATTENDANCE_PHASE_LABELS = {
   morning_in: "Morning time in",
   lunch_out: "Lunch break time out",
@@ -654,14 +665,12 @@ const joinEvent = async (req, res) => {
     }
 
     const now = new Date();
-    if (
-      event.status === "Cancelled" ||
-      now >= event.startDateTime ||
-      now >= event.endDateTime
-    ) {
+    // Members may still join while the event is ongoing (late on-site
+    // arrivals); joining only closes once the event has ended.
+    if (event.status === "Cancelled" || now >= event.endDateTime) {
       return res.status(400).json({
         success: false,
-        message: "Joining has closed because this event is no longer upcoming.",
+        message: "Joining has closed because this event has ended.",
       });
     }
 
@@ -730,7 +739,7 @@ const scanAttendanceQr = async (req, res) => {
       organization: event.org,
       email: req.user.email.toLowerCase().trim(),
     });
-    if (!member || req.user.role !== "student") {
+    if (!member || !STUDENT_MEMBER_ROLES.has(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: "Only registered student members can record attendance.",
@@ -787,10 +796,20 @@ const scanAttendanceQr = async (req, res) => {
       });
     }
 
-    let attendance = await EventAttendance.findOne({
-      event: event._id,
-      student: req.user._id,
-    });
+    // Scanning a checkpoint QR also enrolls the student if they never joined
+    // beforehand, so late arrivals can still record attendance.
+    const attendance = await EventAttendance.findOneAndUpdate(
+      { event: event._id, student: req.user._id },
+      {
+        $setOnInsert: {
+          org: event.org,
+          member: member._id,
+          status: "Pending",
+          joinedAt: now,
+        },
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+    );
 
     const schedule =
       payload.version === 2
@@ -814,12 +833,6 @@ const scanAttendanceQr = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `This QR code is only valid from ${checkpointTime} until ${nextTime || "the event ends"}.`,
-      });
-    }
-    if (!attendance) {
-      return res.status(409).json({
-        success: false,
-        message: "Join this event before scanning an attendance QR code.",
       });
     }
     const checkpointField = ATTENDANCE_PHASE_FIELDS[payload.phase];
@@ -1324,4 +1337,5 @@ module.exports = {
   finalizeEventAttendanceFines,
   parseAttendanceCode,
   getCreatedAttendanceCheckpoints,
+  STUDENT_MEMBER_ROLES,
 };

@@ -30,17 +30,27 @@ router.delete("/:id", protect, authorize("secretary"), deleteEvent);
 router.post(
   "/attendance/scan",
   protect,
-  authorize("student"),
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
   scanAttendanceQr,
 );
-router.get("/attendance/mine", protect, authorize("student"), getMyAttendance);
+router.get(
+  "/attendance/mine",
+  protect,
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
+  getMyAttendance,
+);
 router.get(
   "/attendance/fines/mine",
   protect,
-  authorize("student"),
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
   getMyAttendanceFines,
 );
-router.post("/:id/join", protect, authorize("student"), joinEvent);
+router.post(
+  "/:id/join",
+  protect,
+  authorize("student", "org_admin", "secretary", "treasurer", "pio"),
+  joinEvent,
+);
 router.patch(
   "/:id/attendance/fine",
   protect,

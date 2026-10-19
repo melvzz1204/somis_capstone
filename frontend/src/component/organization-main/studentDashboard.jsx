@@ -2108,7 +2108,9 @@ export default function StudentDashboard({ user: propsUser }) {
                         )}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        {evt.lifecycle.status === "Upcoming" &&
+                        {["Upcoming", "Ongoing"].includes(
+                          evt.lifecycle.status,
+                        ) &&
                           !attendanceForEvent(evt._id) && (
                             <button
                               type="button"

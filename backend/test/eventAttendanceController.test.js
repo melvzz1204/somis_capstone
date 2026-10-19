@@ -4,6 +4,7 @@ const {
   getCreatedAttendanceCheckpoints,
   getLifecycle,
   parseAttendanceCode,
+  STUDENT_MEMBER_ROLES,
 } = require("../src/controllers/eventController");
 
 const validCode = (phase = "invalid") =>
@@ -73,6 +74,19 @@ test("created attendance checkpoints only include QR codes made by the secretary
       { day: 1, phase: "lunch_out", field: "lunchOutAt" },
     ],
   );
+});
+
+test("attendance endpoints also admit dual-member officers", () => {
+  assert.deepEqual([...STUDENT_MEMBER_ROLES].sort(), [
+    "org_admin",
+    "pio",
+    "secretary",
+    "student",
+    "treasurer",
+  ]);
+  assert.equal(STUDENT_MEMBER_ROLES.has("student"), true);
+  assert.equal(STUDENT_MEMBER_ROLES.has("adviser"), false);
+  assert.equal(STUDENT_MEMBER_ROLES.has("dean"), false);
 });
 
 test("getLifecycle reports upcoming, ongoing, ended, and cancelled events", () => {

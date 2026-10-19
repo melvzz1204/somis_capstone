@@ -800,7 +800,7 @@ export default function StudentOnboardingModal({
                 <input
                   type="email"
                   required
-                  placeholder="student.id@marsu.edu.ph"
+                  placeholder="student@marsu.edu.ph"
                   value={formData.officialEmail}
                   onChange={(e) => {
                     updateForm("officialEmail", e.target.value);

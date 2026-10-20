@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import QRCode from "qrcode";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   Clock3,
@@ -11,12 +10,26 @@ import {
   X,
 } from "lucide-react";
 import API from "../../api/axios";
+import { realtimeSocket } from "../../api/socket";
 import {
   formatCountdown,
   getEventLifecycle,
   lifecycleStyles,
 } from "../../util/eventLifecycle";
 import { useToast } from "../../util/toastContext";
+
+let qrCodeModulePromise;
+
+// Load the QR encoder on demand. It is only needed when codes are restored or
+// generated, so it stays out of the Events tab's initial bundle.
+const getQrCode = () => {
+  if (!qrCodeModulePromise) {
+    qrCodeModulePromise = import("qrcode").then(
+      (module) => module.default || module,
+    );
+  }
+  return qrCodeModulePromise;
+};
 
 const emptyForm = { resolution: "" };
 
@@ -33,17 +46,65 @@ const formatEventDay = (value) =>
     ? new Date(value).toLocaleDateString("en-PH", { dateStyle: "medium" })
     : "N/A";
 
-const restorePersistedQrs = async (eventId) => {
-  const response = await API.get(`/events/${eventId}/attendance/qr`);
-  const records = Array.isArray(response?.data) ? response.data : [];
-  const grouped = {};
+const QR_IMAGE_WIDTH = 200;
+const ATTENDANCE_PAGE_LIMIT = 50;
+const EVENTS_CACHE_TTL = 60_000;
+const EVENTS_STALE_AFTER = 30_000;
+const LOCAL_MUTATION_GUARD_MS = 5000;
+let eventsCache = null; // { orgId, data, fetchedAt }
+let lastLocalEventMutationAt = 0;
 
-  await Promise.all(
-    records.map(async (record) => {
-      if (!record?.code) return;
+// Called from event handlers (never during render) after a write made by this
+// tab, so the socket echo does not trigger an unnecessary /events refetch.
+const markLocalEventMutation = () => {
+  lastLocalEventMutationAt = Date.now();
+  eventsCache = null;
+};
+
+// QR image generation is CPU-bound. Cache the encoded images per event using
+// the event's updatedAt as the version, so switching tabs does not regenerate
+// the same codes. /events returns qrCount without exposing the QR secrets.
+const qrImageCache = new Map();
+const qrRestoreInFlight = new Map();
+
+const hasPersistedQr = (event) =>
+  (event?.qrCount ?? 0) > 0 ||
+  (event?.attendanceDays || []).some((day) =>
+    ["morning_in", "lunch_out", "afternoon_in", "afternoon_out"].some(
+      (phase) => day?.attendanceQr?.[phase]?.generatedAt,
+    ),
+  );
+
+const restorePersistedQrs = async (event) => {
+  const eventId = event._id;
+  const version = new Date(event.updatedAt || 0).getTime();
+  const cached = qrImageCache.get(eventId);
+  if (cached && cached.version === version) return cached.groups;
+
+  // StrictMode (dev) runs the mount effect twice; share one generation pass
+  // instead of burning the main thread on duplicate QR encoding.
+  const requestKey = `${eventId}:${version}`;
+  if (qrRestoreInFlight.has(requestKey)) {
+    return qrRestoreInFlight.get(requestKey);
+  }
+
+  const restorePromise = (async () => {
+    // QR codes can be many days × 4 checkpoints. A bounded timeout keeps one
+    // stalled request from holding the rest of the tab hostage.
+    const response = await API.get(`/events/${eventId}/attendance/qr`, {
+      timeout: 15000,
+    });
+    const records = Array.isArray(response?.data) ? response.data : [];
+    const grouped = {};
+    const QRCode = await getQrCode();
+
+    // Encode sequentially: parallel encode calls only compete for the same
+    // main thread and spike memory.
+    for (const record of records) {
+      if (!record?.code) continue;
       const day = Number(record.day) || 1;
       const image = await QRCode.toDataURL(record.code, {
-        width: 360,
+        width: QR_IMAGE_WIDTH,
         margin: 2,
         errorCorrectionLevel: "M",
       });
@@ -54,13 +115,44 @@ const restorePersistedQrs = async (eventId) => {
         payload: record.code,
         image,
       });
-    }),
-  );
+    }
 
-  return grouped;
+    qrImageCache.set(eventId, { version, groups: grouped });
+    return grouped;
+  })();
+
+  qrRestoreInFlight.set(requestKey, restorePromise);
+  try {
+    return await restorePromise;
+  } finally {
+    qrRestoreInFlight.delete(requestKey);
+  }
 };
 
-export default function SecretaryEvents({ resolutions = [] }) {
+// The countdown ticks every second, but only this small component re-renders —
+// not the event list or the open attendance roster.
+const EventCountdown = ({ target, paused = false }) => {
+  const [remainingMs, setRemainingMs] = useState(() =>
+    target ? new Date(target).getTime() - Date.now() : 0,
+  );
+
+  useEffect(() => {
+    if (!target || paused) return undefined;
+    const tick = () =>
+      setRemainingMs(new Date(target).getTime() - Date.now());
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [target, paused]);
+
+  return <>{formatCountdown(Math.max(0, remainingMs))}</>;
+};
+
+export default function SecretaryEvents({
+  resolutions = [],
+  orgId = null,
+  isActive = true,
+}) {
   const { showToast } = useToast();
   const [events, setEvents] = useState([]);
   const [eventView, setEventView] = useState("active");
@@ -95,8 +187,16 @@ export default function SecretaryEvents({ resolutions = [] }) {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSearch, setAttendanceSearch] = useState("");
+  const [attendanceDay, setAttendanceDay] = useState("all");
+  const [attendanceRefreshing, setAttendanceRefreshing] = useState(false);
   const [markingKey, setMarkingKey] = useState("");
   const [manualReason, setManualReason] = useState("No mobile data");
+
+  const mountedRef = useRef(true);
+  const eventsInFlightRef = useRef(null);
+  const refreshTimerRef = useRef(null);
+  const lastFilterKeyRef = useRef("");
+  const attendanceRequestRef = useRef(0);
 
   const adoptedResolutions = useMemo(
     () => resolutions.filter((resolution) => resolution.status === "Adopted"),
@@ -104,50 +204,155 @@ export default function SecretaryEvents({ resolutions = [] }) {
   );
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    // Lifecycle status only changes at event boundaries, so a coarse tick is
+    // enough here; the per-event countdown below ticks itself every second.
+    if (!isActive) return undefined;
+    const sync = window.setTimeout(() => setNow(Date.now()), 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 15000);
+    return () => {
+      window.clearTimeout(sync);
+      window.clearInterval(timer);
+    };
+  }, [isActive]);
+
+  const restoreQrs = useCallback(async (loadedEvents) => {
+    const restorable = loadedEvents.filter(
+      (event) =>
+        hasPersistedQr(event) &&
+        event.lifecycleStatus !== "Ended" &&
+        event.lifecycleStatus !== "Cancelled",
+    );
+
+    // Restore in the background, updating each event as it finishes.
+    await Promise.allSettled(
+      restorable.map(async (event) => {
+        const groups = await restorePersistedQrs(event);
+        if (!mountedRef.current || Object.keys(groups).length === 0) return;
+        setQrImagesByEvent((current) => ({
+          ...current,
+          [event._id]: groups,
+        }));
+      }),
+    );
+  }, []);
+
+  const loadEvents = useCallback(
+    async ({ force = false } = {}) => {
+      if (eventsInFlightRef.current) return eventsInFlightRef.current;
+
+      const cached =
+        eventsCache && eventsCache.orgId === orgId ? eventsCache : null;
+      if (cached) {
+        // Paint the last known list immediately; the refetch below only
+        // revalidates it.
+        setEvents(cached.data);
+        setLoading(false);
+      }
+
+      const isFresh =
+        cached && Date.now() - cached.fetchedAt < EVENTS_CACHE_TTL;
+      if (isFresh && !force) {
+        restoreQrs(cached.data);
+        return undefined;
+      }
+
+      const request = (async () => {
+        try {
+          const response = await API.get("/events");
+          const loadedEvents = Array.isArray(response?.data)
+            ? response.data
+            : [];
+          if (!mountedRef.current) return;
+          setEvents(loadedEvents);
+          setLoading(false);
+          eventsCache = {
+            orgId,
+            data: loadedEvents,
+            fetchedAt: Date.now(),
+          };
+          await restoreQrs(loadedEvents);
+        } catch (requestError) {
+          if (mountedRef.current && !cached) {
+            setError(requestError.message || "Unable to load events.");
+          }
+        } finally {
+          if (mountedRef.current) setLoading(false);
+        }
+      })();
+
+      eventsInFlightRef.current = request;
+      try {
+        return await request;
+      } finally {
+        eventsInFlightRef.current = null;
+      }
+    },
+    [orgId, restoreQrs],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      eventsInFlightRef.current = null;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
-    let active = true;
+    const timer = window.setTimeout(() => loadEvents(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadEvents]);
 
-    const loadEventsAndQrs = async () => {
-      try {
-        const response = await API.get("/events");
-        const loadedEvents = Array.isArray(response?.data) ? response.data : [];
-        if (!active) return;
-        setEvents(loadedEvents);
+  useEffect(() => {
+    if (!isActive) return undefined;
+    const cached = eventsCache;
+    if (
+      !cached ||
+      cached.orgId !== orgId ||
+      Date.now() - cached.fetchedAt > EVENTS_STALE_AFTER
+    ) {
+      const timer = window.setTimeout(() => loadEvents(), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [isActive, orgId, loadEvents]);
 
-        const restoredResults = await Promise.allSettled(
-          loadedEvents.map(async (event) => ({
-            eventId: event._id,
-            groups: await restorePersistedQrs(event._id),
-          })),
-        );
-        if (!active) return;
+  useEffect(() => {
+    if (!isActive) return undefined;
 
-        const restoredByEvent = {};
-        restoredResults.forEach((result) => {
-          if (result.status !== "fulfilled") return;
-          if (Object.keys(result.value.groups).length > 0) {
-            restoredByEvent[result.value.eventId] = result.value.groups;
-          }
-        });
-        setQrImagesByEvent(restoredByEvent);
-      } catch (requestError) {
-        if (active) {
-          setError(requestError.message || "Unable to load events.");
-        }
-      } finally {
-        if (active) setLoading(false);
+    const handleDataUpdated = (payload) => {
+      if (qrLoading) return;
+      if (!payload || payload.resource !== "events") return;
+      if (
+        payload.organization &&
+        orgId &&
+        String(payload.organization) !== String(orgId)
+      ) {
+        return;
+      }
+      // Ignore the socket echo of this secretary's own event/QR/manual edits.
+      if (Date.now() - lastLocalEventMutationAt < LOCAL_MUTATION_GUARD_MS) {
+        return;
+      }
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        loadEvents({ force: true });
+      }, 800);
+    };
+
+    realtimeSocket.on("data-updated", handleDataUpdated);
+    return () => {
+      realtimeSocket.off("data-updated", handleDataUpdated);
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
       }
     };
-
-    loadEventsAndQrs();
-    return () => {
-      active = false;
-    };
-  }, []);
+  }, [isActive, orgId, loadEvents, qrLoading]);
 
   const existingResolutionIds = new Set(
     events.map((event) => event.resolution?._id || event.resolution),
@@ -222,6 +427,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
       return;
     setSaving(true);
     try {
+      markLocalEventMutation();
       const response = await API.post("/events", form);
       const created = response.data || response;
       setEvents((current) => [created, ...current]);
@@ -254,6 +460,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
       return;
     setUndoingEventId(target._id);
     try {
+      markLocalEventMutation();
       await API.delete(`/events/${target._id}`);
       setEvents((current) =>
         current.filter((item) => item._id !== target._id),
@@ -373,6 +580,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
       return;
     }
     try {
+      markLocalEventMutation();
       const selectedPhases = attendancePhases.filter(({ key }) =>
         selectedQrPhases.includes(key),
       );
@@ -384,6 +592,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
       };
       let totalGenerated = 0;
       let lastSchedule = qrSchedule;
+      const QRCode = await getQrCode();
       for (const day of daysToProcess) {
         const selectedSchedule = Object.fromEntries(
           selectedPhases.map(({ key }) => [phaseField[key], qrSchedule[phaseField[key]]]),
@@ -443,6 +652,9 @@ export default function SecretaryEvents({ resolutions = [] }) {
           }),
         );
       }
+      // The generated images now live in component state; drop the cache so a
+      // later mount refetches the current codes instead of stale ones.
+      qrImageCache.delete(event._id);
       setQrConfigDialog(null);
       showToast(
         daysToProcess.length > 1
@@ -462,35 +674,110 @@ export default function SecretaryEvents({ resolutions = [] }) {
     }
   };
 
-  const loadAttendance = async (event) => {
+  const fetchAttendance = useCallback(
+    async (event, { page = 1, q = "", day = "all", append = false } = {}) => {
+      if (!event?._id) return;
+      const requestId = attendanceRequestRef.current + 1;
+      attendanceRequestRef.current = requestId;
+      const params = { page, limit: ATTENDANCE_PAGE_LIMIT };
+      if (q) params.q = q;
+      if (day !== "all") params.day = day;
+
+      setAttendanceRefreshing(true);
+      setAttendanceError("");
+      try {
+        const response = await API.get(`/events/${event._id}/attendance`, {
+          params,
+          timeout: 30000,
+        });
+        // A newer search/day request superseded this response.
+        if (requestId !== attendanceRequestRef.current) return;
+        const incoming = Array.isArray(response?.data) ? response.data : [];
+        const pagination =
+          response.pagination || {
+            page: 1,
+            limit: incoming.length,
+            total: incoming.length,
+            pages: 1,
+            hasMore: false,
+          };
+        setAttendanceDialog((current) => {
+          if (!current || current.event?._id !== event._id) return current;
+          const existingIds = new Set(
+            current.records.map((record) => record._id),
+          );
+          const merged = append
+            ? [
+                ...current.records,
+                ...incoming.filter((record) => !existingIds.has(record._id)),
+              ]
+            : incoming;
+          return {
+            ...current,
+            records: merged,
+            summary: response.summary || current.summary,
+            checkpoints: response.checkpoints || [],
+            days: response.days || [],
+            pagination,
+          };
+        });
+      } catch (requestError) {
+        if (requestId !== attendanceRequestRef.current) return;
+        setAttendanceError(
+          requestError.message || "Unable to load attendance.",
+        );
+      } finally {
+        if (requestId === attendanceRequestRef.current) {
+          setAttendanceLoading(false);
+          setAttendanceRefreshing(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const openAttendance = (event) => {
+    if (!event?._id) return;
+    // The initial page is fetched directly; mark its filter key so the
+    // debounced effect below does not request the same page twice.
+    lastFilterKeyRef.current = `${event._id}||all`;
     setAttendanceSearch("");
+    setAttendanceDay("all");
     setManualReason("No mobile data");
+    setAttendanceError("");
+    setAttendanceLoading(true);
     setAttendanceDialog({
       event,
       records: [],
       summary: null,
       checkpoints: [],
+      days: [],
+      pagination: null,
     });
-    setAttendanceLoading(true);
-    setAttendanceError("");
-    try {
-      const response = await API.get(`/events/${event._id}/attendance`);
-      setAttendanceDialog((current) => ({
-        ...current,
-        records: response.data || [],
-        summary: response.summary || null,
-        checkpoints: response.checkpoints || [],
-      }));
-    } catch (requestError) {
-      setAttendanceError(
-        requestError.response?.data?.message ||
-          requestError.message ||
-          "Unable to load attendance.",
-      );
-    } finally {
-      setAttendanceLoading(false);
-    }
+    fetchAttendance(event, { page: 1, q: "", day: "all", append: false });
   };
+
+  const attendanceEvent = attendanceDialog?.event || null;
+
+  useEffect(() => {
+    if (!attendanceEvent?._id) return undefined;
+    const query = attendanceSearch.trim();
+    const key = `${attendanceEvent._id}|${query}|${attendanceDay}`;
+    if (lastFilterKeyRef.current === key) return undefined;
+    lastFilterKeyRef.current = key;
+    const timer = window.setTimeout(
+      () => {
+        fetchAttendance(attendanceEvent, {
+          page: 1,
+          q: query,
+          day: attendanceDay,
+          append: false,
+        });
+      },
+      query ? 300 : 0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [attendanceEvent, attendanceSearch, attendanceDay, fetchAttendance]);
 
   const handleManualMark = async (record, checkpoint) => {
     if (!attendanceDialog?.event || !record || !checkpoint) return;
@@ -506,6 +793,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
     const key = `${record._id}-${checkpoint.day}-${checkpoint.phase}`;
     setMarkingKey(key);
     setAttendanceError("");
+    markLocalEventMutation();
     try {
       const response = await API.post(
         `/events/${attendanceDialog.event._id}/attendance/manual`,
@@ -519,21 +807,26 @@ export default function SecretaryEvents({ resolutions = [] }) {
       const updated = response.data || response;
       setAttendanceDialog((current) => {
         if (!current) return current;
-        const nextRecords = current.records.map((item) =>
-          item._id === record._id ? { ...item, ...updated } : item,
-        );
-        const presentCount = nextRecords.filter(
-          (item) => item.status === "Present",
-        ).length;
+        let becamePresent = false;
+        const nextRecords = current.records.map((item) => {
+          if (item._id !== record._id) return item;
+          if (item.status !== "Present" && updated.status === "Present") {
+            becamePresent = true;
+          }
+          return { ...item, ...updated };
+        });
         return {
           ...current,
           records: nextRecords,
           summary: current.summary
             ? {
                 ...current.summary,
-                present: presentCount,
-                pending: nextRecords.length - presentCount,
-                joined: nextRecords.length,
+                present:
+                  current.summary.present + (becamePresent ? 1 : 0),
+                pending: Math.max(
+                  0,
+                  current.summary.pending - (becamePresent ? 1 : 0),
+                ),
               }
             : current.summary,
         };
@@ -564,9 +857,11 @@ export default function SecretaryEvents({ resolutions = [] }) {
       return;
     }
     try {
+      markLocalEventMutation();
       await API.delete(`/events/${event._id}/attendance/qr`, {
         data: { day: qr.day, phase: qr.phase },
       });
+      qrImageCache.delete(event._id);
       setQrImagesByEvent((current) => {
         const eventQrs = { ...(current[event._id] || {}) };
         const remaining = (eventQrs[qr.day] || []).filter(
@@ -595,22 +890,23 @@ export default function SecretaryEvents({ resolutions = [] }) {
     link.click();
   };
 
-  const filteredAttendanceRecords = attendanceDialog
-    ? attendanceDialog.records.filter((record) => {
-        const query = attendanceSearch.trim().toLocaleLowerCase();
-        if (!query) return true;
-        const haystack = [
-          record.student?.name,
-          record.student?.email,
-          record.member?.idNumber,
-          record.member?.name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase();
-        return haystack.includes(query);
-      })
-    : [];
+  const attendanceDays = attendanceDialog?.days;
+  const attendanceCheckpoints = attendanceDialog?.checkpoints;
+  const attendanceDayOptions = useMemo(() => {
+    const days = attendanceDays || [];
+    if (days.length) return days;
+    // Fallback for an older backend response without the `days` array.
+    const seen = new Map();
+    for (const checkpoint of attendanceCheckpoints || []) {
+      if (!seen.has(checkpoint.day)) {
+        seen.set(checkpoint.day, {
+          day: checkpoint.day,
+          date: checkpoint.date,
+        });
+      }
+    }
+    return [...seen.values()].sort((first, second) => first.day - second.day);
+  }, [attendanceDays, attendanceCheckpoints]);
 
   return (
     <div className="space-y-5">
@@ -811,7 +1107,10 @@ export default function SecretaryEvents({ resolutions = [] }) {
                         : "Starts in"}
                     </p>
                     <p className="mt-1 text-sm font-extrabold tabular-nums">
-                      {formatCountdown(event.lifecycle.remainingMs)}
+                      <EventCountdown
+                        target={event.lifecycle.target}
+                        paused={!isActive}
+                      />
                     </p>
                   </div>
                 )}
@@ -832,7 +1131,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => loadAttendance(event)}
+                  onClick={() => openAttendance(event)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
                 >
                   <Users className="h-3.5 w-3.5" />
@@ -1087,12 +1386,13 @@ export default function SecretaryEvents({ resolutions = [] }) {
               <p className="py-8 text-center text-xs text-slate-500">
                 Loading attendance...
               </p>
-            ) : attendanceError ? (
-              <p className="mt-4 rounded-lg bg-rose-50 p-3 text-xs font-semibold text-rose-700">
-                {attendanceError}
-              </p>
             ) : (
               <>
+                {attendanceError && (
+                  <p className="mt-4 rounded-lg bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+                    {attendanceError}
+                  </p>
+                )}
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
                   <label className="block text-[10px] font-bold uppercase text-amber-800">
                     Attendance fine per absence
@@ -1108,6 +1408,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                       onBlur={async (e) => {
                         const amount = Number(e.target.value || 0);
                         try {
+                          markLocalEventMutation();
                           await API.patch(
                             `/events/${attendanceDialog.event._id}/attendance/fine`,
                             { amount },
@@ -1139,11 +1440,17 @@ export default function SecretaryEvents({ resolutions = [] }) {
                     type="button"
                     onClick={async () => {
                       try {
+                        markLocalEventMutation();
                         await API.post(
                           `/events/${attendanceDialog.event._id}/attendance/finalize-fines`,
                         );
                         setAttendanceError("");
-                        await loadAttendance(attendanceDialog.event);
+                        await fetchAttendance(attendanceDialog.event, {
+                          page: 1,
+                          q: attendanceSearch.trim(),
+                          day: attendanceDay,
+                          append: false,
+                        });
                       } catch (error) {
                         setAttendanceError(
                           error.message ||
@@ -1168,30 +1475,52 @@ export default function SecretaryEvents({ resolutions = [] }) {
                     </div>
                   ))}
                 </div>
-                <div className="mt-4">
-                  <label
-                    htmlFor="attendance-name-search"
-                    className="mb-1.5 block text-[10px] font-bold uppercase text-slate-500"
-                  >
-                    Search student name, ID, or email
-                  </label>
-                  <div className="relative">
-                    <Search
-                      className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="attendance-name-search"
-                      type="search"
-                      value={attendanceSearch}
-                      onChange={(event) =>
-                        setAttendanceSearch(event.target.value)
-                      }
-                      placeholder="Type a name, student ID, or email..."
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
-                    />
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="attendance-name-search"
+                      className="mb-1.5 block text-[10px] font-bold uppercase text-slate-500"
+                    >
+                      Search student name, ID, or email
+                    </label>
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <input
+                        id="attendance-name-search"
+                        type="search"
+                        value={attendanceSearch}
+                        onChange={(event) =>
+                          setAttendanceSearch(event.target.value)
+                        }
+                        placeholder="Type a name, student ID, or email..."
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-[#4A0E17] focus:ring-1 focus:ring-[#4A0E17]"
+                      />
+                    </div>
+                    {attendanceRefreshing && (
+                      <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                        Updating roster...
+                      </p>
+                    )}
                   </div>
-                  <p className="mt-2 text-[10px] text-slate-500">
+                  <label className="block text-[10px] font-bold uppercase text-slate-500">
+                    Attendance day
+                    <select
+                      value={attendanceDay}
+                      onChange={(event) => setAttendanceDay(event.target.value)}
+                      className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium normal-case text-slate-700 outline-none focus:border-[#4A0E17]"
+                    >
+                      <option value="all">All days</option>
+                      {attendanceDayOptions.map((day) => (
+                        <option key={day.day} value={day.day}>
+                          Day {day.day} — {formatEventDay(day.date)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-[10px] text-slate-500 sm:col-span-2">
                     No mobile data ang estudyante? Hanapin siya sa lista at
                     pindutin ang{" "}
                     <span className="font-bold text-[#4A0E17]">
@@ -1199,7 +1528,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                     </span>{" "}
                     sa tamang checkpoint.
                   </p>
-                  <label className="mt-2 block text-[10px] font-bold uppercase text-slate-500">
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 sm:col-span-2">
                     Reason for manual mark
                     <select
                       value={manualReason}
@@ -1218,15 +1547,20 @@ export default function SecretaryEvents({ resolutions = [] }) {
                 </div>
                 <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-slate-100">
                   {attendanceDialog.records.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-slate-500">
-                      No students have checked in yet.
-                    </p>
-                  ) : filteredAttendanceRecords.length === 0 ? (
-                    <p className="p-6 text-center text-xs text-slate-500">
-                      No students match “{attendanceSearch.trim()}”.
-                    </p>
+                    attendanceError ? null : (
+                      <p className="p-6 text-center text-xs text-slate-500">
+                        {attendanceSearch.trim() || attendanceDay !== "all"
+                          ? `No students match ${
+                              attendanceSearch.trim()
+                                ? `“${attendanceSearch.trim()}”`
+                                : `Day ${attendanceDay}`
+                            }.`
+                          : "No students have checked in yet."}
+                      </p>
+                    )
                   ) : (
-                    <table className="min-w-full text-left text-[10px]">
+                    <>
+                      <table className="min-w-full text-left text-[10px]">
                       <thead className="sticky top-0 bg-slate-50 text-slate-500">
                         <tr>
                           <th className="px-3 py-2 font-bold">Student</th>
@@ -1241,7 +1575,7 @@ export default function SecretaryEvents({ resolutions = [] }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredAttendanceRecords.map((record) => (
+                        {attendanceDialog.records.map((record) => (
                           <tr
                             key={record._id}
                             className="border-t border-slate-100"
@@ -1324,6 +1658,36 @@ export default function SecretaryEvents({ resolutions = [] }) {
                         ))}
                       </tbody>
                     </table>
+                    {attendanceDialog.pagination &&
+                      attendanceDialog.records.length > 0 && (
+                        <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-100 bg-white px-3 py-2">
+                          <p className="text-[10px] font-medium text-slate-500">
+                            Showing {attendanceDialog.records.length} of{" "}
+                            {attendanceDialog.pagination.total}
+                          </p>
+                          {attendanceDialog.pagination.hasMore && (
+                            <button
+                              type="button"
+                              disabled={attendanceRefreshing}
+                              onClick={() =>
+                                fetchAttendance(attendanceDialog.event, {
+                                  page:
+                                    attendanceDialog.pagination.page + 1,
+                                  q: attendanceSearch.trim(),
+                                  day: attendanceDay,
+                                  append: true,
+                                })
+                              }
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50"
+                            >
+                              {attendanceRefreshing
+                                ? "Loading..."
+                                : `Load ${ATTENDANCE_PAGE_LIMIT} more`}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </>

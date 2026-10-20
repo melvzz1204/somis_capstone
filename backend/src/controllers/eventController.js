@@ -113,6 +113,9 @@ const toEventDateKey = (value) =>
     .toISOString()
     .slice(0, 10);
 
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const getCreatedAttendanceCheckpoints = (event) => {
   const checkpoints = [];
   for (const attendanceDay of event?.attendanceDays || []) {
@@ -224,9 +227,23 @@ const getLifecycle = (event, now = Date.now()) => {
   return { lifecycleStatus: "Upcoming", countdownTo: event.startDateTime };
 };
 
+const countAttendanceQrs = (event) => {
+  let count = 0;
+  for (const attendanceDay of event?.attendanceDays || []) {
+    for (const phase of ATTENDANCE_PHASES) {
+      if (attendanceDay?.attendanceQr?.[phase]?.generatedAt) count += 1;
+    }
+  }
+  return count;
+};
+
 const serializeEvent = (event, now = Date.now()) => {
   const value = event.toObject ? event.toObject() : event;
-  return { ...value, ...getLifecycle(value, now) };
+  return {
+    ...value,
+    ...getLifecycle(value, now),
+    qrCount: countAttendanceQrs(value),
+  };
 };
 
 const getEvents = async (req, res) => {
@@ -239,7 +256,8 @@ const getEvents = async (req, res) => {
       .populate("org", "name acronym")
       .populate("resolution", "title resolutionNumber status")
       .populate("createdBy", "name role")
-      .sort({ startDateTime: 1, createdAt: -1 });
+      .sort({ startDateTime: 1, createdAt: -1 })
+      .lean();
     const now = Date.now();
     res.json({
       success: true,
@@ -1246,30 +1264,129 @@ const getEventAttendance = async (req, res) => {
       });
     }
 
-    const records = await EventAttendance.find({ event: event._id })
-      .populate("student", "name email")
-      .populate("member", "idNumber name year program section")
-      .populate("lastMarkedBy", "name email role")
-      .sort({ status: 1, joinedAt: 1 });
-    const summary = records.reduce(
-      (counts, record) => {
-        counts.joined += 1;
-        counts[record.status.toLowerCase()] += 1;
-        return counts;
-      },
-      {
-        total: event.expectedAttendees,
-        joined: 0,
-        pending: 0,
-        present: 0,
-      },
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      200,
+      Math.max(1, Number.parseInt(req.query.limit, 10) || 50),
     );
+    const skip = (page - 1) * limit;
+    const query = String(req.query.q || "").trim();
+    const requestedDay = Number.parseInt(req.query.day, 10);
+    const dayFilter =
+      Number.isInteger(requestedDay) && requestedDay > 0 ? requestedDay : null;
+
+    const checkpoints = getCreatedAttendanceCheckpoints(event).filter(
+      (checkpoint) => !dayFilter || Number(checkpoint.day) === dayFilter,
+    );
+    const days = (event.attendanceDays || [])
+      .map((attendanceDay) => ({
+        day: attendanceDay.day,
+        date: attendanceDay.date,
+      }))
+      .sort((first, second) => first.day - second.day);
+
+    // The summary is always for the whole event, not just the current page or
+    // the active search, so the counters stay stable while paging.
+    const summaryRows = await EventAttendance.aggregate([
+      { $match: { event: event._id } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+    const joined = summaryRows.reduce((sum, row) => sum + row.count, 0);
+    const present =
+      summaryRows.find((row) => row._id === "Present")?.count || 0;
+    const summary = {
+      total: Number(event.expectedAttendees) || 0,
+      joined,
+      pending: joined - present,
+      present,
+    };
+
+    const filter = { event: event._id };
+    let searchMatchedNothing = false;
+
+    if (query) {
+      const regex = new RegExp(escapeRegex(query), "i");
+      // Resolve the search against the roster and user accounts first. The
+      // attendance query is then constrained by indexed _id lists instead of
+      // filtering on populated fields (which MongoDB cannot do in a find()).
+      const [matchingMembers, matchingUsers] = await Promise.all([
+        Member.find({
+          organization: event.org,
+          $or: [{ name: regex }, { idNumber: regex }, { email: regex }],
+        })
+          .select("_id")
+          .limit(1000)
+          .lean(),
+        User.find({
+          $or: [{ name: regex }, { email: regex }],
+        })
+          .select("_id")
+          .limit(1000)
+          .lean(),
+      ]);
+      const searchConditions = [];
+      if (matchingMembers.length) {
+        searchConditions.push({
+          member: { $in: matchingMembers.map((member) => member._id) },
+        });
+      }
+      if (matchingUsers.length) {
+        searchConditions.push({
+          student: { $in: matchingUsers.map((user) => user._id) },
+        });
+      }
+      if (searchConditions.length) {
+        filter.$or = searchConditions;
+      } else {
+        searchMatchedNothing = true;
+      }
+    }
+
+    let records = [];
+    let total = 0;
+    if (!searchMatchedNothing) {
+      [records, total] = await Promise.all([
+        EventAttendance.find(filter)
+          .select(
+            "student member status joinedAt days presentAt morningInAt lunchOutAt afternoonInAt afternoonOutAt morningInVia lunchOutVia afternoonInVia afternoonOutVia lastMarkedVia lastManualReason",
+          )
+          .populate("student", "name email")
+          .populate("member", "idNumber name")
+          .sort({ status: 1, joinedAt: 1, _id: 1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        EventAttendance.countDocuments(filter),
+      ]);
+    }
+
+    // Only ship the selected day's checkpoints. This cuts the payload and the
+    // rendered table from (days × 4) columns down to 4.
+    if (dayFilter) {
+      records = records.map((record) => ({
+        ...record,
+        days: (record.days || []).filter(
+          (day) => Number(day.day) === dayFilter,
+        ),
+      }));
+    }
+
+    const pages = Math.max(1, Math.ceil(total / limit));
 
     return res.json({
       success: true,
       data: records,
       summary,
-      checkpoints: getCreatedAttendanceCheckpoints(event),
+      checkpoints,
+      days,
+      filters: { q: query, day: dayFilter },
+      pagination: {
+        page,
+        limit,
+        total,
+        pages,
+        hasMore: page < pages,
+      },
     });
   } catch (error) {
     console.error("Error fetching event attendance:", error);

@@ -77,5 +77,9 @@ const eventAttendanceSchema = new mongoose.Schema(
 );
 
 eventAttendanceSchema.index({ event: 1, student: 1 }, { unique: true });
+// Covers the paginated roster query end to end: equality on event, then the
+// exact status/joinedAt/_id order used by the endpoint. Including _id keeps
+// pagination stable when two students share a joinedAt timestamp.
+eventAttendanceSchema.index({ event: 1, status: 1, joinedAt: 1, _id: 1 });
 
 module.exports = mongoose.model("EventAttendance", eventAttendanceSchema);

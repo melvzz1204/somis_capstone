@@ -36,6 +36,7 @@ import NavCountBadge from "../navCountBadge";
 import StudentPaymentTracker from "./StudentPaymentTracker";
 import DigitalClearance from "./DigitalClearance";
 import MeetingList from "./meetingList";
+import MemberAvatar from "./memberAvatar";
 import { getClearanceSummary } from "../../util/clearanceStatus";
 import {
   CONTACT_NUMBER_ERROR,
@@ -1590,26 +1591,24 @@ export default function StudentDashboard({ user: propsUser }) {
                                 <div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                   {otherOfficers.map((officer) => {
-                                    const avatarUrl = getAvatarSrc(
-                                      officer.avatar,
-                                    );
                                     return (
                                       <article
                                         key={officer._id}
                                         className="relative flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
                                       >
                                         <div className="absolute -top-5 left-1/2 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
-                                        {avatarUrl ? (
-                                          <img
-                                            src={avatarUrl}
-                                            alt={officer.name || "Officer"}
-                                            className="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
-                                          />
-                                        ) : (
+                                        <MemberAvatar
+                                          memberId={officer._id}
+                                          hasAvatar={officer.hasAvatar}
+                                          version={officer.avatarVersion}
+                                          alt={officer.name || "Officer"}
+                                          imgClassName="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
+                                          wrapperClassName="shrink-0"
+                                        >
                                           <div className="grid h-15 w-15 shrink-0 place-items-center rounded-full border-2 border-[#D4AF37]/60 bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
                                             {officer.name?.charAt(0) || "?"}
                                           </div>
-                                        )}
+                                        </MemberAvatar>
                                         <div className="min-w-0">
                                           <p className="truncate text-[10px] font-black uppercase tracking-wide text-[#7A610D]">
                                             {officer.role || "Officer"}
@@ -2109,7 +2108,9 @@ export default function StudentDashboard({ user: propsUser }) {
                         )}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        {evt.lifecycle.status === "Upcoming" &&
+                        {["Upcoming", "Ongoing"].includes(
+                          evt.lifecycle.status,
+                        ) &&
                           !attendanceForEvent(evt._id) && (
                             <button
                               type="button"

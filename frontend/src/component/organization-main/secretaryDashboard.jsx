@@ -134,7 +134,9 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
     currentUser?.organization ||
     JSON.parse(localStorage.getItem("org") || "null");
 
-  const orgId = currentOrg?._id || currentOrg?.id || currentOrg;
+  const orgId = String(
+    currentOrg?._id || currentOrg?.id || currentOrg || "",
+  );
 
   // Display Identity
   const userName = currentUser?.name || "Secretary";
@@ -146,6 +148,14 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
   // Navigation State
   const [activeTab, setActiveTab] = useState("overview");
+  // The Events tab is mounted on first visit and then kept alive so switching
+  // back does not refetch or lose scroll/dialog state.
+  const [eventsTabMounted, setEventsTabMounted] = useState(false);
+
+  const selectTab = (tab) => {
+    setActiveTab(tab);
+    if (tab === "events") setEventsTabMounted(true);
+  };
 
   // New-meeting notification badge; clears when the meeting is opened.
   const { unreadCount: unreadMeetingCount } = useUnreadMeetings();
@@ -250,7 +260,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
     setResolutionNotice(`Resolution ${action} successfully.`);
     setIsResolutionModalOpen(false);
     setEditingResolution(null);
-    setActiveTab("resolutions");
+    selectTab("resolutions");
   };
 
   const handleSubmitResolution = async (resolution) => {
@@ -359,7 +369,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
           {/* Navigation Links */}
           <nav className="space-y-1.5 text-xs font-medium">
             <button
-              onClick={() => setActiveTab("overview")}
+              onClick={() => selectTab("overview")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "overview"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -373,7 +383,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("resolutions")}
+              onClick={() => selectTab("resolutions")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "resolutions"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -395,7 +405,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("annual-report")}
+              onClick={() => selectTab("annual-report")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "annual-report"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -409,7 +419,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("activity-plan")}
+              onClick={() => selectTab("activity-plan")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "activity-plan"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -423,7 +433,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("events")}
+              onClick={() => selectTab("events")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "events"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -437,7 +447,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("meetings")}
+              onClick={() => selectTab("meetings")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "meetings"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -454,7 +464,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             </button>
 
             <button
-              onClick={() => setActiveTab("roster")}
+              onClick={() => selectTab("roster")}
               className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all text-left cursor-pointer ${
                 activeTab === "roster"
                   ? "bg-[#601520] text-[#D4AF37] font-semibold border-l-4 border-[#D4AF37] shadow-md"
@@ -518,7 +528,7 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
 
         <MobileTabBar
           activeItem={activeTab}
-          onChange={setActiveTab}
+          onChange={selectTab}
           items={[
             {
               id: "overview",
@@ -694,9 +704,16 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
             />
           )}
 
-          {/* TAB CONTENT 3: EVENTS */}
-          {activeTab === "events" && (
-            <SecretaryEvents resolutions={resolutions} />
+          {/* TAB CONTENT 3: EVENTS — mounted on first visit, then kept alive */}
+          {(eventsTabMounted || activeTab === "events") && (
+            <div className={activeTab === "events" ? "" : "hidden"}>
+              <SecretaryEvents
+                key={orgId || "org"}
+                resolutions={resolutions}
+                orgId={orgId}
+                isActive={activeTab === "events"}
+              />
+            </div>
           )}
 
           {/* TAB CONTENT: MEETINGS */}

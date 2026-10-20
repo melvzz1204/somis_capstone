@@ -14,6 +14,17 @@ const ATTENDANCE_PHASES = new Set([
   "afternoon_out",
 ]);
 
+// Roles allowed to use the student-facing attendance endpoints. Officers
+// (dual membership) are also registered student members, so they can join
+// events and record attendance alongside regular students.
+const STUDENT_MEMBER_ROLES = new Set([
+  "student",
+  "org_admin",
+  "secretary",
+  "treasurer",
+  "pio",
+]);
+
 const ATTENDANCE_PHASE_LABELS = {
   morning_in: "Morning time in",
   lunch_out: "Lunch break time out",
@@ -101,6 +112,9 @@ const toEventDateKey = (value) =>
   new Date(new Date(value).getTime() + EVENT_TIME_ZONE_OFFSET_MINUTES * 60_000)
     .toISOString()
     .slice(0, 10);
+
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const getCreatedAttendanceCheckpoints = (event) => {
   const checkpoints = [];
@@ -213,9 +227,23 @@ const getLifecycle = (event, now = Date.now()) => {
   return { lifecycleStatus: "Upcoming", countdownTo: event.startDateTime };
 };
 
+const countAttendanceQrs = (event) => {
+  let count = 0;
+  for (const attendanceDay of event?.attendanceDays || []) {
+    for (const phase of ATTENDANCE_PHASES) {
+      if (attendanceDay?.attendanceQr?.[phase]?.generatedAt) count += 1;
+    }
+  }
+  return count;
+};
+
 const serializeEvent = (event, now = Date.now()) => {
   const value = event.toObject ? event.toObject() : event;
-  return { ...value, ...getLifecycle(value, now) };
+  return {
+    ...value,
+    ...getLifecycle(value, now),
+    qrCount: countAttendanceQrs(value),
+  };
 };
 
 const getEvents = async (req, res) => {
@@ -228,7 +256,8 @@ const getEvents = async (req, res) => {
       .populate("org", "name acronym")
       .populate("resolution", "title resolutionNumber status")
       .populate("createdBy", "name role")
-      .sort({ startDateTime: 1, createdAt: -1 });
+      .sort({ startDateTime: 1, createdAt: -1 })
+      .lean();
     const now = Date.now();
     res.json({
       success: true,
@@ -271,6 +300,19 @@ const createEvent = async (req, res) => {
     const activity = resolution.activityProposal || {};
     const startDateTime = new Date(activity.requestedStartDateTime);
     const endDateTime = new Date(activity.requestedEndDateTime);
+    // Legacy resolutions may lack proposal dates: fail with a clear 400
+    // instead of crashing in buildAttendanceDays (RangeError → 500
+    // "Could not create event.").
+    if (
+      Number.isNaN(startDateTime.getTime()) ||
+      Number.isNaN(endDateTime.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The adopted resolution has no valid activity dates. Update the resolution's activity proposal dates first.",
+      });
+    }
     const attendanceDays = buildAttendanceDays({
       startDateTime,
       endDateTime,
@@ -307,6 +349,24 @@ const createEvent = async (req, res) => {
     console.error("Error creating event:", error);
     if (error.name === "ValidationError") {
       return res.status(400).json({ success: false, message: error.message });
+    }
+    if (error.code === 11000) {
+      // Genuine race on the resolution guard (also checked up front).
+      if (error.keyPattern?.resolution) {
+        return res.status(409).json({
+          success: false,
+          message: "An event has already been created for this resolution.",
+        });
+      }
+      // Leftover unique index from an older Event schema; the startup
+      // self-heal normally removes it before any request arrives.
+      if (error.keyPattern?.proposal) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Stale event index conflict. Restart the backend server to auto-repair, then try again.",
+        });
+      }
     }
     res
       .status(500)
@@ -623,14 +683,12 @@ const joinEvent = async (req, res) => {
     }
 
     const now = new Date();
-    if (
-      event.status === "Cancelled" ||
-      now >= event.startDateTime ||
-      now >= event.endDateTime
-    ) {
+    // Members may still join while the event is ongoing (late on-site
+    // arrivals); joining only closes once the event has ended.
+    if (event.status === "Cancelled" || now >= event.endDateTime) {
       return res.status(400).json({
         success: false,
-        message: "Joining has closed because this event is no longer upcoming.",
+        message: "Joining has closed because this event has ended.",
       });
     }
 
@@ -699,7 +757,7 @@ const scanAttendanceQr = async (req, res) => {
       organization: event.org,
       email: req.user.email.toLowerCase().trim(),
     });
-    if (!member || req.user.role !== "student") {
+    if (!member || !STUDENT_MEMBER_ROLES.has(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: "Only registered student members can record attendance.",
@@ -756,10 +814,20 @@ const scanAttendanceQr = async (req, res) => {
       });
     }
 
-    let attendance = await EventAttendance.findOne({
-      event: event._id,
-      student: req.user._id,
-    });
+    // Scanning a checkpoint QR also enrolls the student if they never joined
+    // beforehand, so late arrivals can still record attendance.
+    const attendance = await EventAttendance.findOneAndUpdate(
+      { event: event._id, student: req.user._id },
+      {
+        $setOnInsert: {
+          org: event.org,
+          member: member._id,
+          status: "Pending",
+          joinedAt: now,
+        },
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+    );
 
     const schedule =
       payload.version === 2
@@ -783,12 +851,6 @@ const scanAttendanceQr = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `This QR code is only valid from ${checkpointTime} until ${nextTime || "the event ends"}.`,
-      });
-    }
-    if (!attendance) {
-      return res.status(409).json({
-        success: false,
-        message: "Join this event before scanning an attendance QR code.",
       });
     }
     const checkpointField = ATTENDANCE_PHASE_FIELDS[payload.phase];
@@ -1202,30 +1264,129 @@ const getEventAttendance = async (req, res) => {
       });
     }
 
-    const records = await EventAttendance.find({ event: event._id })
-      .populate("student", "name email")
-      .populate("member", "idNumber name year program section")
-      .populate("lastMarkedBy", "name email role")
-      .sort({ status: 1, joinedAt: 1 });
-    const summary = records.reduce(
-      (counts, record) => {
-        counts.joined += 1;
-        counts[record.status.toLowerCase()] += 1;
-        return counts;
-      },
-      {
-        total: event.expectedAttendees,
-        joined: 0,
-        pending: 0,
-        present: 0,
-      },
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      200,
+      Math.max(1, Number.parseInt(req.query.limit, 10) || 50),
     );
+    const skip = (page - 1) * limit;
+    const query = String(req.query.q || "").trim();
+    const requestedDay = Number.parseInt(req.query.day, 10);
+    const dayFilter =
+      Number.isInteger(requestedDay) && requestedDay > 0 ? requestedDay : null;
+
+    const checkpoints = getCreatedAttendanceCheckpoints(event).filter(
+      (checkpoint) => !dayFilter || Number(checkpoint.day) === dayFilter,
+    );
+    const days = (event.attendanceDays || [])
+      .map((attendanceDay) => ({
+        day: attendanceDay.day,
+        date: attendanceDay.date,
+      }))
+      .sort((first, second) => first.day - second.day);
+
+    // The summary is always for the whole event, not just the current page or
+    // the active search, so the counters stay stable while paging.
+    const summaryRows = await EventAttendance.aggregate([
+      { $match: { event: event._id } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+    const joined = summaryRows.reduce((sum, row) => sum + row.count, 0);
+    const present =
+      summaryRows.find((row) => row._id === "Present")?.count || 0;
+    const summary = {
+      total: Number(event.expectedAttendees) || 0,
+      joined,
+      pending: joined - present,
+      present,
+    };
+
+    const filter = { event: event._id };
+    let searchMatchedNothing = false;
+
+    if (query) {
+      const regex = new RegExp(escapeRegex(query), "i");
+      // Resolve the search against the roster and user accounts first. The
+      // attendance query is then constrained by indexed _id lists instead of
+      // filtering on populated fields (which MongoDB cannot do in a find()).
+      const [matchingMembers, matchingUsers] = await Promise.all([
+        Member.find({
+          organization: event.org,
+          $or: [{ name: regex }, { idNumber: regex }, { email: regex }],
+        })
+          .select("_id")
+          .limit(1000)
+          .lean(),
+        User.find({
+          $or: [{ name: regex }, { email: regex }],
+        })
+          .select("_id")
+          .limit(1000)
+          .lean(),
+      ]);
+      const searchConditions = [];
+      if (matchingMembers.length) {
+        searchConditions.push({
+          member: { $in: matchingMembers.map((member) => member._id) },
+        });
+      }
+      if (matchingUsers.length) {
+        searchConditions.push({
+          student: { $in: matchingUsers.map((user) => user._id) },
+        });
+      }
+      if (searchConditions.length) {
+        filter.$or = searchConditions;
+      } else {
+        searchMatchedNothing = true;
+      }
+    }
+
+    let records = [];
+    let total = 0;
+    if (!searchMatchedNothing) {
+      [records, total] = await Promise.all([
+        EventAttendance.find(filter)
+          .select(
+            "student member status joinedAt days presentAt morningInAt lunchOutAt afternoonInAt afternoonOutAt morningInVia lunchOutVia afternoonInVia afternoonOutVia lastMarkedVia lastManualReason",
+          )
+          .populate("student", "name email")
+          .populate("member", "idNumber name")
+          .sort({ status: 1, joinedAt: 1, _id: 1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        EventAttendance.countDocuments(filter),
+      ]);
+    }
+
+    // Only ship the selected day's checkpoints. This cuts the payload and the
+    // rendered table from (days × 4) columns down to 4.
+    if (dayFilter) {
+      records = records.map((record) => ({
+        ...record,
+        days: (record.days || []).filter(
+          (day) => Number(day.day) === dayFilter,
+        ),
+      }));
+    }
+
+    const pages = Math.max(1, Math.ceil(total / limit));
 
     return res.json({
       success: true,
       data: records,
       summary,
-      checkpoints: getCreatedAttendanceCheckpoints(event),
+      checkpoints,
+      days,
+      filters: { q: query, day: dayFilter },
+      pagination: {
+        page,
+        limit,
+        total,
+        pages,
+        hasMore: page < pages,
+      },
     });
   } catch (error) {
     console.error("Error fetching event attendance:", error);
@@ -1236,9 +1397,48 @@ const getEventAttendance = async (req, res) => {
   }
 };
 
+// DELETE /events/:id — secretary-only "undo" for a created event.
+// Allowed only while no student has joined and no fines exist, so
+// attendance history is never destroyed. Removing the event frees its
+// adopted resolution for reuse.
+const deleteEvent = async (req, res) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found for your organization.",
+      });
+    }
+    const [attendanceCount, fineCount] = await Promise.all([
+      EventAttendance.countDocuments({ event: event._id }),
+      AttendanceFine.countDocuments({ event: event._id }),
+    ]);
+    if (attendanceCount > 0 || fineCount > 0) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Students have already joined this event, so it can no longer be removed.",
+      });
+    }
+    await event.deleteOne();
+    return res.json({ success: true, message: "Event removed successfully." });
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Could not remove the event.",
+    });
+  }
+};
+
 module.exports = {
   getEvents,
   createEvent,
+  deleteEvent,
   getLifecycle,
   generateAttendanceQr,
   getCreatedAttendanceQrs,
@@ -1254,4 +1454,5 @@ module.exports = {
   finalizeEventAttendanceFines,
   parseAttendanceCode,
   getCreatedAttendanceCheckpoints,
+  STUDENT_MEMBER_ROLES,
 };

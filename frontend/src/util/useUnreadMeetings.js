@@ -21,12 +21,14 @@ export function useUnreadMeetings() {
   }, []);
 
   useEffect(() => {
-    refresh();
+    const timer = window.setTimeout(() => refresh(), 0);
     const handleDataUpdated = (payload) => {
-      if (!payload || payload.resource === "meetings") refresh();
+      if (!payload || payload.resource !== "meetings") return;
+      refresh();
     };
     realtimeSocket.on("data-updated", handleDataUpdated);
     return () => {
+      window.clearTimeout(timer);
       realtimeSocket.off("data-updated", handleDataUpdated);
     };
   }, [refresh]);

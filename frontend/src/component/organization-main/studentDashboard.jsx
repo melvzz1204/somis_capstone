@@ -36,6 +36,7 @@ import NavCountBadge from "../navCountBadge";
 import StudentPaymentTracker from "./StudentPaymentTracker";
 import DigitalClearance from "./DigitalClearance";
 import MeetingList from "./meetingList";
+import MemberAvatar from "./memberAvatar";
 import { getClearanceSummary } from "../../util/clearanceStatus";
 import {
   CONTACT_NUMBER_ERROR,
@@ -318,6 +319,7 @@ function AccountPanel({
   error,
   isSaving,
   onSave,
+  academicLocked = false,
 }) {
   return (
     <form
@@ -419,7 +421,64 @@ function AccountPanel({
             Numbers only, exactly 11 digits.
           </span>
         </label>
+        <label className="text-sm font-bold text-slate-700 sm:col-span-2">
+          Program / Course
+          <input
+            value={form.program || ""}
+            onChange={(e) => setForm({ ...form, program: e.target.value })}
+            placeholder="e.g. BS Information Technology"
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          />
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Year Level
+          <select
+            value={form.yearLevel || ""}
+            onChange={(e) => setForm({ ...form, yearLevel: e.target.value })}
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          >
+            <option value="" disabled>
+              Select year level
+            </option>
+            <option value="1st Year">1st Year</option>
+            <option value="2nd Year">2nd Year</option>
+            <option value="3rd Year">3rd Year</option>
+            <option value="4th Year">4th Year</option>
+            <option value="5th Year+">5th Year+</option>
+          </select>
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Section
+          <input
+            value={form.section || ""}
+            onChange={(e) => setForm({ ...form, section: e.target.value })}
+            placeholder="e.g. BSIT - 3 A"
+            maxLength={50}
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          />
+        </label>
       </div>
+      {academicLocked ? (
+        <p className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Naka-lock ang iyong section, year level, at program dahil may
+            attendance o bayad ka na sa dues. Hilingin sa iyong organization
+            officer na i-unlock ang mga ito bago mag-edit.
+          </span>
+        </p>
+      ) : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800">
+          Your section, year level, and program are shared with your
+          organization's roster and used for dues targeting. Keep them accurate.
+        </p>
+      )}
       {error && (
         <p className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           {error}
@@ -451,6 +510,9 @@ export default function StudentDashboard({ user: propsUser }) {
     name: currentUser?.name || "",
     email: currentUser?.email || "",
     contactNumber: "",
+    program: "",
+    section: "",
+    yearLevel: "",
   });
   const [accountAvatar, setAccountAvatar] = useState(
     currentUser?.avatar || null,
@@ -554,6 +616,9 @@ export default function StudentDashboard({ user: propsUser }) {
           name: data.user?.name || currentUser?.name || "",
           email: data.user?.email || currentUser?.email || "",
           contactNumber: data.studentProfile?.contactNumber || "",
+          program: data.studentProfile?.program || "",
+          section: data.studentProfile?.section || "",
+          yearLevel: data.studentProfile?.yearLevel || "",
         });
         setAccountAvatar(data.user?.avatar || currentUser?.avatar || null);
         if (data.user) {
@@ -1590,26 +1655,24 @@ export default function StudentDashboard({ user: propsUser }) {
                                 <div className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                   {otherOfficers.map((officer) => {
-                                    const avatarUrl = getAvatarSrc(
-                                      officer.avatar,
-                                    );
                                     return (
                                       <article
                                         key={officer._id}
                                         className="relative flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
                                       >
                                         <div className="absolute -top-5 left-1/2 h-5 w-px -translate-x-1/2 bg-[#D4AF37]" />
-                                        {avatarUrl ? (
-                                          <img
-                                            src={avatarUrl}
-                                            alt={officer.name || "Officer"}
-                                            className="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
-                                          />
-                                        ) : (
+                                        <MemberAvatar
+                                          memberId={officer._id}
+                                          hasAvatar={officer.hasAvatar}
+                                          version={officer.avatarVersion}
+                                          alt={officer.name || "Officer"}
+                                          imgClassName="h-15 w-15 shrink-0 rounded-full border-2 border-[#D4AF37]/60 object-cover object-top shadow-sm"
+                                          wrapperClassName="shrink-0"
+                                        >
                                           <div className="grid h-15 w-15 shrink-0 place-items-center rounded-full border-2 border-[#D4AF37]/60 bg-[#4A0E17]/10 text-xs font-extrabold uppercase text-[#4A0E17]">
                                             {officer.name?.charAt(0) || "?"}
                                           </div>
-                                        )}
+                                        </MemberAvatar>
                                         <div className="min-w-0">
                                           <p className="truncate text-[10px] font-black uppercase tracking-wide text-[#7A610D]">
                                             {officer.role || "Officer"}
@@ -2109,7 +2172,9 @@ export default function StudentDashboard({ user: propsUser }) {
                         )}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        {evt.lifecycle.status === "Upcoming" &&
+                        {["Upcoming", "Ongoing"].includes(
+                          evt.lifecycle.status,
+                        ) &&
                           !attendanceForEvent(evt._id) && (
                             <button
                               type="button"
@@ -2175,6 +2240,7 @@ export default function StudentDashboard({ user: propsUser }) {
               message={accountMessage}
               error={accountError}
               isSaving={isSavingAccount}
+              academicLocked={Boolean(studentProfile?.academicEditLocked)}
               onSave={async (event) => {
                 event.preventDefault();
                 if (
@@ -2201,6 +2267,9 @@ export default function StudentDashboard({ user: propsUser }) {
                   localStorage.setItem("user", JSON.stringify(updated));
                   setAccountAvatar(updated.avatar || null);
                   setAccountFile(null);
+                  if (result.studentProfile) {
+                    setStudentProfile(result.studentProfile);
+                  }
                   setAccountMessage(
                     result.message || "Account updated successfully.",
                   );

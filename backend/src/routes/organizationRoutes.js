@@ -494,17 +494,36 @@ router.post(
 
       const normalizedSection = String(req.body.section || "").trim();
       const normalizedProgram = String(req.body.program || "").trim();
+      // Class codes use the program acronym ("BS Information Technology" +
+      // "BSIT 1C" → "BSIT1C"), never the full program name glued together
+      // ("BSINFORMATIONTECHNOLOGYBSIT1C").
+      const programKey =
+        (String(normalizedProgram).match(/[A-Z0-9]/g) || [])
+          .join("")
+          .toUpperCase() ||
+        String(normalizedProgram || "")
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "");
+      const compactSection = String(normalizedSection || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+      const sectionCore =
+        programKey &&
+        compactSection.startsWith(programKey) &&
+        compactSection.length > programKey.length
+          ? compactSection.slice(programKey.length)
+          : compactSection;
+      const sectionHasProgram = sectionCore !== compactSection;
       const normalizedName =
         String(req.body.name || "").trim() ||
-        [normalizedProgram, normalizedSection].filter(Boolean).join(" ") ||
+        (sectionHasProgram
+          ? normalizedSection
+          : [normalizedProgram, normalizedSection].filter(Boolean).join(" ")) ||
         normalizedSection;
       const normalizedAcronym =
         String(req.body.acronym || "").trim().toUpperCase() ||
-        [normalizedProgram, normalizedSection]
-          .join("")
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, "") ||
-        normalizedSection.toUpperCase().replace(/[^A-Z0-9]/g, "");
+        `${programKey}${sectionCore}` ||
+        compactSection;
       const president = {
         surname: cleanPart(req.body.presidentSurname || req.body.president),
         firstName: cleanPart(req.body.presidentFirstName),
@@ -578,16 +597,31 @@ router.post(
         });
       }
 
-      // Emails that never finished setup can simply be re-invited into the
-      // class role. Only an already-active account blocks registration.
-      const findReusableAccount = async (email) => {
+      // Accounts that never finished setup are simply re-invited into the
+      // class role. Active *student* accounts from this same parent
+      // organization are promoted in place: the same login becomes the class
+      // officer login (role + organization switch with a fresh setup invite)
+      // while their regular-member row and student profile stay intact, so
+      // they keep clearance monitoring through the portal chooser — the same
+      // dual-portal pattern used when registering organization officers.
+      // Any other active account (officer, adviser, admin, or a student from
+      // another organization) still blocks registration.
+      const findReusableAccount = async (email, label) => {
         const owner = await User.findOne({ email });
-        if (!owner || owner.status === "Pending") return { reusable: true, user: owner };
-        return { reusable: false, user: owner };
+        if (!owner || owner.status === "Pending")
+          return { reusable: true, user: owner, label };
+        const isOwnStudent =
+          owner.status === "Active" &&
+          owner.role === "student" &&
+          String(owner.organization || "") ===
+            String(parentOrganization._id || "");
+        if (isOwnStudent)
+          return { reusable: true, user: owner, label, promoted: true };
+        return { reusable: false, user: owner, label };
       };
       const [presidentSlot, treasurerSlot] = await Promise.all([
-        findReusableAccount(president.email),
-        findReusableAccount(treasurer.email),
+        findReusableAccount(president.email, "president"),
+        findReusableAccount(treasurer.email, "treasurer"),
       ]);
       const blockingSlot = [presidentSlot, treasurerSlot].find(
         (slot) => !slot.reusable,
@@ -595,7 +629,7 @@ router.post(
       if (blockingSlot) {
         return res.status(409).json({
           code: "EMAIL_HAS_ACCOUNT",
-          message: `${blockingSlot.user.email} already has an active account. Pick someone without an account, or have them use their existing login.`,
+          message: `${blockingSlot.user.email} already has an active ${blockingSlot.user.role} account and cannot be assigned as class ${blockingSlot.label}. Pick someone without an officer account.`,
         });
       }
 
@@ -618,7 +652,9 @@ router.post(
 
       // Adopt the account when one is already pending for the email (e.g. a
       // roster member invited before); otherwise create it fresh. Either way
-      // the officer gets a new setup invite for the class role.
+      // the officer gets a new setup invite for the class role. Promoted
+      // students keep their regular-member row and student profile, so only
+      // the login's role/organization changes.
       const adoptOfficerAccount = async (slot, displayName, email, role, token) => {
         if (slot.user) {
           slot.user.name = displayName;
@@ -723,6 +759,10 @@ router.post(
         emailStatus,
         presidentUserId: presidentUser._id,
         treasurerUserId: treasurerUser._id,
+        promoted: {
+          president: Boolean(presidentSlot.promoted),
+          treasurer: Boolean(treasurerSlot.promoted),
+        },
       });
     } catch (error) {
       console.error("Error creating class:", error);
@@ -1122,8 +1162,36 @@ router.delete(
       }
 
       await removeOrganizationDocumentFiles(classOrg._id);
+      // Officers promoted from active parent-org students keep their login:
+      // demote them back to regular students (role + organization switch)
+      // instead of deleting the account. Fresh officer accounts with no
+      // parent membership are deleted as before.
+      const classUsers = await User.find({ organization: classOrg._id }).select(
+        "_id email",
+      );
+      const restoreIds = [];
+      for (const classUser of classUsers) {
+        const parentMembership = await Member.findOne({
+          organization: parentOrganizationId,
+          email: String(classUser.email || "").toLowerCase().trim(),
+          role: "Member",
+        });
+        if (parentMembership) restoreIds.push(classUser._id);
+      }
+      if (restoreIds.length > 0) {
+        await User.updateMany(
+          { _id: { $in: restoreIds } },
+          {
+            $set: { role: "student", organization: parentOrganizationId },
+            $unset: { setupToken: "", setupTokenExpires: "" },
+          },
+        );
+      }
       await Promise.all([
-        User.deleteMany({ organization: classOrg._id }),
+        User.deleteMany({
+          organization: classOrg._id,
+          _id: { $nin: restoreIds },
+        }),
         Member.deleteMany({ organization: classOrg._id }),
         StudentProfile.deleteMany({ organization: classOrg._id }),
         Fee.deleteMany({ org: classOrg._id }),

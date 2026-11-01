@@ -26,6 +26,10 @@ const attendanceFineSchema = new mongoose.Schema(
       default: null,
     },
     amount: { type: Number, required: true, min: 0 },
+    // Rate charged per absent day and how many event days the student missed,
+    // so amount = rate × daysAbsent. Kept for transparency/audit.
+    rate: { type: Number, min: 0, default: null },
+    daysAbsent: { type: Number, min: 0, default: 1 },
     reason: {
       type: String,
       default: "Absent from organization event",

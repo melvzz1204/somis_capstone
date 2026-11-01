@@ -4,6 +4,8 @@ const {
   getCreatedAttendanceCheckpoints,
   getLifecycle,
   parseAttendanceCode,
+  computeAbsentDays,
+  STUDENT_MEMBER_ROLES,
 } = require("../src/controllers/eventController");
 
 const validCode = (phase = "invalid") =>
@@ -75,6 +77,19 @@ test("created attendance checkpoints only include QR codes made by the secretary
   );
 });
 
+test("attendance endpoints also admit dual-member officers", () => {
+  assert.deepEqual([...STUDENT_MEMBER_ROLES].sort(), [
+    "org_admin",
+    "pio",
+    "secretary",
+    "student",
+    "treasurer",
+  ]);
+  assert.equal(STUDENT_MEMBER_ROLES.has("student"), true);
+  assert.equal(STUDENT_MEMBER_ROLES.has("adviser"), false);
+  assert.equal(STUDENT_MEMBER_ROLES.has("dean"), false);
+});
+
 test("getLifecycle reports upcoming, ongoing, ended, and cancelled events", () => {
   const now = Date.parse("2026-08-14T10:00:00.000Z");
   const baseEvent = {
@@ -112,4 +127,63 @@ test("getLifecycle reports upcoming, ongoing, ended, and cancelled events", () =
     lifecycleStatus: "Cancelled",
     countdownTo: null,
   });
+});
+
+test("computeAbsentDays fines a student for every missed day of a multi-day event", () => {
+  const dayNumbers = [1, 2, 3, 4, 5];
+
+  // Never checked in on any of the 5 days.
+  assert.equal(
+    computeAbsentDays({ days: [], status: "Pending" }, dayNumbers, 5),
+    5,
+  );
+
+  // Attended only day 1, missed the remaining 4.
+  assert.equal(
+    computeAbsentDays(
+      { days: [{ day: 1, presentAt: new Date(), morningInAt: new Date() }] },
+      dayNumbers,
+      5,
+    ),
+    4,
+  );
+
+  // Attended every day.
+  assert.equal(
+    computeAbsentDays(
+      {
+        days: dayNumbers.map((day) => ({ day, presentAt: new Date() })),
+      },
+      dayNumbers,
+      5,
+    ),
+    0,
+  );
+});
+
+test("computeAbsentDays counts multiple checkpoints in one day only once", () => {
+  assert.equal(
+    computeAbsentDays(
+      {
+        days: [
+          {
+            day: 2,
+            morningInAt: new Date(),
+            afternoonOutAt: new Date(),
+          },
+        ],
+      },
+      [1, 2, 3],
+      3,
+    ),
+    2,
+  );
+});
+
+test("computeAbsentDays handles legacy single-day top-level records", () => {
+  assert.equal(
+    computeAbsentDays({ status: "Present", presentAt: new Date() }, [1], 1),
+    0,
+  );
+  assert.equal(computeAbsentDays({ status: "Pending" }, [1], 1), 1);
 });

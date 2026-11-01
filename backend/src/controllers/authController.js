@@ -14,7 +14,13 @@ const {
 const {
   ensureOfficerMemberRow,
   ensureOfficerStudentProfile,
+  invalidateRosterCache,
 } = require("./orgMemberController");
+const { processAvatar } = require("../util/avatar");
+const {
+  hasAcademicActivity,
+  buildStudentProfilePayload,
+} = require("../util/academicInfoLock");
 
 // Officer roles that get their own portal workspace.
 const OFFICER_PORTAL_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
@@ -56,17 +62,24 @@ exports.registerStudent = async (req, res) => {
       yearLevel,
     } = req.body;
 
-    // 1. Validate email domain
+    // 1. Normalize and validate the email address.
+    // Strip artefacts introduced by copy/paste (Excel's leading "'" text
+    // prefix, surrounding quotes, stray whitespace) BEFORE validating.
+    // Otherwise malformed values such as "'26b1210@marsu.edu.ph" pass the
+    // suffix check and silently break the account setup email.
     const normalizedEmail = String(officialEmail || "")
-      .toLowerCase()
-      .trim();
+      .trim()
+      .replace(/^['"`\s]+|['"`\s]+$/g, "")
+      .toLowerCase();
+
+    const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const isApprovedEmail = [
       "@marsu.edu.ph",
       "@marstateu.edu.ph",
       "@gmail.com",
     ].some((domain) => normalizedEmail.endsWith(domain));
 
-    if (!isApprovedEmail) {
+    if (!EMAIL_PATTERN.test(normalizedEmail) || !isApprovedEmail) {
       return res.status(400).json({
         message:
           "Use your MarSU email (@marsu.edu.ph or @marstateu.edu.ph), or an approved Gmail address.",
@@ -142,6 +155,19 @@ exports.registerStudent = async (req, res) => {
       middleInitial ? middleInitial.trim() + " " : ""
     }${lastName.trim()}${suffix ? " " + suffix.trim() : ""}`.trim();
 
+    // Normalize the structured name parts so the official roster keeps the
+    // same Surname / First Name / M.I. / Suffix breakdown as officer rows.
+    // Without these, autofill pickers (e.g. Register Class) cannot populate
+    // the name fields from a self-registered member.
+    const rosterMiddleInitial = (() => {
+      const initial = String(middleInitial || "")
+        .trim()
+        .replace(/\./g, "")
+        .charAt(0)
+        .toUpperCase();
+      return initial ? `${initial}.` : "";
+    })();
+
     // 5. Generate setup token and expiration (24 Hours)
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -184,6 +210,10 @@ exports.registerStudent = async (req, res) => {
         $set: {
           idNumber: studentIdNumber,
           name: formattedName,
+          surname: String(lastName || "").trim(),
+          firstName: String(firstName || "").trim(),
+          middleInitial: rosterMiddleInitial,
+          suffix: String(suffix || "").trim(),
           birthday: birthDate,
           year: yearLevel,
           program: normalizedProgram,
@@ -197,13 +227,22 @@ exports.registerStudent = async (req, res) => {
       { new: true, upsert: true, runValidators: true },
     );
 
-    // 9. Send setup email using the configured production frontend URL.
-    const setupLink = createSetupUrl(rawToken);
+    // A new roster row exists now; drop any cached roster for this organization.
+    invalidateRosterCache(selectedOrganization._id);
 
-    await sendEmail({
-      to: normalizedEmail,
-      subject: "MarSU SOMIS - Account Setup Link",
-      html: `
+    // 9. Send setup email using the configured production frontend URL.
+    // The account, profile and roster row are already persisted at this point,
+    // so a mail failure must NOT fail the whole request. Otherwise the student
+    // sees "failed", retries, and is then permanently blocked by the duplicate
+    // email / student-ID guards even though their account already exists.
+    const setupLink = createSetupUrl(rawToken);
+    let emailSent = true;
+
+    try {
+      await sendEmail({
+        to: normalizedEmail,
+        subject: "MarSU SOMIS - Account Setup Link",
+        html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #4A0E17;">Welcome to MarSU SOMIS Portal</h2>
           <p>Your student registration request has been received. Please click the button below to configure your account password and activate access:</p>
@@ -215,11 +254,22 @@ exports.registerStudent = async (req, res) => {
           <p style="font-size: 12px; color: #777;">This link will expire in 24 hours.</p>
         </div>
       `,
-    });
+      });
+    } catch (emailError) {
+      emailSent = false;
+      console.error(
+        `Registration saved but the setup email failed for ${normalizedEmail}: ${emailError.message}`,
+      );
+      // Log the link so an administrator can still deliver it manually.
+      console.error(`Manual setup link for ${normalizedEmail}: ${setupLink}`);
+    }
 
     return res.status(201).json({
       success: true,
-      message: "Registration successful. Setup link sent to email.",
+      emailSent,
+      message: emailSent
+        ? "Registration successful. Setup link sent to email."
+        : "Registration successful, but the setup email could not be sent. Please contact the administrator to receive your setup link.",
       organization: {
         _id: selectedOrganization._id,
         name: selectedOrganization.name,
@@ -317,6 +367,7 @@ exports.setupAccount = async (req, res) => {
     user.status = "Active";
 
     await user.save();
+    invalidateRosterCache(user.organization);
 
     // Student officers are automatically regular members as well.
     await ensureOfficerMemberRow(user);
@@ -379,7 +430,8 @@ exports.updateStudentAccount = async (req, res) => {
         .json({ message: "Only students can update this account." });
     }
 
-    const { name, email, contactNumber } = req.body;
+    const { name, email, contactNumber, program, section, yearLevel } =
+      req.body;
     const user = await User.findById(req.user._id);
     const originalEmail = user?.email;
     const profile = await StudentProfile.findOne({ user: req.user._id });
@@ -405,8 +457,7 @@ exports.updateStudentAccount = async (req, res) => {
     }
     if (name !== undefined && String(name).trim())
       user.name = String(name).trim();
-    if (req.file)
-      user.avatar = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    if (req.file) user.avatar = await processAvatar(req.file);
     if (contactNumber !== undefined) {
       const normalizedContact = String(contactNumber).trim();
       if (normalizedContact && !/^\d{11}$/.test(normalizedContact)) {
@@ -417,13 +468,71 @@ exports.updateStudentAccount = async (req, res) => {
       }
       profile.contactNumber = normalizedContact;
     }
+    const normalizedProgram =
+      program !== undefined ? String(program).trim() : undefined;
+    if (normalizedProgram === "") {
+      return res.status(400).json({ message: "Program/Course is required." });
+    }
+    const normalizedSection =
+      section !== undefined ? String(section).trim() : undefined;
+    if (normalizedSection === "") {
+      return res.status(400).json({ message: "Section is required." });
+    }
+    const normalizedYearLevel =
+      yearLevel !== undefined ? String(yearLevel).trim() : undefined;
+    if (normalizedYearLevel !== undefined) {
+      const allowedYearLevels =
+        StudentProfile.schema.path("yearLevel").enumValues;
+      if (!allowedYearLevels.includes(normalizedYearLevel)) {
+        return res.status(400).json({ message: "Invalid year level." });
+      }
+    }
+
+    // Academic details are protected once the student has attendance or dues
+    // activity. An officer must unlock editing first (per student).
+    const academicFieldsChanging =
+      (normalizedProgram !== undefined &&
+        normalizedProgram !== profile.program) ||
+      (normalizedSection !== undefined &&
+        normalizedSection !== profile.section) ||
+      (normalizedYearLevel !== undefined &&
+        normalizedYearLevel !== profile.yearLevel);
+
+    if (academicFieldsChanging) {
+      const locked =
+        !profile.academicEditUnlocked &&
+        (await hasAcademicActivity(profile.user));
+      if (locked) {
+        return res.status(409).json({
+          code: "ACADEMIC_INFO_LOCKED",
+          message:
+            "Your section, year level, and program are locked because you already have attendance or dues payment records. Ask your organization officer to unlock them first.",
+        });
+      }
+    }
+
+    if (normalizedProgram !== undefined) profile.program = normalizedProgram;
+    if (normalizedSection !== undefined) profile.section = normalizedSection;
+    if (normalizedYearLevel !== undefined)
+      profile.yearLevel = normalizedYearLevel;
+
+    // A successful academic change consumes the officer's one-time unlock.
+    if (academicFieldsChanging && profile.academicEditUnlocked) {
+      profile.academicEditUnlocked = false;
+      profile.academicEditUnlockedBy = null;
+      profile.academicEditUnlockedAt = null;
+      invalidateRosterCache(String(profile.organization));
+    }
 
     await Promise.all([user.save(), profile.save()]);
 
     // Synchronize the official roster record so organization leaders see the
-    // student's latest name, email, and avatar.
+    // student's latest name, email, avatar, and academic details.
     const memberUpdate = { email: user.email, name: user.name };
     if (req.file) memberUpdate.avatar = user.avatar;
+    if (program !== undefined) memberUpdate.program = profile.program;
+    if (section !== undefined) memberUpdate.section = profile.section;
+    if (yearLevel !== undefined) memberUpdate.year = profile.yearLevel;
     await Member.findOneAndUpdate(
       {
         organization: profile.organization,
@@ -439,7 +548,7 @@ exports.updateStudentAccount = async (req, res) => {
     return res.status(200).json({
       message: "Account updated successfully.",
       user: updatedUser,
-      studentProfile: profile,
+      studentProfile: await buildStudentProfilePayload(profile),
     });
   } catch (error) {
     console.error("Update student account error:", error);
@@ -570,6 +679,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     await user.save();
+    invalidateRosterCache(user.organization);
 
     const authToken = jwt.sign(
       { id: user._id, role: user.role, orgId: user.organization },

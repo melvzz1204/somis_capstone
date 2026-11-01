@@ -6,6 +6,8 @@ const User = require("../models/User");
 const StudentProfile = require("../models/studentProfile");
 const Organization = require("../models/OrganizationModels");
 const bcrypt = require("bcryptjs");
+const { processAvatar } = require("../util/avatar");
+const { buildStudentProfilePayload } = require("../util/academicInfoLock");
 
 const cleanNamePart = (value = "") => String(value).trim().replace(/\s+/g, " ");
 
@@ -32,9 +34,105 @@ const formatMemberName = ({ surname, firstName, middleInitial, suffix }) => {
   return [baseName, cleanSuffix].filter(Boolean).join(", ");
 };
 
-const getAvatarDataUri = (file) => {
-  if (!file?.buffer || !file.mimetype) return null;
-  return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+// ---- Roster response cache -------------------------------------------------
+// The members list is fetched on every mount by several dashboards and the GET
+// handler also runs reconciliation writes. A short-lived per-organization cache
+// removes the repeated round-trips while staying fresh enough for a roster that
+// changes rarely. Mutations call invalidateRosterCache() to drop it eagerly.
+const ROSTER_CACHE_TTL_MS = 30 * 1000;
+const RECONCILE_INTERVAL_MS = 2 * 60 * 1000;
+const rosterCache = new Map();
+const rosterBuilds = new Map();
+const lastReconciledAt = new Map();
+
+const readRosterCache = (key) => {
+  const entry = rosterCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    rosterCache.delete(key);
+    return null;
+  }
+  return entry.data;
+};
+
+const writeRosterCache = (key, data) => {
+  rosterCache.set(key, { data, expiresAt: Date.now() + ROSTER_CACHE_TTL_MS });
+};
+
+const invalidateRosterCache = (orgId) => {
+  if (!orgId) return;
+  const prefix = `${orgId}:`;
+  for (const key of rosterCache.keys()) {
+    if (key.startsWith(prefix)) rosterCache.delete(key);
+  }
+};
+
+exports.invalidateRosterCache = invalidateRosterCache;
+
+const shouldReconcileRoster = (orgId) => {
+  const key = String(orgId);
+  const last = lastReconciledAt.get(key) || 0;
+  if (Date.now() - last < RECONCILE_INTERVAL_MS) return false;
+  lastReconciledAt.set(key, Date.now());
+  return true;
+};
+
+// Avatars are stored inline on the roster document but are never serialized in
+// the roster JSON. The list only flags whether a photo exists plus a version,
+// so the client can lazy-load the image from GET /orgmembers/:id/avatar and
+// bust its own cache when the photo changes.
+const shapeRosterMember = (member) => {
+  const plain =
+    member && typeof member.toObject === "function"
+      ? member.toObject()
+      : { ...member };
+  const avatar = plain.avatar;
+  delete plain.avatar;
+  plain.hasAvatar = Boolean(avatar);
+  plain.avatarVersion = plain.updatedAt
+    ? new Date(plain.updatedAt).getTime()
+    : 0;
+  return plain;
+};
+
+// Attaches per-student academic-edit lock state so the roster UI can offer an
+// unlock/lock action without a request per row. Only members with a linked
+// student profile get the flag; others default to false.
+const attachAcademicUnlockState = async (members) => {
+  const emails = members
+    .filter((member) => member.role === "Member" || member.hasAccount)
+    .map((member) => String(member.email || "").toLowerCase().trim())
+    .filter(Boolean);
+  if (emails.length === 0) return members;
+
+  const users = await User.find({ email: { $in: emails } }).select("email");
+  const userByEmail = new Map(
+    users.map((user) => [String(user.email || "").toLowerCase().trim(), user]),
+  );
+  const profiles = await StudentProfile.find({
+    user: { $in: users.map((user) => user._id) },
+  }).select("user academicEditUnlocked");
+  const profileByUser = new Map(
+    profiles.map((profile) => [String(profile.user), profile]),
+  );
+
+  return members.map((member) => {
+    const user = userByEmail.get(
+      String(member.email || "").toLowerCase().trim(),
+    );
+    const profile = user ? profileByUser.get(String(user._id)) : null;
+    return {
+      ...member,
+      hasStudentProfile: Boolean(profile),
+      academicEditUnlocked: Boolean(profile?.academicEditUnlocked),
+    };
+  });
+};
+
+const parseAvatarDataUri = (avatar) => {
+  const match = /^data:([^;]+);base64,(.*)$/s.exec(String(avatar || ""));
+  if (!match) return null;
+  return { contentType: match[1], buffer: Buffer.from(match[2], "base64") };
 };
 
 // Backfill the avatar on roster (Member) records from the linked active
@@ -76,6 +174,92 @@ const syncOrganizationAdviser = async (organizationId) => {
   await Organization.findByIdAndUpdate(organizationId, {
     adviser: adviser?.name || "",
   });
+};
+
+// One place for every self-healing roster write (president row, account flags,
+// adviser role, avatar backfill, organization adviser field). It used to run on
+// every members GET; now it is throttled so reads are cheap.
+const reconcileOrganizationRoster = async (orgId) => {
+  try {
+    const organization = await Organization.findById(orgId).select(
+      "president email",
+    );
+    if (organization?.president && organization?.email) {
+      const normalizedPresidentEmail = organization.email.toLowerCase().trim();
+      const existingPresident = await Member.findOne({
+        organization: organization._id,
+        email: normalizedPresidentEmail,
+      });
+
+      if (!existingPresident) {
+        const presidentSurname = cleanNamePart(organization.president);
+        await Member.create({
+          name: presidentSurname,
+          surname: presidentSurname,
+          email: normalizedPresidentEmail,
+          role: "President",
+          organization: organization._id,
+          hasAccount: true,
+        });
+      } else if (
+        existingPresident.role !== "President" ||
+        !existingPresident.hasAccount
+      ) {
+        existingPresident.role = "President";
+        existingPresident.hasAccount = true;
+        await existingPresident.save();
+      }
+    }
+
+    // Reconcile legacy officer records with active login accounts so the
+    // dashboard can reliably display their account status.
+    const activeAccountEmails = await User.find({
+      organization: orgId,
+      status: "Active",
+    }).distinct("email");
+
+    if (activeAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: activeAccountEmails },
+          hasAccount: { $ne: true },
+        },
+        { $set: { hasAccount: true } },
+      );
+    }
+
+    const adviserAccountEmails = await User.find({
+      organization: orgId,
+      role: "adviser",
+      status: "Active",
+    }).distinct("email");
+
+    if (adviserAccountEmails.length > 0) {
+      await Member.updateMany(
+        {
+          organization: orgId,
+          email: { $in: adviserAccountEmails },
+          role: { $ne: "Faculty Adviser" },
+        },
+        {
+          $set: {
+            role: "Faculty Adviser",
+            idNumber: "",
+            birthday: null,
+            year: "",
+            program: "",
+            section: "",
+          },
+        },
+      );
+    }
+
+    await syncMemberAvatarsFromActiveAccounts(orgId);
+    await syncOrganizationAdviser(orgId);
+  } catch (error) {
+    console.error("Roster reconciliation failed:", error.message);
+  }
 };
 
 // Roster managers: faculty advisers everywhere, plus the president of a
@@ -273,6 +457,19 @@ const ensureOfficerStudentProfile = async (user, memberRow = null, extra = {}) =
     }
 
     let profile = await StudentProfile.findOne({ user: user._id });
+    if (!profile && candidate.studentIdNumber) {
+      // Reclaim a profile orphaned by class deletion: same student number,
+      // but the linked login is gone (delete + re-register flow). Never
+      // steal a profile still owned by a living account.
+      const orphan = await StudentProfile.findOne({
+        studentIdNumber: candidate.studentIdNumber,
+      });
+      if (orphan && !(await User.exists({ _id: orphan.user }))) {
+        orphan.user = user._id;
+        await orphan.save();
+        profile = orphan;
+      }
+    }
     if (profile) {
       let touched = false;
       for (const [key, value] of Object.entries(candidate)) {
@@ -333,108 +530,143 @@ exports.getMembersByOrg = async (req, res) => {
       return res.status(400).json({ message: "Organization ID is required." });
     }
 
-    // Older organizations may have been created before presidents were also
-    // stored in the official roster. Backfill the record from the OVPSAS-entered
-    // organization details without overwriting a profile already completed by
-    // the president.
-    const organization =
-      await Organization.findById(orgId).select("president email");
-    if (organization?.president && organization?.email) {
-      const normalizedPresidentEmail = organization.email.toLowerCase().trim();
-      const existingPresident = await Member.findOne({
-        organization: organization._id,
-        email: normalizedPresidentEmail,
-      });
+    // Class presidents see the effective class roster (manual rows + onboarded
+    // parent members matched by section), so it is cached under its own key.
+    const isClassView = req.user?.role === "org_admin";
+    const cacheKey = `${orgId}:${isClassView ? "class" : "org"}`;
 
-      if (!existingPresident) {
-        const presidentSurname = cleanNamePart(organization.president);
-        await Member.create({
-          name: presidentSurname,
-          surname: presidentSurname,
-          email: normalizedPresidentEmail,
-          role: "President",
-          organization: organization._id,
-          hasAccount: true,
+    const cached = readRosterCache(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    // Coalesce concurrent cold-cache requests into a single build.
+    let build = rosterBuilds.get(cacheKey);
+    if (!build) {
+      build = (async () => {
+        // Self-heal legacy rows at most once every few minutes instead of on
+        // every request, so the common path is a pure read.
+        if (shouldReconcileRoster(orgId)) {
+          await reconcileOrganizationRoster(orgId);
+        }
+
+        if (isClassView) {
+          const effective = await getEffectiveClassRoster(orgId);
+          if (effective) {
+            return attachAcademicUnlockState(
+              effective.members.map(shapeRosterMember),
+            );
+          }
+        }
+
+        const members = await Member.find({ organization: orgId }).sort({
+          role: 1,
+          createdAt: -1,
         });
-      } else {
-        existingPresident.role = "President";
-        existingPresident.hasAccount = true;
-        await existingPresident.save();
-      }
+        return attachAcademicUnlockState(members.map(shapeRosterMember));
+      })();
+
+      rosterBuilds.set(cacheKey, build);
+      const cleanupBuild = () => {
+        if (rosterBuilds.get(cacheKey) === build) {
+          rosterBuilds.delete(cacheKey);
+        }
+      };
+      build.then(cleanupBuild, cleanupBuild);
     }
 
-    // Reconcile legacy officer records with active login accounts so the
-    // dashboard can reliably display their account status.
-    const activeAccountEmails = await User.find({
-      organization: orgId,
-      status: "Active",
-    }).distinct("email");
-
-    if (activeAccountEmails.length > 0) {
-      await Member.updateMany(
-        {
-          organization: orgId,
-          email: { $in: activeAccountEmails },
-          hasAccount: { $ne: true },
-        },
-        { $set: { hasAccount: true } },
-      );
-    }
-
-    const adviserAccountEmails = await User.find({
-      organization: orgId,
-      role: "adviser",
-      status: "Active",
-    }).distinct("email");
-
-    if (adviserAccountEmails.length > 0) {
-      await Member.updateMany(
-        {
-          organization: orgId,
-          email: { $in: adviserAccountEmails },
-          role: { $ne: "Faculty Adviser" },
-        },
-        {
-          $set: {
-            role: "Faculty Adviser",
-            idNumber: "",
-            birthday: null,
-            year: "",
-            program: "",
-            section: "",
-          },
-        },
-      );
-    }
-
-    // Backfill avatars onto roster records from active student accounts so the
-    // organization leader portal shows the student's profile photo even for
-    // members whose roster row predates avatar syncing.
-    await syncMemberAvatarsFromActiveAccounts(orgId);
-
-    const members = await Member.find({ organization: orgId }).sort({
-      role: 1,
-      createdAt: -1,
-    });
-
-    // Class presidents see the effective roster: manual class rows plus
-    // onboarded parent members auto-matched by section.
-    if (req.user?.role === "org_admin") {
-      const effective = await getEffectiveClassRoster(orgId);
-      if (effective) {
-        await syncOrganizationAdviser(orgId);
-        return res.status(200).json(effective.members);
-      }
-    }
-
-    // Repair organizations created before adviser synchronization was added,
-    // and keep the profile value consistent with the official roster.
-    await syncOrganizationAdviser(orgId);
-
+    const members = await build;
+    writeRosterCache(cacheKey, members);
     return res.status(200).json(members);
   } catch (error) {
     console.error("Error fetching members:", error);
     return res.status(500).json({ message: "Failed to retrieve roster." });
+  }
+};
+
+// ==========================================
+// 1b. SERVE A SINGLE MEMBER AVATAR (lazy-loaded by the roster UI)
+// ==========================================
+exports.getMemberAvatar = async (req, res) => {
+  try {
+    const member = await Member.findById(req.params.id).select(
+      "avatar updatedAt",
+    );
+
+    if (!member?.avatar) {
+      return res.status(404).json({ message: "Avatar not found." });
+    }
+
+    const parsed = parseAvatarDataUri(member.avatar);
+    if (!parsed) {
+      // Stored as a URL/path rather than an inline data URI.
+      return res.redirect(member.avatar);
+    }
+
+    res.set("Content-Type", parsed.contentType);
+    res.set("Cache-Control", "private, max-age=86400");
+    return res.send(parsed.buffer);
+  } catch (_error) {
+    return res.status(404).json({ message: "Avatar not found." });
+  }
+};
+
+// ==========================================
+// 1c. UNLOCK / LOCK ACADEMIC EDITING FOR A STUDENT
+// An officer (faculty adviser or organization president) can allow a student to
+// update their section/year level/program again even after attendance or dues
+// activity. The unlock is consumed on the student's next academic change.
+// ==========================================
+exports.setMemberAcademicUnlock = async (req, res) => {
+  try {
+    const member = await Member.findById(req.params.id);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found." });
+    }
+    if (!isOwnOrganizationRecord(req, member)) {
+      return res.status(403).json({
+        message: "You can only manage members of your own organization.",
+      });
+    }
+
+    const email = String(member.email || "").toLowerCase().trim();
+    const linkedUser = await User.findOne({ email }).select("_id");
+    if (!linkedUser) {
+      return res.status(404).json({
+        message: "This member has no linked student account to unlock.",
+      });
+    }
+    const profile = await StudentProfile.findOne({ user: linkedUser._id });
+    if (!profile) {
+      return res.status(404).json({
+        message: "No student profile was found for this member.",
+      });
+    }
+
+    const requested = req.body?.unlocked;
+    const unlocked =
+      requested === undefined
+        ? !profile.academicEditUnlocked
+        : requested === true || requested === "true";
+
+    profile.academicEditUnlocked = unlocked;
+    profile.academicEditUnlockedBy = unlocked ? req.user._id : null;
+    profile.academicEditUnlockedAt = unlocked ? new Date() : null;
+    await profile.save();
+    invalidateRosterCache(String(member.organization));
+
+    return res.status(200).json({
+      success: true,
+      message: unlocked
+        ? "Academic editing unlocked for this student."
+        : "Academic editing locked for this student.",
+      data: { academicEditUnlocked: unlocked },
+    });
+  } catch (error) {
+    console.error("Error updating academic unlock:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to update the academic lock." });
   }
 };
 
@@ -475,7 +707,9 @@ exports.getMyOrganization = async (req, res) => {
       }
     }
 
-    const studentProfile = await StudentProfile.findOne({ user: req.user._id });
+    const studentProfile = await buildStudentProfilePayload(
+      await StudentProfile.findOne({ user: req.user._id }),
+    );
 
     if (!organization) {
       const user = await User.findById(req.user._id)
@@ -490,9 +724,11 @@ exports.getMyOrganization = async (req, res) => {
       });
     }
 
-    const roster = await Member.find({
-      organization: organization._id,
-    }).sort({ role: 1, name: 1 });
+    const roster = (
+      await Member.find({
+        organization: organization._id,
+      }).sort({ role: 1, name: 1 })
+    ).map(shapeRosterMember);
 
     const user = await User.findById(req.user._id)
       .select("name email role status avatar")
@@ -611,7 +847,7 @@ exports.addMember = async (req, res) => {
       }
     }
 
-    const avatarPath = getAvatarDataUri(req.file);
+    const avatarPath = await processAvatar(req.file);
 
     if (["Department Dean", "President"].includes(normalizedRole)) {
       const existingLeader = await Member.findOne({
@@ -661,9 +897,11 @@ exports.addMember = async (req, res) => {
       });
     }
 
+    invalidateRosterCache(orgId);
+
     return res.status(201).json({
       message: "Officer/Member added successfully!",
-      member: newMember,
+      member: shapeRosterMember(newMember),
     });
   } catch (error) {
     console.error("Error adding member:", error);
@@ -701,6 +939,7 @@ exports.deleteMember = async (req, res) => {
     }
 
     const deletedMember = await Member.findByIdAndDelete(id);
+    invalidateRosterCache(deletedMember.organization);
 
     if (deletedMember.role === "President") {
       const normalizedEmail = String(deletedMember.email || "")
@@ -861,7 +1100,7 @@ exports.updateMember = async (req, res) => {
       }
     }
 
-    const avatarDataUri = getAvatarDataUri(req.file);
+    const avatarDataUri = await processAvatar(req.file);
     if (avatarDataUri) {
       member.avatar = avatarDataUri;
     }
@@ -900,9 +1139,11 @@ exports.updateMember = async (req, res) => {
       ]);
     }
 
+    invalidateRosterCache(member.organization);
+
     return res.status(200).json({
       message: "Member updated successfully!",
-      member,
+      member: shapeRosterMember(member),
     });
   } catch (error) {
     console.error("Error updating member:", error);
@@ -976,6 +1217,8 @@ exports.createOfficerAccount = async (req, res) => {
     // Student officers are automatically regular members as well.
     await ensureOfficerMemberRow(newUser);
     await ensureOfficerStudentProfile(newUser, member);
+
+    invalidateRosterCache(member.organization);
 
     return res.status(201).json({
       message: `User account created successfully for ${member.name}!`,
@@ -1071,6 +1314,8 @@ exports.sendMemberInvite = async (req, res) => {
   `,
     });
 
+    invalidateRosterCache(member.organization);
+
     return res.status(200).json({
       message: `Setup invitation email sent to ${member.email}!`,
     });
@@ -1130,6 +1375,10 @@ exports.lookupStudent = async (req, res) => {
       email: profile.user?.email || fallbackEmail,
       name: profile.user?.name || "",
       hasAccount: Boolean(profile.user),
+      // Lets class/officer pickers tell a promotable active student apart
+      // from an account that will block registration.
+      accountStatus: profile.user?.status || "",
+      accountRole: profile.user?.role || "",
       organization: profile.organization,
     });
 
@@ -1156,7 +1405,7 @@ exports.lookupStudent = async (req, res) => {
         organization: orgId,
         $or: orClauses,
       })
-        .populate("user", "name email avatar")
+        .populate("user", "name email avatar status role")
         .limit(10)
         .lean();
 
@@ -1190,7 +1439,7 @@ exports.lookupStudent = async (req, res) => {
       profile = await StudentProfile.findOne({
         organization: orgId,
         studentIdNumber: idNumber,
-      }).populate("user", "name email avatar");
+      }).populate("user", "name email avatar status role");
     }
     if (!profile && email) {
       const user = await User.findOne({ email }).select("_id name email");
@@ -1198,7 +1447,7 @@ exports.lookupStudent = async (req, res) => {
         profile = await StudentProfile.findOne({
           user: user._id,
           organization: orgId,
-        }).populate("user", "name email avatar");
+        }).populate("user", "name email avatar status role");
       }
     }
 

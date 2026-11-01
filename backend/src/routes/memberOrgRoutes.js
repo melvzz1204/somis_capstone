@@ -31,6 +31,9 @@ router.get(
   memberController.lookupStudent,
 );
 
+// 4b. Serve a single member avatar image (lazy-loaded by the roster UI)
+router.get("/:id/avatar", protect, memberController.getMemberAvatar);
+
 // 5. Fetch members by specific organization ID
 router.get("/:orgId", protect, memberController.getMembersByOrg);
 
@@ -55,6 +58,14 @@ router.post(
   protect,
   authorize("adviser"),
   memberController.createOfficerAccount,
+);
+// Allow / revoke a student's ability to edit their own academic details after
+// they already have attendance or dues activity.
+router.patch(
+  "/:id/academic-unlock",
+  protect,
+  authorize("adviser", "org_admin"),
+  memberController.setMemberAcademicUnlock,
 );
 router.post(
   "/:id/send-invite",

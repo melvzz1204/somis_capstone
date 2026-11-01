@@ -28,6 +28,22 @@ mongoose
       console.error("⚠️ Warning: Seed admin failed:", seedErr.message);
     }
 
+    // Self-heal: drop the stale unique index left by an older Event schema
+    // (events.proposal, index name "proposal_1"). No current code reads
+    // that field, but the index rejects every new event with a duplicate
+    // key error on { proposal: null }. Safe to drop when present.
+    try {
+      await mongoose.connection.db.collection("events").dropIndex("proposal_1");
+      console.log("🧹 Dropped stale events.proposal_1 index");
+    } catch (indexErr) {
+      if (indexErr?.codeName !== "IndexNotFound") {
+        console.error(
+          "⚠️ Warning: could not drop stale events index:",
+          indexErr.message,
+        );
+      }
+    }
+
     // Start HTTP server and attach Socket.IO to the same port as the API.
     const httpServer = http.createServer(app);
     const configuredFrontendOrigins = [

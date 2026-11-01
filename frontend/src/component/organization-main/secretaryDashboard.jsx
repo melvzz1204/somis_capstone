@@ -196,11 +196,21 @@ export default function SecretaryDashboard({ user: propsUser, org: propsOrg }) {
     const loadMembers = async () => {
       try {
         const endpoint = orgId ? `/orgmembers?org=${orgId}` : "/orgmembers";
+        // The axios interceptor already unwraps response.data, so this resolves
+        // to the roster array itself (it may also be wrapped in { data }).
         const res = await API.get(endpoint);
-        const membersData = res.data?.data || res.data || [];
-        const totalMembers = Array.isArray(membersData)
-          ? membersData.length
-          : 0;
+        const membersData = Array.isArray(res)
+          ? res
+          : res?.data || res?.members || [];
+        // Faculty signatories (adviser/dean) are not student members, so they
+        // are excluded from the active member count.
+        const activeMembersData = membersData.filter((member) => {
+          const role = String(member?.role || "")
+            .trim()
+            .toLowerCase();
+          return role !== "faculty adviser" && role !== "department dean";
+        });
+        const totalMembers = activeMembersData.length;
         if (!isActive) return;
         setStats((previous) => ({
           ...previous,

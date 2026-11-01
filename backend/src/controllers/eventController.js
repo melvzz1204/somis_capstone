@@ -1177,6 +1177,36 @@ const configureAttendanceFine = async (req, res) => {
   }
 };
 
+// Counts how many of the event's days a student missed. A day counts as
+// attended only if that day's record has any check-in timestamp. Legacy
+// single-day records stored timestamps at the top level only.
+const computeAbsentDays = (record, dayNumbers, totalDays) => {
+  const presentDays = new Set();
+  for (const day of record?.days || []) {
+    if (
+      day.presentAt ||
+      day.morningInAt ||
+      day.lunchOutAt ||
+      day.afternoonInAt ||
+      day.afternoonOutAt
+    ) {
+      presentDays.add(Number(day.day));
+    }
+  }
+  if (
+    presentDays.size === 0 &&
+    totalDays === 1 &&
+    (record?.presentAt ||
+      record?.morningInAt ||
+      record?.lunchOutAt ||
+      record?.afternoonInAt ||
+      record?.afternoonOutAt)
+  ) {
+    presentDays.add(1);
+  }
+  return dayNumbers.filter((dayNumber) => !presentDays.has(dayNumber)).length;
+};
+
 const finalizeEventAttendanceFines = async (req, res) => {
   try {
     const event = await Event.findOne({
@@ -1198,9 +1228,28 @@ const finalizeEventAttendanceFines = async (req, res) => {
     const organization = await Organization.findById(event.org).select(
       "attendanceFineAmount",
     );
-    const amount = Number(
+    let amount = Number(
       event.attendanceFineAmount ?? organization?.attendanceFineAmount ?? 0,
     );
+
+    // The client may send the amount being entered right before finalizing.
+    // This avoids a race with the separate fine-amount save request and keeps
+    // the persisted event value in sync.
+    if (req.body?.amount !== undefined) {
+      const requestedAmount = Number(req.body.amount);
+      if (!Number.isFinite(requestedAmount) || requestedAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Fine amount must be zero or greater.",
+        });
+      }
+      amount = requestedAmount;
+      if (event.attendanceFineAmount !== requestedAmount) {
+        event.attendanceFineAmount = requestedAmount;
+        await event.save();
+      }
+    }
+
     if (amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -1208,18 +1257,29 @@ const finalizeEventAttendanceFines = async (req, res) => {
       });
     }
 
+    // The fine is charged per absent day, so a student who misses all days of
+    // a multi-day event (e.g. a 5-day event) is fined 5 × the daily rate.
+    const eventDays = buildAttendanceDays(event);
+    const totalDays = Math.max(1, eventDays.length);
+    const dayNumbers = eventDays.map((day) => Number(day.day));
+
     const attendees = await EventAttendance.find({ event: event._id })
-      .select("student member status")
+      .select(
+        "student member status days presentAt morningInAt lunchOutAt afternoonInAt afternoonOutAt",
+      )
       .lean();
     const fines = [];
     for (const record of attendees) {
-      if (record.status === "Present") {
+      const absentDays = computeAbsentDays(record, dayNumbers, totalDays);
+      if (absentDays <= 0) {
         await AttendanceFine.deleteOne({
           event: event._id,
           student: record.student,
         });
         continue;
       }
+
+      const fineAmount = amount * absentDays;
       fines.push(
         await AttendanceFine.findOneAndUpdate(
           { event: event._id, student: record.student },
@@ -1227,8 +1287,12 @@ const finalizeEventAttendanceFines = async (req, res) => {
             $set: {
               org: event.org,
               member: record.member,
-              amount,
-              reason: `Absent from ${event.title}`,
+              amount: fineAmount,
+              rate: amount,
+              daysAbsent: absentDays,
+              reason: `Absent for ${absentDays} ${
+                absentDays === 1 ? "day" : "days"
+              } from ${event.title}`,
               status: "UNPAID",
             },
           },
@@ -1241,7 +1305,21 @@ const finalizeEventAttendanceFines = async (req, res) => {
         ),
       );
     }
-    return res.json({ success: true, count: fines.length, data: fines });
+    return res.json({
+      success: true,
+      count: fines.length,
+      amount,
+      totalDays,
+      message:
+        fines.length > 0
+          ? `Generated ${fines.length} attendance ${
+              fines.length === 1 ? "fine" : "fines"
+            } (₱${amount.toFixed(2)} per absent day over ${totalDays} ${
+              totalDays === 1 ? "day" : "days"
+            }).`
+          : "No absent days to fine for this event.",
+      data: fines,
+    });
   } catch (error) {
     console.error("Error finalizing attendance fines:", error);
     return res.status(500).json({
@@ -1371,6 +1449,21 @@ const getEventAttendance = async (req, res) => {
       }));
     }
 
+    // Surface the finalized fine (if any) per student so officers can see the
+    // effect of "Finalize absent-student fines" right in the roster.
+    const fineRecords = await AttendanceFine.find({ event: event._id })
+      .select("student amount rate daysAbsent status")
+      .lean();
+    const fineByStudent = new Map(
+      fineRecords.map((fine) => [String(fine.student), fine]),
+    );
+    records = records.map((record) => ({
+      ...record,
+      fine:
+        fineByStudent.get(String(record.student?._id || record.student)) ||
+        null,
+    }));
+
     const pages = Math.max(1, Math.ceil(total / limit));
 
     return res.json({
@@ -1452,6 +1545,7 @@ module.exports = {
   getEventAttendance,
   configureAttendanceFine,
   finalizeEventAttendanceFines,
+  computeAbsentDays,
   parseAttendanceCode,
   getCreatedAttendanceCheckpoints,
   STUDENT_MEMBER_ROLES,

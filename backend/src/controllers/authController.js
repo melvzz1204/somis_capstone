@@ -17,6 +17,10 @@ const {
   invalidateRosterCache,
 } = require("./orgMemberController");
 const { processAvatar } = require("../util/avatar");
+const {
+  hasAcademicActivity,
+  buildStudentProfilePayload,
+} = require("../util/academicInfoLock");
 
 // Officer roles that get their own portal workspace.
 const OFFICER_PORTAL_ROLES = ["org_admin", "secretary", "treasurer", "pio"];
@@ -426,7 +430,8 @@ exports.updateStudentAccount = async (req, res) => {
         .json({ message: "Only students can update this account." });
     }
 
-    const { name, email, contactNumber } = req.body;
+    const { name, email, contactNumber, program, section, yearLevel } =
+      req.body;
     const user = await User.findById(req.user._id);
     const originalEmail = user?.email;
     const profile = await StudentProfile.findOne({ user: req.user._id });
@@ -463,13 +468,71 @@ exports.updateStudentAccount = async (req, res) => {
       }
       profile.contactNumber = normalizedContact;
     }
+    const normalizedProgram =
+      program !== undefined ? String(program).trim() : undefined;
+    if (normalizedProgram === "") {
+      return res.status(400).json({ message: "Program/Course is required." });
+    }
+    const normalizedSection =
+      section !== undefined ? String(section).trim() : undefined;
+    if (normalizedSection === "") {
+      return res.status(400).json({ message: "Section is required." });
+    }
+    const normalizedYearLevel =
+      yearLevel !== undefined ? String(yearLevel).trim() : undefined;
+    if (normalizedYearLevel !== undefined) {
+      const allowedYearLevels =
+        StudentProfile.schema.path("yearLevel").enumValues;
+      if (!allowedYearLevels.includes(normalizedYearLevel)) {
+        return res.status(400).json({ message: "Invalid year level." });
+      }
+    }
+
+    // Academic details are protected once the student has attendance or dues
+    // activity. An officer must unlock editing first (per student).
+    const academicFieldsChanging =
+      (normalizedProgram !== undefined &&
+        normalizedProgram !== profile.program) ||
+      (normalizedSection !== undefined &&
+        normalizedSection !== profile.section) ||
+      (normalizedYearLevel !== undefined &&
+        normalizedYearLevel !== profile.yearLevel);
+
+    if (academicFieldsChanging) {
+      const locked =
+        !profile.academicEditUnlocked &&
+        (await hasAcademicActivity(profile.user));
+      if (locked) {
+        return res.status(409).json({
+          code: "ACADEMIC_INFO_LOCKED",
+          message:
+            "Your section, year level, and program are locked because you already have attendance or dues payment records. Ask your organization officer to unlock them first.",
+        });
+      }
+    }
+
+    if (normalizedProgram !== undefined) profile.program = normalizedProgram;
+    if (normalizedSection !== undefined) profile.section = normalizedSection;
+    if (normalizedYearLevel !== undefined)
+      profile.yearLevel = normalizedYearLevel;
+
+    // A successful academic change consumes the officer's one-time unlock.
+    if (academicFieldsChanging && profile.academicEditUnlocked) {
+      profile.academicEditUnlocked = false;
+      profile.academicEditUnlockedBy = null;
+      profile.academicEditUnlockedAt = null;
+      invalidateRosterCache(String(profile.organization));
+    }
 
     await Promise.all([user.save(), profile.save()]);
 
     // Synchronize the official roster record so organization leaders see the
-    // student's latest name, email, and avatar.
+    // student's latest name, email, avatar, and academic details.
     const memberUpdate = { email: user.email, name: user.name };
     if (req.file) memberUpdate.avatar = user.avatar;
+    if (program !== undefined) memberUpdate.program = profile.program;
+    if (section !== undefined) memberUpdate.section = profile.section;
+    if (yearLevel !== undefined) memberUpdate.year = profile.yearLevel;
     await Member.findOneAndUpdate(
       {
         organization: profile.organization,
@@ -485,7 +548,7 @@ exports.updateStudentAccount = async (req, res) => {
     return res.status(200).json({
       message: "Account updated successfully.",
       user: updatedUser,
-      studentProfile: profile,
+      studentProfile: await buildStudentProfilePayload(profile),
     });
   } catch (error) {
     console.error("Update student account error:", error);

@@ -189,6 +189,7 @@ export default function SecretaryEvents({
   const [attendanceSearch, setAttendanceSearch] = useState("");
   const [attendanceDay, setAttendanceDay] = useState("all");
   const [attendanceRefreshing, setAttendanceRefreshing] = useState(false);
+  const [finalizingFines, setFinalizingFines] = useState(false);
   const [markingKey, setMarkingKey] = useState("");
   const [manualReason, setManualReason] = useState("No mobile data");
 
@@ -197,6 +198,7 @@ export default function SecretaryEvents({
   const refreshTimerRef = useRef(null);
   const lastFilterKeyRef = useRef("");
   const attendanceRequestRef = useRef(0);
+  const fineAmountRef = useRef(null);
 
   const adoptedResolutions = useMemo(
     () => resolutions.filter((resolution) => resolution.status === "Adopted"),
@@ -1395,10 +1397,11 @@ export default function SecretaryEvents({
                 )}
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
                   <label className="block text-[10px] font-bold uppercase text-amber-800">
-                    Attendance fine per absence
+                    Attendance fine per absent day
                   </label>
                   <div className="mt-2 flex gap-2">
                     <input
+                      ref={fineAmountRef}
                       type="number"
                       min="0"
                       step="0.01"
@@ -1429,22 +1432,58 @@ export default function SecretaryEvents({
                       className="w-40 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs"
                     />
                     <span className="self-center text-xs text-amber-800">
-                      per absent student
+                      per absent day
                     </span>
                   </div>
                   <p className="mt-2 text-[10px] text-amber-700">
                     After the event, pending attendance records can be finalized
-                    into student fines.
+                    into student fines. A student absent on multiple days is
+                    charged this amount per day missed (e.g. a 5-day event =
+                    5&nbsp;× the amount).
                   </p>
                   <button
                     type="button"
+                    disabled={finalizingFines}
                     onClick={async () => {
+                      const typedAmount = fineAmountRef.current?.value;
+                      const amount =
+                        typedAmount !== undefined && typedAmount !== ""
+                          ? Number(typedAmount)
+                          : Number(
+                              attendanceDialog.event.attendanceFineAmount ?? 0,
+                            );
+                      setFinalizingFines(true);
+                      setAttendanceError("");
                       try {
                         markLocalEventMutation();
-                        await API.post(
+                        const response = await API.post(
                           `/events/${attendanceDialog.event._id}/attendance/finalize-fines`,
+                          { amount },
                         );
-                        setAttendanceError("");
+                        const count = Number(response?.count || 0);
+                        const savedAmount = Number(
+                          response?.amount ?? amount ?? 0,
+                        );
+                        setAttendanceDialog((current) =>
+                          current
+                            ? {
+                                ...current,
+                                event: {
+                                  ...current.event,
+                                  attendanceFineAmount: savedAmount,
+                                },
+                              }
+                            : current,
+                        );
+                        showToast(
+                          response?.message ||
+                            (count > 0
+                              ? `Generated ${count} attendance ${
+                                  count === 1 ? "fine" : "fines"
+                                }.`
+                              : "No absent students to fine."),
+                          count > 0 ? "success" : "info",
+                        );
                         await fetchAttendance(attendanceDialog.event, {
                           page: 1,
                           q: attendanceSearch.trim(),
@@ -1452,15 +1491,20 @@ export default function SecretaryEvents({
                           append: false,
                         });
                       } catch (error) {
-                        setAttendanceError(
+                        const message =
                           error.message ||
-                            "Unable to finalize attendance fines.",
-                        );
+                          "Unable to finalize attendance fines.";
+                        setAttendanceError(message);
+                        showToast(message, "error");
+                      } finally {
+                        setFinalizingFines(false);
                       }
                     }}
-                    className="mt-3 rounded-lg bg-[#4A0E17] px-3 py-2 text-[10px] font-bold text-white"
+                    className="mt-3 rounded-lg bg-[#4A0E17] px-3 py-2 text-[10px] font-bold text-white disabled:cursor-wait disabled:opacity-60"
                   >
-                    Finalize absent-student fines
+                    {finalizingFines
+                      ? "Finalizing..."
+                      : "Finalize absent-student fines"}
                   </button>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
@@ -1572,6 +1616,9 @@ export default function SecretaryEvents({
                               Day {checkpoint.day} {checkpoint.label}
                             </th>
                           ))}
+                          <th className="whitespace-nowrap px-3 py-2 font-bold">
+                            Fine
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1654,6 +1701,36 @@ export default function SecretaryEvents({
                                 </td>
                               );
                             })}
+                            <td className="whitespace-nowrap px-3 py-2.5">
+                              {record.fine ? (
+                                <span
+                                  className={`rounded-md border px-2 py-1 font-bold ${
+                                    record.fine.status === "WAIVED"
+                                      ? "border-slate-200 bg-slate-50 text-slate-500"
+                                      : "border-rose-200 bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  ₱
+                                  {Number(
+                                    record.fine.amount || 0,
+                                  ).toLocaleString("en-PH", {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                  {Number(record.fine.daysAbsent || 0) > 0
+                                    ? ` · ${record.fine.daysAbsent} ${
+                                        Number(record.fine.daysAbsent) === 1
+                                          ? "day"
+                                          : "days"
+                                      }`
+                                    : ""}
+                                  {record.fine.status === "WAIVED"
+                                    ? " · Waived"
+                                    : ""}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

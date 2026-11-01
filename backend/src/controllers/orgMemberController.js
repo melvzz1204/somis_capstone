@@ -7,6 +7,7 @@ const StudentProfile = require("../models/studentProfile");
 const Organization = require("../models/OrganizationModels");
 const bcrypt = require("bcryptjs");
 const { processAvatar } = require("../util/avatar");
+const { buildStudentProfilePayload } = require("../util/academicInfoLock");
 
 const cleanNamePart = (value = "") => String(value).trim().replace(/\s+/g, " ");
 
@@ -92,6 +93,40 @@ const shapeRosterMember = (member) => {
     ? new Date(plain.updatedAt).getTime()
     : 0;
   return plain;
+};
+
+// Attaches per-student academic-edit lock state so the roster UI can offer an
+// unlock/lock action without a request per row. Only members with a linked
+// student profile get the flag; others default to false.
+const attachAcademicUnlockState = async (members) => {
+  const emails = members
+    .filter((member) => member.role === "Member" || member.hasAccount)
+    .map((member) => String(member.email || "").toLowerCase().trim())
+    .filter(Boolean);
+  if (emails.length === 0) return members;
+
+  const users = await User.find({ email: { $in: emails } }).select("email");
+  const userByEmail = new Map(
+    users.map((user) => [String(user.email || "").toLowerCase().trim(), user]),
+  );
+  const profiles = await StudentProfile.find({
+    user: { $in: users.map((user) => user._id) },
+  }).select("user academicEditUnlocked");
+  const profileByUser = new Map(
+    profiles.map((profile) => [String(profile.user), profile]),
+  );
+
+  return members.map((member) => {
+    const user = userByEmail.get(
+      String(member.email || "").toLowerCase().trim(),
+    );
+    const profile = user ? profileByUser.get(String(user._id)) : null;
+    return {
+      ...member,
+      hasStudentProfile: Boolean(profile),
+      academicEditUnlocked: Boolean(profile?.academicEditUnlocked),
+    };
+  });
 };
 
 const parseAvatarDataUri = (avatar) => {
@@ -517,14 +552,18 @@ exports.getMembersByOrg = async (req, res) => {
 
         if (isClassView) {
           const effective = await getEffectiveClassRoster(orgId);
-          if (effective) return effective.members.map(shapeRosterMember);
+          if (effective) {
+            return attachAcademicUnlockState(
+              effective.members.map(shapeRosterMember),
+            );
+          }
         }
 
         const members = await Member.find({ organization: orgId }).sort({
           role: 1,
           createdAt: -1,
         });
-        return members.map(shapeRosterMember);
+        return attachAcademicUnlockState(members.map(shapeRosterMember));
       })();
 
       rosterBuilds.set(cacheKey, build);
@@ -573,6 +612,65 @@ exports.getMemberAvatar = async (req, res) => {
 };
 
 // ==========================================
+// 1c. UNLOCK / LOCK ACADEMIC EDITING FOR A STUDENT
+// An officer (faculty adviser or organization president) can allow a student to
+// update their section/year level/program again even after attendance or dues
+// activity. The unlock is consumed on the student's next academic change.
+// ==========================================
+exports.setMemberAcademicUnlock = async (req, res) => {
+  try {
+    const member = await Member.findById(req.params.id);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found." });
+    }
+    if (!isOwnOrganizationRecord(req, member)) {
+      return res.status(403).json({
+        message: "You can only manage members of your own organization.",
+      });
+    }
+
+    const email = String(member.email || "").toLowerCase().trim();
+    const linkedUser = await User.findOne({ email }).select("_id");
+    if (!linkedUser) {
+      return res.status(404).json({
+        message: "This member has no linked student account to unlock.",
+      });
+    }
+    const profile = await StudentProfile.findOne({ user: linkedUser._id });
+    if (!profile) {
+      return res.status(404).json({
+        message: "No student profile was found for this member.",
+      });
+    }
+
+    const requested = req.body?.unlocked;
+    const unlocked =
+      requested === undefined
+        ? !profile.academicEditUnlocked
+        : requested === true || requested === "true";
+
+    profile.academicEditUnlocked = unlocked;
+    profile.academicEditUnlockedBy = unlocked ? req.user._id : null;
+    profile.academicEditUnlockedAt = unlocked ? new Date() : null;
+    await profile.save();
+    invalidateRosterCache(String(member.organization));
+
+    return res.status(200).json({
+      success: true,
+      message: unlocked
+        ? "Academic editing unlocked for this student."
+        : "Academic editing locked for this student.",
+      data: { academicEditUnlocked: unlocked },
+    });
+  } catch (error) {
+    console.error("Error updating academic unlock:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to update the academic lock." });
+  }
+};
+
+// ==========================================
 // 2. GET THE LOGGED-IN STUDENT'S ORGANIZATION AND ROSTER
 // ==========================================
 exports.getMyOrganization = async (req, res) => {
@@ -609,7 +707,9 @@ exports.getMyOrganization = async (req, res) => {
       }
     }
 
-    const studentProfile = await StudentProfile.findOne({ user: req.user._id });
+    const studentProfile = await buildStudentProfilePayload(
+      await StudentProfile.findOne({ user: req.user._id }),
+    );
 
     if (!organization) {
       const user = await User.findById(req.user._id)

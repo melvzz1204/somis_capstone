@@ -648,6 +648,10 @@ export default function OrgDashboard() {
   const [editingFee, setEditingFee] = useState(null);
   const [feeView, setFeeView] = useState("active");
   const [expandedFeeIds, setExpandedFeeIds] = useState({});
+  // Pres. can adjust a dues collection deadline after approval. Track the fee
+  // whose due date is being edited and its draft value.
+  const [dueDateDraft, setDueDateDraft] = useState({});
+  const [savingDueDateId, setSavingDueDateId] = useState(null);
 
   const toggleFeeDetails = (feeId) =>
     setExpandedFeeIds((current) => ({
@@ -726,6 +730,39 @@ export default function OrgDashboard() {
       showToast("Archived collection permanently deleted.", "success");
     } catch (err) {
       showToast(err.message || "Failed to delete archived collection.", "error");
+    }
+  };
+
+  const closeDueDateEditor = (feeId) =>
+    setDueDateDraft((current) => {
+      const next = { ...current };
+      delete next[feeId];
+      return next;
+    });
+
+  const handleSaveDueDate = async (fee) => {
+    const draft = dueDateDraft[fee._id];
+    if (!draft) {
+      showToast("Select a due date first.", "error");
+      return;
+    }
+    setSavingDueDateId(fee._id);
+    try {
+      const response = await API.patch(`/fees/${fee._id}/due-date`, {
+        dueDate: draft,
+      });
+      const updated = response.data?.data || response.data || response;
+      setFeeDrives((current) =>
+        current.map((item) =>
+          item._id === fee._id ? { ...item, ...updated } : item,
+        ),
+      );
+      closeDueDateEditor(fee._id);
+      showToast("Due date updated.", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to update due date.", "error");
+    } finally {
+      setSavingDueDateId(null);
     }
   };
 
@@ -1836,12 +1873,66 @@ export default function OrgDashboard() {
                                 {fee.semester ? `(${fee.semester})` : ""}
                               </span>
                             </div>
-                            {fee.dueDate && (
+                            <div className="space-y-1.5">
                               <div className="flex items-center justify-between text-amber-700 font-bold">
                                 <span>Due Date:</span>
-                                <span>{formatDueDate(fee.dueDate)}</span>
+                                <div className="flex items-center gap-2">
+                                  <span>{formatDueDate(fee.dueDate)}</span>
+                                  {!fee.treasurerArchived && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setDueDateDraft((current) => ({
+                                          ...current,
+                                          [fee._id]:
+                                            current[fee._id] ??
+                                            (fee.dueDate
+                                              ? new Date(fee.dueDate)
+                                                  .toISOString()
+                                                  .slice(0, 10)
+                                              : ""),
+                                        }))
+                                      }
+                                      className="rounded-md border border-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            )}
+                              {dueDateDraft[fee._id] !== undefined && (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="date"
+                                    value={dueDateDraft[fee._id]}
+                                    onChange={(e) =>
+                                      setDueDateDraft((current) => ({
+                                        ...current,
+                                        [fee._id]: e.target.value,
+                                      }))
+                                    }
+                                    className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-800 focus:border-[#4A0E17] focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingDueDateId === fee._id}
+                                    onClick={() => handleSaveDueDate(fee)}
+                                    className="rounded-lg bg-[#4A0E17] px-2.5 py-1 text-[10px] font-bold text-white hover:bg-[#601520] disabled:opacity-50"
+                                  >
+                                    {savingDueDateId === fee._id
+                                      ? "Saving..."
+                                      : "Save"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => closeDueDateEditor(fee._id)}
+                                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                             <div className="pt-2 flex items-center justify-end gap-2">
                               {fee.approvalStatus !== "approved" &&
                                 Number(fee.paidMemberCount || 0) === 0 && (

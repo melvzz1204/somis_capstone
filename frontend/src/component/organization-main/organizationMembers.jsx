@@ -171,6 +171,7 @@ export default function OrganizationMembers({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [unlockingMemberId, setUnlockingMemberId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [programError, setProgramError] = useState("");
 
@@ -682,6 +683,38 @@ export default function OrganizationMembers({
     }
   };
 
+  // Allow / revoke a student's ability to edit their own academic details.
+  const handleToggleAcademicUnlock = async (officer) => {
+    const nextUnlocked = !officer.academicEditUnlocked;
+    setUnlockingMemberId(officer._id || officer.id);
+    try {
+      await API.patch(`/orgmembers/${officer._id}/academic-unlock`, {
+        unlocked: nextUnlocked,
+      });
+      setOfficers((current) =>
+        current.map((item) =>
+          String(item._id) === String(officer._id)
+            ? { ...item, academicEditUnlocked: nextUnlocked }
+            : item,
+        ),
+      );
+      showToast?.(
+        nextUnlocked
+          ? "Academic editing unlocked for this student."
+          : "Academic editing locked for this student.",
+        "success",
+      );
+    } catch (err) {
+      console.error("Failed to update academic lock:", err);
+      showToast?.(
+        err.message || "Failed to update the academic lock.",
+        "error",
+      );
+    } finally {
+      setUnlockingMemberId("");
+    }
+  };
+
   // Delete Member
   const handleDeleteOfficer = async (id) => {
     if (
@@ -883,6 +916,25 @@ export default function OrganizationMembers({
 
                     {canRowManage(officer) ? (
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {officer.hasStudentProfile && (
+                          <button
+                            onClick={() => handleToggleAcademicUnlock(officer)}
+                            disabled={
+                              unlockingMemberId ===
+                              (officer._id || officer.id)
+                            }
+                            title="Allow or block this student from editing their section, year level, and program."
+                            className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold disabled:opacity-50 ${
+                              officer.academicEditUnlocked
+                                ? "bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/60"
+                                : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                            }`}
+                          >
+                            {officer.academicEditUnlocked
+                              ? "Lock Academic"
+                              : "Unlock Academic"}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenEditModal(officer)}
                           className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"

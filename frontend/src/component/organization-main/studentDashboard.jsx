@@ -319,6 +319,7 @@ function AccountPanel({
   error,
   isSaving,
   onSave,
+  academicLocked = false,
 }) {
   return (
     <form
@@ -420,7 +421,64 @@ function AccountPanel({
             Numbers only, exactly 11 digits.
           </span>
         </label>
+        <label className="text-sm font-bold text-slate-700 sm:col-span-2">
+          Program / Course
+          <input
+            value={form.program || ""}
+            onChange={(e) => setForm({ ...form, program: e.target.value })}
+            placeholder="e.g. BS Information Technology"
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          />
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Year Level
+          <select
+            value={form.yearLevel || ""}
+            onChange={(e) => setForm({ ...form, yearLevel: e.target.value })}
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          >
+            <option value="" disabled>
+              Select year level
+            </option>
+            <option value="1st Year">1st Year</option>
+            <option value="2nd Year">2nd Year</option>
+            <option value="3rd Year">3rd Year</option>
+            <option value="4th Year">4th Year</option>
+            <option value="5th Year+">5th Year+</option>
+          </select>
+        </label>
+        <label className="text-sm font-bold text-slate-700">
+          Section
+          <input
+            value={form.section || ""}
+            onChange={(e) => setForm({ ...form, section: e.target.value })}
+            placeholder="e.g. BSIT - 3 A"
+            maxLength={50}
+            disabled={academicLocked}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-[#4A0E17] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            required
+          />
+        </label>
       </div>
+      {academicLocked ? (
+        <p className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Naka-lock ang iyong section, year level, at program dahil may
+            attendance o bayad ka na sa dues. Hilingin sa iyong organization
+            officer na i-unlock ang mga ito bago mag-edit.
+          </span>
+        </p>
+      ) : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800">
+          Your section, year level, and program are shared with your
+          organization's roster and used for dues targeting. Keep them accurate.
+        </p>
+      )}
       {error && (
         <p className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           {error}
@@ -452,6 +510,9 @@ export default function StudentDashboard({ user: propsUser }) {
     name: currentUser?.name || "",
     email: currentUser?.email || "",
     contactNumber: "",
+    program: "",
+    section: "",
+    yearLevel: "",
   });
   const [accountAvatar, setAccountAvatar] = useState(
     currentUser?.avatar || null,
@@ -555,6 +616,9 @@ export default function StudentDashboard({ user: propsUser }) {
           name: data.user?.name || currentUser?.name || "",
           email: data.user?.email || currentUser?.email || "",
           contactNumber: data.studentProfile?.contactNumber || "",
+          program: data.studentProfile?.program || "",
+          section: data.studentProfile?.section || "",
+          yearLevel: data.studentProfile?.yearLevel || "",
         });
         setAccountAvatar(data.user?.avatar || currentUser?.avatar || null);
         if (data.user) {
@@ -2176,6 +2240,7 @@ export default function StudentDashboard({ user: propsUser }) {
               message={accountMessage}
               error={accountError}
               isSaving={isSavingAccount}
+              academicLocked={Boolean(studentProfile?.academicEditLocked)}
               onSave={async (event) => {
                 event.preventDefault();
                 if (
@@ -2202,6 +2267,9 @@ export default function StudentDashboard({ user: propsUser }) {
                   localStorage.setItem("user", JSON.stringify(updated));
                   setAccountAvatar(updated.avatar || null);
                   setAccountFile(null);
+                  if (result.studentProfile) {
+                    setStudentProfile(result.studentProfile);
+                  }
                   setAccountMessage(
                     result.message || "Account updated successfully.",
                   );

@@ -275,9 +275,10 @@ const isClassRosterManager = async (req) => {
 const ownOrganizationId = (req) =>
   String(req.user.organization?._id || req.user.organization || "");
 
-const isOwnOrganizationRecord = (req, member) =>
-  req.user.role === "adviser" ||
-  String(member.organization) === ownOrganizationId(req);
+const isOwnOrganizationRecord = (req, member) => {
+  const ownOrgId = ownOrganizationId(req);
+  return Boolean(ownOrgId) && String(member.organization) === ownOrgId;
+};
 
 // Effective class roster: manually added class rows plus parent-organization
 // members whose section matches the class section (onboarded students are

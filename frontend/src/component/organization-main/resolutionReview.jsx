@@ -278,7 +278,9 @@ export default function ResolutionReview({
                   </div>
                   <div className="flex shrink-0 flex-row items-center gap-3 lg:flex-col lg:items-end">
                     <span className="text-[11px] font-semibold text-slate-400">
-                      Submitted {formatDateTime(resolution.submittedAt)}
+                      {resolution.submittedAt
+                        ? `Submitted ${formatDateTime(resolution.submittedAt)}`
+                        : "Not submitted"}
                     </span>
                     <button
                       type="button"
@@ -415,8 +417,9 @@ export default function ResolutionReview({
                       {resolution.status}
                     </p>
                     <p className="mt-1 text-slate-600">
-                      This resolution has completed your review stage and is
-                      waiting for the next authorized reviewer.
+                      {resolution.status === "Draft"
+                        ? "This resolution is still a draft and has not been submitted for review."
+                        : "This resolution has completed your review stage and is waiting for the next authorized reviewer."}
                     </p>
                   </div>
                 ) : null}

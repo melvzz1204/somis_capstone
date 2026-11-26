@@ -85,8 +85,10 @@ const corsOptions = {
     const isAllowed =
       configuredFrontendOrigins.includes(normalizedOrigin) ||
       normalizedOrigin === "http://localhost:5173" ||
+      normalizedOrigin === "http://localhost:5174" ||
       normalizedOrigin === "http://localhost:3000" ||
       normalizedOrigin === "http://127.0.0.1:5173" ||
+      normalizedOrigin === "http://127.0.0.1:5174" ||
       normalizedOrigin === "https://somis-capstone.vercel.app" ||
       /^https:\/\/[a-z0-9-]+(?:-[a-z0-9-]+)*\.vercel\.app$/i.test(
         normalizedOrigin,

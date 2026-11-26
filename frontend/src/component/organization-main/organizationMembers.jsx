@@ -148,6 +148,11 @@ export default function OrganizationMembers({
   const isMemberDirectory = view === "members";
   const canManageOfficers =
     !isMemberDirectory && !readOnly && user?.role === "adviser";
+  // Advisers and organization presidents can unlock a linked student's
+  // academic details (section, year level, program) after attendance or dues
+  // activity. This is independent of editing the roster row itself.
+  const canUnlockAcademics =
+    !readOnly && ["adviser", "org_admin"].includes(user?.role);
   const orgType =
     org?.organizationType || user?.organization?.organizationType || "";
   const canManageMembers =
@@ -914,9 +919,10 @@ export default function OrganizationMembers({
                       {officer.email}
                     </span>
 
-                    {canRowManage(officer) ? (
+                    {canRowManage(officer) ||
+                    (canUnlockAcademics && officer.hasStudentProfile) ? (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {officer.hasStudentProfile && (
+                        {canUnlockAcademics && officer.hasStudentProfile && (
                           <button
                             onClick={() => handleToggleAcademicUnlock(officer)}
                             disabled={
@@ -935,21 +941,25 @@ export default function OrganizationMembers({
                               : "Unlock Academic"}
                           </button>
                         )}
-                        <button
-                          onClick={() => handleOpenEditModal(officer)}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                        >
-                          <EditIcon />
-                          Edit
-                        </button>
-                        {officer.role !== "Faculty Adviser" && (
-                          <button
-                            onClick={() => handleDeleteOfficer(officer._id)}
-                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                          >
-                            <TrashIcon />
-                            Delete
-                          </button>
+                        {canRowManage(officer) && (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditModal(officer)}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                            >
+                              <EditIcon />
+                              Edit
+                            </button>
+                            {officer.role !== "Faculty Adviser" && (
+                              <button
+                                onClick={() => handleDeleteOfficer(officer._id)}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                              >
+                                <TrashIcon />
+                                Delete
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : null}

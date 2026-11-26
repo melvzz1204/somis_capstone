@@ -38,6 +38,24 @@ const formatDueDate = (dateString) => {
   });
 };
 
+// Fee status is stored as active/archived/closed. "archived" here means the
+// due date has passed, not that the president manually hid the collection, so
+// label it "Past due" to avoid confusion with the Archived tab.
+const feeStatusLabel = (status) => {
+  if (status === "archived") return "Past due";
+  if (status === "active") return "Active";
+  if (status === "closed") return "Closed";
+  return status || "Active";
+};
+
+const feeStatusClass = (status) => {
+  if (status === "archived")
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "closed")
+    return "border-slate-300 bg-slate-100 text-slate-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+};
+
 // --- SVG ICON COMPONENTS ---
 const LayoutDashboardIcon = ({ className = "w-4 h-4" }) => (
   <svg
@@ -1320,7 +1338,7 @@ export default function OrgDashboard() {
                 </p>
               </div>
             </div>
-            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
+            <span className="hidden sm:inline-flex shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               {formatAcademicPeriod(activePeriod)}
             </span>
           </div>
@@ -1590,7 +1608,11 @@ export default function OrgDashboard() {
           {/* TAB CONTENT: ORGANIZATION MEMBERS */}
           {activeTab === "members" && (
             <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
-              <div className="mb-5 flex flex-wrap gap-2">
+              <div
+                className="mb-5 flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="Organization roster views"
+              >
                 {[
                   { id: "officers", label: "Organization Officers" },
                   { id: "members", label: "Regular Members" },
@@ -1598,6 +1620,8 @@ export default function OrgDashboard() {
                   <button
                     key={tab.id}
                     type="button"
+                    role="tab"
+                    aria-selected={rosterView === tab.id}
                     onClick={() => setRosterView(tab.id)}
                     className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       rosterView === tab.id
@@ -1748,8 +1772,12 @@ export default function OrgDashboard() {
                               minimumFractionDigits: 2,
                             })}
                           </span>
-                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
-                            {fee.status === "active" ? "Active" : fee.status}
+                          <span
+                            className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${feeStatusClass(
+                              fee.status,
+                            )}`}
+                          >
+                            {feeStatusLabel(fee.status)}
                           </span>
                           <span
                             className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${

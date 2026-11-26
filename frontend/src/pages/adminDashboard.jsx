@@ -186,10 +186,14 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    refreshPendingOvpsas();
-    const handleDataUpdated = () => refreshPendingOvpsas();
+    const timer = window.setTimeout(() => refreshPendingOvpsas(), 0);
+    const handleDataUpdated = (payload) => {
+      if (!payload || payload.resource !== "resolutions") return;
+      refreshPendingOvpsas();
+    };
     realtimeSocket.on("data-updated", handleDataUpdated);
     return () => {
+      window.clearTimeout(timer);
       realtimeSocket.off("data-updated", handleDataUpdated);
     };
   }, [refreshPendingOvpsas]);

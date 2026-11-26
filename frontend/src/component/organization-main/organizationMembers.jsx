@@ -5,6 +5,11 @@ import {
   applySectionPrefix,
   getSectionPrefix,
 } from "../../util/academicSection";
+import MemberAvatar from "./memberAvatar";
+import {
+  getCachedMemberAvatar,
+  loadMemberAvatar,
+} from "../../util/memberAvatar";
 
 const OFFICER_ROLES = [
   "Faculty Adviser",
@@ -20,16 +25,6 @@ const OFFICER_ROLES = [
   "Muse",
   "Escort",
 ];
-const getRootBackendUrl = () => {
-  try {
-    const rawUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
-    return new URL(rawUrl).origin;
-  } catch {
-    return "http://localhost:5000";
-  }
-};
-const BACKEND_URL = getRootBackendUrl();
-
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -153,6 +148,11 @@ export default function OrganizationMembers({
   const isMemberDirectory = view === "members";
   const canManageOfficers =
     !isMemberDirectory && !readOnly && user?.role === "adviser";
+  // Advisers and organization presidents can unlock a linked student's
+  // academic details (section, year level, program) after attendance or dues
+  // activity. This is independent of editing the roster row itself.
+  const canUnlockAcademics =
+    !readOnly && ["adviser", "org_admin"].includes(user?.role);
   const orgType =
     org?.organizationType || user?.organization?.organizationType || "";
   const canManageMembers =
@@ -176,6 +176,7 @@ export default function OrganizationMembers({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [unlockingMemberId, setUnlockingMemberId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [programError, setProgramError] = useState("");
 
@@ -358,7 +359,17 @@ export default function OrganizationMembers({
       role: officer.role || OFFICER_ROLES[0],
     });
     setAvatarFile(null);
-    setAvatarPreview(officer.avatar ? getAvatarSrc(officer.avatar) : null);
+    // Avatars are lazy-loaded; reuse the cached image if the row already
+    // fetched it, otherwise kick off a fetch for the editor preview.
+    const cachedAvatar = officer.hasAvatar
+      ? getCachedMemberAvatar(officer._id, officer.avatarVersion)
+      : null;
+    setAvatarPreview(cachedAvatar);
+    if (officer.hasAvatar && !cachedAvatar) {
+      loadMemberAvatar(officer._id, officer.avatarVersion).then((loaded) => {
+        if (loaded) setAvatarPreview(loaded);
+      });
+    }
     setLookupQuery("");
     setLookupResults([]);
     setLookupMessage(null);
@@ -677,6 +688,38 @@ export default function OrganizationMembers({
     }
   };
 
+  // Allow / revoke a student's ability to edit their own academic details.
+  const handleToggleAcademicUnlock = async (officer) => {
+    const nextUnlocked = !officer.academicEditUnlocked;
+    setUnlockingMemberId(officer._id || officer.id);
+    try {
+      await API.patch(`/orgmembers/${officer._id}/academic-unlock`, {
+        unlocked: nextUnlocked,
+      });
+      setOfficers((current) =>
+        current.map((item) =>
+          String(item._id) === String(officer._id)
+            ? { ...item, academicEditUnlocked: nextUnlocked }
+            : item,
+        ),
+      );
+      showToast?.(
+        nextUnlocked
+          ? "Academic editing unlocked for this student."
+          : "Academic editing locked for this student.",
+        "success",
+      );
+    } catch (err) {
+      console.error("Failed to update academic lock:", err);
+      showToast?.(
+        err.message || "Failed to update the academic lock.",
+        "error",
+      );
+    } finally {
+      setUnlockingMemberId("");
+    }
+  };
+
   // Delete Member
   const handleDeleteOfficer = async (id) => {
     if (
@@ -697,18 +740,6 @@ export default function OrganizationMembers({
       console.error("Failed to delete member:", err);
       showToast?.(err.message || `Failed to remove ${recordLabel.toLowerCase()}.`, "error");
     }
-  };
-
-  const getAvatarSrc = (avatarPath) => {
-    if (!avatarPath) return null;
-    if (
-      avatarPath.startsWith("http") ||
-      avatarPath.startsWith("blob:") ||
-      avatarPath.startsWith("data:")
-    ) {
-      return avatarPath;
-    }
-    return `${BACKEND_URL}${avatarPath}`;
   };
 
   const selectedOfficerObj = officers.find((o) => o._id === selectedMemberId);
@@ -839,25 +870,23 @@ export default function OrganizationMembers({
             </div>
           ) : (
             filteredOfficers.map((officer) => {
-              const avatarUrl = getAvatarSrc(officer.avatar);
-
               return (
                 <div
                   key={officer._id || officer.id}
                   className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
                 >
                   <div className="flex items-center gap-3.5">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={officer.name}
-                        className="w-14 h-14 rounded-full object-cover object-top border-2 border-[#D4AF37]/60 shadow-xs shrink-0"
-                      />
-                    ) : (
+                    <MemberAvatar
+                      memberId={officer._id}
+                      hasAvatar={officer.hasAvatar}
+                      version={officer.avatarVersion}
+                      alt={officer.name}
+                      imgClassName="w-14 h-14 rounded-full object-cover object-top border-2 border-[#D4AF37]/60 shadow-xs shrink-0"
+                    >
                       <div className="w-14 h-14 rounded-full bg-[#4A0E17]/10 text-[#4A0E17] font-extrabold text-base flex items-center justify-center border-2 border-[#D4AF37]/60 uppercase shrink-0 shadow-xs">
                         {officer.name?.charAt(0)}
                       </div>
-                    )}
+                    </MemberAvatar>
 
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -890,23 +919,47 @@ export default function OrganizationMembers({
                       {officer.email}
                     </span>
 
-                    {canRowManage(officer) ? (
+                    {canRowManage(officer) ||
+                    (canUnlockAcademics && officer.hasStudentProfile) ? (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleOpenEditModal(officer)}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
-                        >
-                          <EditIcon />
-                          Edit
-                        </button>
-                        {officer.role !== "Faculty Adviser" && (
+                        {canUnlockAcademics && officer.hasStudentProfile && (
                           <button
-                            onClick={() => handleDeleteOfficer(officer._id)}
-                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                            onClick={() => handleToggleAcademicUnlock(officer)}
+                            disabled={
+                              unlockingMemberId ===
+                              (officer._id || officer.id)
+                            }
+                            title="Allow or block this student from editing their section, year level, and program."
+                            className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold disabled:opacity-50 ${
+                              officer.academicEditUnlocked
+                                ? "bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/60"
+                                : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                            }`}
                           >
-                            <TrashIcon />
-                            Delete
+                            {officer.academicEditUnlocked
+                              ? "Lock Academic"
+                              : "Unlock Academic"}
                           </button>
+                        )}
+                        {canRowManage(officer) && (
+                          <>
+                            <button
+                              onClick={() => handleOpenEditModal(officer)}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                            >
+                              <EditIcon />
+                              Edit
+                            </button>
+                            {officer.role !== "Faculty Adviser" && (
+                              <button
+                                onClick={() => handleDeleteOfficer(officer._id)}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/50 rounded-lg transition-colors cursor-pointer text-[11px] font-semibold flex items-center gap-1"
+                              >
+                                <TrashIcon />
+                                Delete
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : null}

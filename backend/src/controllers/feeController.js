@@ -634,6 +634,65 @@ const updateFee = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Update only the due date of a dues collection. The Organization
+ *          President can adjust the deadline even after the adviser has
+ *          approved the collection or students have started paying. Approval
+ *          status and collection details are left untouched.
+ * @route   PATCH /api/fees/:id/due-date
+ * @access  Private (Organization President)
+ */
+const updateFeeDueDate = async (req, res) => {
+  try {
+    const fee = await Fee.findOne({
+      _id: req.params.id,
+      org: req.user.organization,
+    });
+
+    if (!fee) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Fee collection not found." });
+    }
+
+    if (fee.treasurerArchived) {
+      return res.status(400).json({
+        success: false,
+        message: "Restore this dues collection before editing its due date.",
+      });
+    }
+
+    const parsedDueDate = req.body?.dueDate
+      ? new Date(req.body.dueDate)
+      : null;
+    if (!parsedDueDate || Number.isNaN(parsedDueDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide a valid due date.",
+      });
+    }
+
+    fee.dueDate = parsedDueDate;
+    // Keep the collection open while the new deadline is still in the future.
+    fee.status = parsedDueDate <= new Date() ? "archived" : "active";
+    await fee.save();
+    const [feeWithProgress] = await addCollectionProgress([fee]);
+
+    return res.json({
+      success: true,
+      message: "Due date updated successfully.",
+      data: feeWithProgress,
+    });
+  } catch (error) {
+    console.error("Error updating fee due date:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error: Could not update due date.",
+      error: error.message,
+    });
+  }
+};
+
 const archiveFee = async (req, res) => {
   try {
     const fee = await Fee.findOneAndUpdate(
@@ -798,6 +857,7 @@ module.exports = {
   getFees,
   getClearanceFees,
   updateFee,
+  updateFeeDueDate,
   reviewFee,
   archiveFee,
   restoreFee,

@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const path = require("path");
 const multer = require("multer");
 
@@ -14,9 +15,27 @@ const realtimeUpdates = (req, res, next) => {
   const emitUpdate = () => {
     if (hasEmitted || res.statusCode >= 400 || !req.app.locals.io) return;
     hasEmitted = true;
+    // Derive the resource from the real URL (/api/v1/events/... -> "events").
+    // req.path is still the full path because this middleware runs before the
+    // routers, so splitting it directly would always yield "api".
+    const pathname = String(req.originalUrl || req.url || "").split("?")[0];
+    const segments = pathname.split("/").filter(Boolean);
+    let resource = "global";
+    if (segments[0] === "api") {
+      resource =
+        segments[1] === "v1"
+          ? segments[2] || "global"
+          : segments[1] || "global";
+    } else {
+      resource = segments[0] || "global";
+    }
     req.app.locals.io.emit("data-updated", {
-      resource: req.path.split("/").filter(Boolean)[0] || "global",
+      resource,
       method: req.method,
+      organization: req.user?.organization
+        ? String(req.user.organization)
+        : null,
+      path: pathname,
       timestamp: new Date().toISOString(),
     });
   };
@@ -66,8 +85,10 @@ const corsOptions = {
     const isAllowed =
       configuredFrontendOrigins.includes(normalizedOrigin) ||
       normalizedOrigin === "http://localhost:5173" ||
+      normalizedOrigin === "http://localhost:5174" ||
       normalizedOrigin === "http://localhost:3000" ||
       normalizedOrigin === "http://127.0.0.1:5173" ||
+      normalizedOrigin === "http://127.0.0.1:5174" ||
       normalizedOrigin === "https://somis-capstone.vercel.app" ||
       /^https:\/\/[a-z0-9-]+(?:-[a-z0-9-]+)*\.vercel\.app$/i.test(
         normalizedOrigin,
@@ -83,6 +104,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Compress JSON responses (attendance rosters can exceed 200 KB uncompressed).
+app.use(compression());
 
 // Use the same CORS policy for browser preflight requests.
 app.options(/(.*)/, cors(corsOptions));

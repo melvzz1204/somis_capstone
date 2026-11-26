@@ -127,6 +127,9 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
     : "Faculty Adviser Portal";
   const reviewerLabel = isDean ? "Dean" : "Adviser";
   const [activeTab, setActiveTab] = useState("overview");
+  // "Manage Organization" shows the officer roster by default; advisers can
+  // switch to the full member directory to unlock a student's academic details.
+  const [rosterView, setRosterView] = useState("officers");
   const [user, setUser] = useState(null);
   const [resolutions, setResolutions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -411,7 +414,7 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                 </p>
               </div>
             </div>
-            <span className="shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
+            <span className="hidden sm:inline-flex shrink-0 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#7A610D] text-[11px] font-bold tracking-tight">
               {formatAcademicPeriod(activePeriod)}
             </span>
           </div>
@@ -463,10 +466,8 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                     Signatory Status
                   </p>
-                  <p className="text-sm font-bold text-[#4A0E17]">
-                    {isDean
-                      ? "President + Adviser + Dean + Director"
-                      : "President + Adviser"}
+                  <p className="text-xs font-bold leading-5 text-[#4A0E17]">
+                    President → Adviser → Dean → Director → OVPSAS
                   </p>
                 </div>
               </div>
@@ -510,7 +511,36 @@ export default function AdviserDashboard({ portalRole = "adviser" }) {
 
           {!isDean && activeTab === "officers" && (
             <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs">
-              <OrganizationMembers user={user} org={organization} />
+              <div
+                className="mb-5 flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="Organization roster views"
+              >
+                {[
+                  { id: "officers", label: "Executive Officers" },
+                  { id: "members", label: "Regular Members" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={rosterView === tab.id}
+                    onClick={() => setRosterView(tab.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      rosterView === tab.id
+                        ? "bg-[#4A0E17] text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <OrganizationMembers
+                user={user}
+                org={organization}
+                view={rosterView}
+              />
             </div>
           )}
 

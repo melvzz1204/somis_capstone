@@ -41,6 +41,22 @@ const studentProfileSchema = new mongoose.Schema(
       required: true,
       enum: ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year+"],
     },
+    // Students cannot change their section/year level/program on their own once
+    // they have attendance or dues activity. An officer can temporarily unlock
+    // editing per student; the unlock is consumed after the next successful save.
+    academicEditUnlocked: {
+      type: Boolean,
+      default: false,
+    },
+    academicEditUnlockedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    academicEditUnlockedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );

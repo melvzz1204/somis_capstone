@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import LogoutButton from "./logoutButton";
 import NavCountBadge from "./navCountBadge";
 
@@ -7,8 +8,24 @@ export default function MobileTabBar({
   onChange,
   label = "Portal navigation",
 }) {
+  const navRef = useRef(null);
+
+  // With many portal tabs the bar scrolls horizontally. Keep the selected tab
+  // visible instead of leaving it clipped off-screen after a programmatic
+  // change (for example when an overview card opens another tab).
+  useEffect(() => {
+    const activeButton = navRef.current?.querySelector(
+      '[data-active="true"]',
+    );
+    activeButton?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [activeItem]);
+
   return (
-    <nav className="mobile-tabbar" aria-label={label}>
+    <nav ref={navRef} className="mobile-tabbar" aria-label={label}>
       {items.map((item) => (
         <button
           key={item.id}

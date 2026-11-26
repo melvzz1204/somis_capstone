@@ -6,6 +6,7 @@ const {
   getFees,
   getClearanceFees,
   updateFee,
+  updateFeeDueDate,
   reviewFee,
   archiveFee,
   restoreFee,
@@ -47,6 +48,15 @@ router.get(
 );
 
 router.route("/:id").patch(protect, authorize("org_admin"), updateFee);
+
+// The president can adjust the deadline of a dues collection even after it
+// has been approved or payments have started.
+router.patch(
+  "/:id/due-date",
+  protect,
+  authorize("org_admin"),
+  updateFeeDueDate,
+);
 
 router.patch("/:id/review", protect, authorize("adviser"), reviewFee);
 
